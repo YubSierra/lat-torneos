@@ -19,7 +19,7 @@ export class AuthService {
     const exists = await this.usersRepo.findOne({ where: { email } });
     if (exists) throw new ConflictException('Email ya registrado');
 
-    // Encriptar la contraseña con bcrypt (saltRounds=12)
+    // Encriptar la contraseña con bcrypt
     const hash = await bcrypt.hash(password, 12);
 
     // Crear y guardar el usuario
@@ -39,7 +39,7 @@ export class AuthService {
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) throw new UnauthorizedException('Credenciales inválidas');
 
-    // Generar el JWT con el payload del usuario
+    // Generar el JWT
     const payload = { sub: user.id, email: user.email, role: user.role };
     const token = this.jwtService.sign(payload);
 

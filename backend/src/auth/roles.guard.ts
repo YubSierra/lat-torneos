@@ -7,12 +7,11 @@ export class RolesGuard implements CanActivate {
 
   canActivate(context: ExecutionContext): boolean {
     const requiredRoles = this.reflector.get<string[]>('roles', context.getHandler());
-    if (!requiredRoles) return true; // Si no requiere rol, pasa
+    
+    // Si la ruta no requiere rol específico, deja pasar
+    if (!requiredRoles) return true;
 
     const { user } = context.switchToHttp().getRequest();
     return requiredRoles.includes(user.role);
   }
 }
-// ─────────────────────────────────────────────────
-// Uso: @Roles('admin', 'referee')
-//      @UseGuards(JwtAuthGuard, RolesGuard)
