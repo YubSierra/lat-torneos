@@ -1,17 +1,17 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
+import { PassportModule } from '@nestjs/passport';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
+import { JwtStrategy } from './jwt.strategy';
 import { User } from '../users/user.entity';
 
 @Module({
   imports: [
-    // Registrar la entidad User para poder usarla en AuthService
     TypeOrmModule.forFeature([User]),
-
-    // Configurar JWT con la clave secreta del .env
+    PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -22,7 +22,7 @@ import { User } from '../users/user.entity';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService],
+  providers: [AuthService, JwtStrategy],
   exports: [AuthService],
 })
 export class AuthModule {}
