@@ -1,34 +1,45 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Tournament } from './tournament.entity'; // Asegúrate de que la entidad exista
 
 @Injectable()
-export class TournamentsService {}
+export class TournamentsService {
+  constructor(
+    @InjectRepository(Tournament)
+    private tournamentRepo: Repository<Tournament>,
+  ) {}
 
-async create(dto: CreateTournamentDto, adminId: string) {
-  // Validar que el valor de inscripción está en el rango LAT
-  if (dto.inscriptionValue < 50000 || dto.inscriptionValue > 150000) {
-    throw new BadRequestException('Valor fuera del rango LAT ($50k-$150k)');
+  // 1. Crear un nuevo torneo
+  async create(tournamentData: Partial<Tournament>): Promise<Tournament> {
+    const newTournament = this.tournamentRepo.create(tournamentData);
+    return await this.tournamentRepo.save(newTournament);
   }
-  const tournament = this.repo.create({ ...dto, createdBy: adminId });
-  return this.repo.save(tournament);
-}
 
-
-// Retorna la configuración de juego según el tipo de torneo
-getGameConfig(type: TournamentType, playerCount: number) {
-  // Art. 23: si hay menos de 8 jugadores, forzar Round Robin
-  if (playerCount < 8 && type === TournamentType.ELIMINATION) {
-    return { type: TournamentType.ROUND_ROBIN, reason: 'Art.23: < 8 jugadores' };
+  // 2. Obtener todos los torneos
+  async findAll(): Promise<Tournament[]> {
+    return await this.tournamentRepo.find();
   }
-  switch (type) {
-    case TournamentType.AMERICANO:
-      return { rotatePartners: true, setsPerMatch: 1, pointsTo: 6 };
-    case TournamentType.SUPERTIEBREAK:
-      return { matchTiebreak: true, pointsTo: 10, noAd: true };
-    case TournamentType.KING_OF_COURT:
-      return { winnerStays: true, challengerWaits: true };
-    case TournamentType.BOX_LEAGUE:
-      return { flexibleSchedule: true, durationWeeks: 4 };
-    default:
-      return { type };
+
+  // 3. Obtener un torneo por ID
+  async findOne(id: string): Promise<Tournament> { // Cambiado a string
+    const tournament = await this.tournamentRepo.findOne({ where: { id } });
+    if (!tournament) {
+      throw new NotFoundException(`Torneo con ID ${id} no encontrado`);
+    }
+    return tournament;
+  }
+
+  // 4. Actualizar un torneo
+  async update(id: string, updateData: Partial<Tournament>): Promise<Tournament> { // Cambiado a string
+    const tournament = await this.findOne(id);
+    const updated = Object.assign(tournament, updateData);
+    return await this.tournamentRepo.save(updated);
+  }
+
+  // 5. Eliminar un torneo
+  async remove(id: string): Promise<void> {
+    const tournament = await this.findOne(id);
+    await this.tournamentRepo.remove(tournament);
   }
 }

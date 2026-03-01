@@ -14,12 +14,12 @@ import { TournamentsModule } from './tournaments/tournaments.module';
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         type: 'postgres',
-        host:     config.get('DB_HOST'),
-        port:     config.get<number>('DB_PORT'),
+        host: config.get('DB_HOST'),
+        port: config.get<number>('DB_PORT'),
         database: config.get('DB_NAME'),
         username: config.get('DB_USER'),
         password: config.get('DB_PASS'),
-        entities:     [__dirname + '/**/*.entity{.ts,.js}'],
+        entities: [__dirname + '/**/*.entity{.ts,.js}'],
         // Busca automáticamente todos los archivos .entity.ts
         synchronize: true,
         // En desarrollo: crea/actualiza tablas automáticamente
