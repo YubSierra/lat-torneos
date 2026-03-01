@@ -2,7 +2,6 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeor
 
 @Entity('users')
 export class User {
-
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
@@ -15,7 +14,7 @@ export class User {
   @Column({
     type: 'enum',
     enum: ['super_admin', 'admin', 'referee', 'player', 'club_admin'],
-    default: 'player'
+    default: 'player',
   })
   role: string;
 
@@ -24,5 +23,4 @@ export class User {
 
   @CreateDateColumn()
   createdAt: Date;
-
 }

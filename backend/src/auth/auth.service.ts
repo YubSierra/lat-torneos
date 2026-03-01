@@ -1,10 +1,9 @@
-import { Injectable, UnauthorizedException,
-         ConflictException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
-import { User } from './users/user.entity';
+import { User } from '../users/user.entity';
 
 @Injectable()
 export class AuthService {
@@ -43,7 +42,6 @@ export class AuthService {
     // Generar el JWT con el payload del usuario
     const payload = { sub: user.id, email: user.email, role: user.role };
     const token = this.jwtService.sign(payload);
-
 
     return { access_token: token, role: user.role };
   }

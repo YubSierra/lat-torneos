@@ -1,13 +1,13 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-
+import { AuthModule } from './auth/auth.module';
+import { TournamentsModule } from './tournaments/tournaments.module';
 
 @Module({
   imports: [
     // 1. Cargar variables de entorno (.env)
     ConfigModule.forRoot({ isGlobal: true }),
-
 
     // 2. Conectar con PostgreSQL usando las variables de entorno
     TypeOrmModule.forRootAsync({
@@ -28,6 +28,10 @@ import { TypeOrmModule } from '@nestjs/typeorm';
         // Muestra las queries SQL en consola (útil para aprender)
       }),
     }),
+
+    AuthModule,
+
+    TournamentsModule,
   ],
 })
 export class AppModule {}
