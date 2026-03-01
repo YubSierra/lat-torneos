@@ -1,0 +1,28 @@
+version: '3.9'
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: lat_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: lat_torneos
+      POSTGRES_USER: lat_user
+      POSTGRES_PASSWORD: lat_secret
+    ports:
+      - 5432:5432
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  adminer:
+    image: adminer
+    container_name: lat_adminer
+    restart: unless-stopped
+    ports:
+      - 8080:8080
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
