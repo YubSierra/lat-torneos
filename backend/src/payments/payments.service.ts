@@ -23,46 +23,54 @@ export class PaymentsService {
   }
 
   // ── CREAR PREFERENCIA DE PAGO ───────────────────
-  // Genera el link de pago en Mercado Pago
   async createPreference(enrollmentId: string, amount: number, playerName: string) {
-    const preference = new Preference(this.mpClient);
+    const frontendUrl = this.config.get(
+      'FRONTEND_URL',
+      'http://localhost:5173',
+    );
+    const backendUrl = this.config.get('BACKEND_URL', 'http://localhost:3000');
 
-    const response = await preference.create({
-      body: {
-        items: [
-    {
-          id: enrollmentId,
-          title: `Inscripción Torneo LAT - ${playerName}`,
-          quantity: 1,
-          unit_price: amount,
-          currency_id: 'COP',
-        }],
-        // URLs a donde redirige MP después del pago
-        back_urls: {
-          success: `${this.config.get('FRONTEND_URL')}/payment/success`,
-          failure: `${this.config.get('FRONTEND_URL')}/payment/failure`,
-          pending: `${this.config.get('FRONTEND_URL')}/payment/pending`,
+    try {
+      const preference = new Preference(this.mpClient);
+      const response = await preference.create({
+        body: {
+          items: [
+            {
+              id: enrollmentId,
+              title: `Inscripción Torneo LAT - ${playerName}`,
+              quantity: 1,
+              unit_price: amount,
+              currency_id: 'COP',
+            },
+          ],
+          back_urls: {
+            success: `${frontendUrl}/payment/success`,
+            failure: `${frontendUrl}/payment/failure`,
+            pending: `${frontendUrl}/payment/pending`,
+          },
+          // auto_return solo funciona con URLs HTTPS públicas — omitir en desarrollo
+          notification_url: `${backendUrl}/payments/webhook`,
+          external_reference: enrollmentId,
         },
-        auto_return: 'approved',
-        // URL donde MP enviará la notificación del pago (webhook)
-        notification_url: `${this.config.get('BACKEND_URL')}/payments/webhook`,
-        external_reference: enrollmentId,
-      },
-    });
+      });
 
-    // Guardar el pago en la BD con estado pendiente
-    const payment = this.repo.create({
-      enrollmentId,
-      mpPreferenceId: response.id,
-      amount,
-      status: PaymentStatus.PENDING,
-    });
-    await this.repo.save(payment);
+      const payment = this.repo.create({
+        enrollmentId,
+        mpPreferenceId: response.id,
+        amount,
+        status: PaymentStatus.PENDING,
+      });
+      await this.repo.save(payment);
 
-    return {
-      preferenceId: response.id,
-      initPoint: response.init_point, // Link de pago de Mercado Pago
-    };
+      return {
+        preferenceId: response.id,
+        initPoint: response.init_point,
+      };
+    } catch {
+      throw new BadRequestException(
+        'No se pudo generar el link de pago. Intenta nuevamente.',
+      );
+    }
   }
 
   // ── WEBHOOK DE MERCADO PAGO ─────────────────────

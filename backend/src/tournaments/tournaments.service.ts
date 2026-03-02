@@ -61,18 +61,18 @@ export class TournamentsService {
       case TournamentType.ELIMINATION:
         return {
           type: 'elimination',
-          bestOf: 2,           // Hasta QF: mejor de 2 sets
-          bestOfSemiFinal: 3,  // SF y F: mejor de 3 sets
+          bestOf: 2, // Hasta QF: mejor de 2 sets
+          bestOfSemiFinal: 3, // SF y F: mejor de 3 sets
           tiebreak: true,
-          advantages: false,   // Sin ventajas hasta SF
-          advantagesSF: true,  // Con ventajas en SF y F
+          advantages: false, // Sin ventajas hasta SF
+          advantagesSF: true, // Con ventajas en SF y F
         };
 
       case TournamentType.ROUND_ROBIN:
         return {
           type: 'round_robin',
           bestOf: 2,
-          matchTiebreak: true,  // MTB si empate a sets
+          matchTiebreak: true, // MTB si empate a sets
           noAd: true,
           tiebreakPoints: 10,
         };
@@ -80,16 +80,16 @@ export class TournamentsService {
       case TournamentType.MASTER:
         return {
           type: 'master',
-          groups: 2,            // 2 grupos Round Robin
-          topAdvance: 2,        // Los 2 primeros de cada grupo avanzan
+          groups: 2, // 2 grupos Round Robin
+          topAdvance: 2, // Los 2 primeros de cada grupo avanzan
           finalFormat: 'elimination',
-          minPlayers: 6,        // Art. 5: mínimo 6 inscritos
+          minPlayers: 6, // Art. 5: mínimo 6 inscritos
         };
 
       case TournamentType.AMERICANO:
         return {
           type: 'americano',
-          rotatePartners: true,  // Parejas cambian cada set
+          rotatePartners: true, // Parejas cambian cada set
           setsPerMatch: 1,
           pointsTo: 6,
           noAd: true,
@@ -130,6 +130,46 @@ export class TournamentsService {
           challengeExpireDays: 7,    // El retado tiene 7 días para responder
           bestOf: 2,
           description: 'Escalera de retos, el ganador sube posición',
+        };
+      case TournamentType.SHORT_SET:
+        return {
+          type: 'short_set',
+          format: '3 de 5 short sets',
+          // Cada set se juega a 4 games (primero en llegar gana)
+          gamesToWinSet: 4,
+          setsToWinMatch: 3,
+          totalSets: 5,
+          // Empate a 3-3 en games → jugar séptimo short set
+          tieAtGames: 3,
+          seventhSet: true,
+          // Empate en séptimo set → tiebreak a 7 puntos con diferencia de 2
+          finalTiebreak: {
+            points: 7,
+            mustWinByTwo: true,
+          },
+          noAd: false,
+          description:
+            '3 de 5 short sets. Cada set a 4 games. ' +
+            'Empate 3-3 → 7mo short set. ' +
+            'Empate en 7mo → tiebreak a 7 pts con diferencia de 2.',
+        };
+
+      case TournamentType.PRO_SET:
+        return {
+          type: 'pro_set',
+          format: '1 Pro Set a 8 games',
+          // Un solo set a 8 games, sin ventajas
+          gamesToWin: 8,
+          noAd: true,
+          // Empate a 8-8 → Match Tiebreak a 10 puntos
+          tieAt: 8,
+          matchTiebreak: {
+            points: 10,
+            mustWinByTwo: true,
+          },
+          description:
+            '1 Pro Set a 8 games sin ventajas. ' +
+            'Empate 8-8 → Match Tiebreak a 10 puntos con diferencia de 2.',
         };
 
       default:

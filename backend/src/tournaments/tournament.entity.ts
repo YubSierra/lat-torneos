@@ -13,6 +13,8 @@ export enum TournamentType {
   SUPERTIEBREAK = 'supertiebreak', // Solo tiebreaks a 10 pts
   BOX_LEAGUE = 'box_league', // Grupos fijos con fechas flexibles
   LADDER = 'ladder', // Escalera de retos
+  SHORT_SET = 'short_set', // 3 de 5 short sets
+  PRO_SET = 'pro_set', // 1 set a 8 games + MTB
 }
 
 export enum CircuitLine {

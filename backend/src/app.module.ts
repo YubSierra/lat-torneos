@@ -6,10 +6,14 @@ import { Player } from './users/player.entity';
 import { Tournament } from './tournaments/tournament.entity';
 import { Enrollment } from './enrollments/enrollment.entity';
 import { Payment } from './payments/payment.entity';
+import { Court } from './courts/court.entity';
+import { CourtSchedule } from './courts/court-schedule.entity';
+import { Match } from './matches/match.entity';
 import { AuthModule } from './auth/auth.module';
 import { TournamentsModule } from './tournaments/tournaments.module';
 import { EnrollmentsModule } from './enrollments/enrollments.module';
 import { PaymentsModule } from './payments/payments.module';
+import { ScheduleModule } from './schedule/schedule.module';
 
 @Module({
   imports: [
@@ -24,7 +28,11 @@ import { PaymentsModule } from './payments/payments.module';
         database: config.get('DB_NAME'),
         username: config.get('DB_USER'),
         password: config.get('DB_PASS'),
-        entities: [User, Player, Tournament, Enrollment, Payment],
+        entities: [
+          User, Player, Tournament,
+          Enrollment, Payment,
+          Court, CourtSchedule, Match,
+        ],
         synchronize: true,
         logging: true,
       }),
@@ -34,6 +42,7 @@ import { PaymentsModule } from './payments/payments.module';
     TournamentsModule,
     EnrollmentsModule,
     PaymentsModule,
+    ScheduleModule,
   ],
 })
 export class AppModule {}
