@@ -16,6 +16,11 @@ export const courtsApi = {
     return res.data;
   },
 
+  remove: async (id: string) => {
+    const res = await api.delete(`/courts/${id}`);
+    return res.data;
+  },
+
   generateSchedule: async (tournamentId: string, date: string) => {
     const res = await api.post(`/tournaments/${tournamentId}/schedule`, { date });
     return res.data;

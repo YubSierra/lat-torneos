@@ -9,6 +9,7 @@ import TournamentDetail from './pages/TournamentDetail';
 import Rankings from './pages/Rankings';
 import Schedule from './pages/Schedule';
 import Courts from './pages/Courts';
+import Players from './pages/Players';
 
 const queryClient = new QueryClient();
 
@@ -39,6 +40,9 @@ export default function App() {
             } />
             <Route path="/courts" element={
               <ProtectedRoute><Courts /></ProtectedRoute>
+            } />
+            <Route path="/players" element={
+              <ProtectedRoute><Players /></ProtectedRoute>
             } />
 
             {/* Redirigir raíz al dashboard */}

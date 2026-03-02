@@ -18,6 +18,7 @@ import { MatchesModule } from './matches/matches.module';
 import { RankingsModule } from './rankings/rankings.module';
 import { Ranking } from './rankings/ranking.entity';
 import { CourtsModule } from './courts/courts.module';
+import { UsersModule } from './users/users.module';
 import { RankingHistory } from './rankings/ranking-history.entity';
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { RankingHistory } from './rankings/ranking-history.entity';
     MatchesModule,
     RankingsModule,
     CourtsModule,
+    UsersModule,
   ],
 })
 export class AppModule {}
