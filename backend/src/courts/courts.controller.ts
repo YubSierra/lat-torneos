@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch,
+import { Controller, Get, Post, Patch, Delete,
          Body, Param, UseGuards } from '@nestjs/common';
 import { CourtsService } from './courts.service';
 import { CreateCourtDto } from './dto/create-court.dto';
@@ -44,4 +44,10 @@ export class CourtsController {
   deactivate(@Param('id') id: string) {
     return this.courtsService.deactivate(id);
   }
+  // DELETE /courts/:id — eliminar cancha (solo admins)
+    @Delete(':id')
+    @UseGuards(JwtAuthGuard, RolesGuard)
+    remove(@Param('id') id: string) {
+    return this.courtsService.remove(id);
+    }
 }

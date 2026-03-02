@@ -46,3 +46,9 @@ export class CourtsService {
     return this.repo.save(court);
   }
 }
+// ── ELIMINAR CANCHA ─────────────────────────────
+async remove(id: string) {
+  const court = await this.findOne(id);
+  return this.repo.remove(court);
+}
+

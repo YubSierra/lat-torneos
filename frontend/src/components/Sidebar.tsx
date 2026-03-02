@@ -10,7 +10,7 @@ const navItems = [
   { to: '/tournaments', icon: Trophy,           label: 'Torneos'      },
   { to: '/schedule',    icon: Calendar,         label: 'Programación' },
   { to: '/rankings',    icon: BarChart2,        label: 'Escalafón'    },
-  { to: '/matches',     icon: CreditCard,       label: 'Partidos'     },
+  { to: '/courts',      icon: CreditCard,       label: 'Canchas'      },
   { to: '/players',     icon: Users,            label: 'Jugadores'    },
 ];
 
