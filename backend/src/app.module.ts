@@ -14,6 +14,7 @@ import { TournamentsModule } from './tournaments/tournaments.module';
 import { EnrollmentsModule } from './enrollments/enrollments.module';
 import { PaymentsModule } from './payments/payments.module';
 import { ScheduleModule } from './schedule/schedule.module';
+import { MatchesModule } from './matches/matches.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { ScheduleModule } from './schedule/schedule.module';
     EnrollmentsModule,
     PaymentsModule,
     ScheduleModule,
+    MatchesModule,
   ],
 })
 export class AppModule {}
