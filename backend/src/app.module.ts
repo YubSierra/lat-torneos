@@ -15,7 +15,9 @@ import { EnrollmentsModule } from './enrollments/enrollments.module';
 import { PaymentsModule } from './payments/payments.module';
 import { ScheduleModule } from './schedule/schedule.module';
 import { MatchesModule } from './matches/matches.module';
-
+import { RankingsModule } from './rankings/rankings.module';
+import { Ranking } from './rankings/ranking.entity';
+import { RankingHistory } from './rankings/ranking-history.entity';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -33,6 +35,7 @@ import { MatchesModule } from './matches/matches.module';
           User, Player, Tournament,
           Enrollment, Payment,
           Court, CourtSchedule, Match,
+          Ranking, RankingHistory,
         ],
         synchronize: true,
         logging: true,
@@ -45,6 +48,7 @@ import { MatchesModule } from './matches/matches.module';
     PaymentsModule,
     ScheduleModule,
     MatchesModule,
+    RankingsModule,
   ],
 })
 export class AppModule {}
