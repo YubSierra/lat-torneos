@@ -18,53 +18,82 @@ export default function Sidebar() {
   const { logout, role } = useAuth();
 
   return (
-    <div className="w-64 min-h-screen bg-lat-dark flex flex-col">
+    <div style={{ backgroundColor: '#1B3A1B', minHeight: '100vh', width: '256px', display: 'flex', flexDirection: 'column' }}>
 
       {/* Logo */}
-      <div className="p-6 border-b border-green-800">
-        <div className="flex items-center gap-3">
-          <span className="text-3xl">🎾</span>
+      <div style={{ padding: '24px', borderBottom: '1px solid #2D6A2D' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <span style={{ fontSize: '28px' }}>🎾</span>
           <div>
-            <p className="text-white font-bold text-sm">LAT</p>
-            <p className="text-green-300 text-xs">Sistema de Torneos</p>
+            <p style={{ color: '#FFFFFF', fontWeight: 'bold', fontSize: '14px', margin: 0 }}>LAT</p>
+            <p style={{ color: '#86EFAC', fontSize: '12px', margin: 0 }}>Sistema de Torneos</p>
           </div>
         </div>
       </div>
 
       {/* Navegación */}
-      <nav className="flex-1 p-4 space-y-1">
+      <nav style={{ flex: 1, padding: '16px' }}>
         {navItems.map(({ to, icon: Icon, label }) => (
           <NavLink
             key={to}
             to={to}
-            className={({ isActive }) =>
-              `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-sm font-medium ${
-                isActive
-                  ? 'bg-lat-green text-white'
-                  : 'text-green-200 hover:bg-green-800 hover:text-white'
-              }`
-            }
+            style={({ isActive }) => ({
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '12px 16px',
+              borderRadius: '8px',
+              marginBottom: '4px',
+              textDecoration: 'none',
+              fontSize: '14px',
+              fontWeight: '500',
+              backgroundColor: isActive ? '#2D6A2D' : 'transparent',
+              color: isActive ? '#FFFFFF' : '#FFFFFF',
+              transition: 'background-color 0.2s',
+            })}
+            onMouseEnter={(e) => {
+              const el = e.currentTarget;
+              if (!el.classList.contains('active')) {
+                el.style.backgroundColor = '#2D5A2D';
+              }
+            }}
+            onMouseLeave={(e) => {
+              const el = e.currentTarget;
+              if (!el.getAttribute('aria-current')) {
+                el.style.backgroundColor = 'transparent';
+              }
+            }}
           >
-            <Icon size={18} />
-            {label}
+            <Icon size={18} color="#FFFFFF" />
+            <span style={{ color: '#FFFFFF' }}>{label}</span>
           </NavLink>
         ))}
       </nav>
 
       {/* Footer */}
-      <div className="p-4 border-t border-green-800">
-        <p className="text-green-400 text-xs mb-3 px-4">
+      <div style={{ padding: '16px', borderTop: '1px solid #2D6A2D' }}>
+        <p style={{ color: '#86EFAC', fontSize: '12px', marginBottom: '8px', paddingLeft: '16px' }}>
           Rol: {role}
         </p>
         <button
           onClick={logout}
-          className="flex items-center gap-3 px-4 py-2 w-full text-green-200 hover:text-white hover:bg-green-800 rounded-lg transition-colors text-sm"
+          style={{
+            display: 'flex', alignItems: 'center', gap: '12px',
+            padding: '8px 16px', width: '100%', background: 'none',
+            border: 'none', cursor: 'pointer', borderRadius: '8px',
+            color: '#FFFFFF', fontSize: '14px', transition: 'background-color 0.2s',
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#2D5A2D';
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent';
+          }}
         >
-          <LogOut size={18} />
-          Cerrar sesión
+          <LogOut size={18} color="#FFFFFF" />
+          <span>Cerrar sesión</span>
         </button>
       </div>
-
     </div>
   );
 }

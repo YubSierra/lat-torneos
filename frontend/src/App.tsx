@@ -5,7 +5,10 @@ import ProtectedRoute from './components/ProtectedRoute';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Tournaments from './pages/Tournaments';
+import TournamentDetail from './pages/TournamentDetail';
 import Rankings from './pages/Rankings';
+import Schedule from './pages/Schedule';
+import Courts from './pages/Courts';
 
 const queryClient = new QueryClient();
 
@@ -25,8 +28,17 @@ export default function App() {
             <Route path="/tournaments" element={
               <ProtectedRoute><Tournaments /></ProtectedRoute>
             } />
+            <Route path="/tournaments/:id" element={
+              <ProtectedRoute><TournamentDetail /></ProtectedRoute>
+            } />
             <Route path="/rankings" element={
               <ProtectedRoute><Rankings /></ProtectedRoute>
+            } />
+            <Route path="/schedule" element={
+              <ProtectedRoute><Schedule /></ProtectedRoute>
+            } />
+            <Route path="/courts" element={
+              <ProtectedRoute><Courts /></ProtectedRoute>
             } />
 
             {/* Redirigir raíz al dashboard */}

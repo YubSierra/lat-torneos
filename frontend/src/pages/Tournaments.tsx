@@ -4,6 +4,7 @@ import { Plus, Eye } from 'lucide-react';
 import { tournamentsApi } from '../api/tournaments.api';
 import { useAuth } from '../context/AuthContext';
 import Sidebar from '../components/Sidebar';
+import { useNavigate } from 'react-router-dom';
 
 const TOURNAMENT_TYPES = [
   { value: 'elimination',   label: 'Eliminación Directa' },
@@ -27,8 +28,10 @@ const CIRCUIT_LINES = [
   { value: 'recreativo',     label: 'Recreativo'     },
 ];
 
+
 export default function Tournaments() {
   const { isAdmin } = useAuth();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({
@@ -112,7 +115,10 @@ export default function Tournaments() {
                   <p className="text-lat-green font-bold text-sm mb-3">
                     ${Number(t.inscriptionValue).toLocaleString('es-CO')} COP
                   </p>
-                  <button className="flex items-center gap-1 text-xs text-lat-green hover:text-lat-dark transition-colors">
+                  <button
+                    onClick={() => navigate(`/tournaments/${t.id}`)}
+                    className="flex items-center gap-1 text-xs text-lat-green hover:text-lat-dark transition-colors"
+                  >
                     <Eye size={14} />
                     Ver detalles
                   </button>

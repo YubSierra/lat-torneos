@@ -24,5 +24,40 @@ services:
     depends_on:
       - postgres
 
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: lat_backend
+    restart: unless-stopped
+    ports:
+      - 3000:3000
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: lat_torneos
+      DB_USER: lat_user
+      DB_PASS: lat_secret
+      JWT_SECRET: clave_super_secreta_lat_2025
+      JWT_EXPIRES: 1h
+      PORT: 3000
+      NODE_ENV: production
+      MP_ACCESS_TOKEN: ${MP_ACCESS_TOKEN}
+      FRONTEND_URL: http://localhost:5173
+      BACKEND_URL: http://localhost:3000
+    depends_on:
+      - postgres
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: lat_frontend
+    restart: unless-stopped
+    ports:
+      - 5173:5173
+    depends_on:
+      - backend
+
 volumes:
   postgres_data:
