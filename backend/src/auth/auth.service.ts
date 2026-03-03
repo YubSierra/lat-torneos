@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { User } from '../users/user.entity';
+import { UserRole } from '../users/user.entity';
 
 @Injectable()
 export class AuthService {
@@ -14,20 +15,21 @@ export class AuthService {
   ) {}
 
   // ── REGISTRO ────────────────────────────────────
-  async register(email: string, password: string, role = 'player') {
-    // Verificar que el email no esté en uso
-    const exists = await this.usersRepo.findOne({ where: { email } });
-    if (exists) throw new ConflictException('Email ya registrado');
 
-    // Encriptar la contraseña con bcrypt
+  async register(email: string, password: string, role?: string) {
+    const exists = await this.usersRepo.findOne({ where: { email } });
+    if (exists) throw new ConflictException('El email ya está registrado');
+
     const hash = await bcrypt.hash(password, 12);
 
-    // Crear y guardar el usuario
-    const user = this.usersRepo.create({ email, password: hash, role });
-    await this.usersRepo.save(user);
+    const user = this.usersRepo.create({
+      email,
+      password: hash,
+      role: (role as UserRole) || UserRole.PLAYER,
+    });
 
-    return { message: 'Usuario registrado exitosamente' };
-  }
+  return this.usersRepo.save(user);
+}
 
   // ── LOGIN ────────────────────────────────────────
   async login(email: string, password: string) {

@@ -98,4 +98,145 @@ export class EnrollmentsService {
       },
     });
   }
+  // ── IMPORTAR DESDE CSV ──────────────────────────
+  async importFromCsv(tournamentId: string, rows: any[], userRepo: any) {
+    const bcrypt = require('bcrypt');
+    const results = {
+      created: 0,
+      existing: 0,
+      enrolled: 0,
+      skipped: 0,
+      errors: [] as string[],
+    };
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+
+      try {
+        // ── 1. BUSCAR USUARIO EXISTENTE ─────────────
+        let user = null;
+
+        // Buscar por docNumber primero, luego por email
+        if (row.docNumber?.trim()) {
+          user = await userRepo.findOne({
+            where: { docNumber: row.docNumber.trim() },
+          });
+        }
+        if (!user && row.email?.trim()) {
+          user = await userRepo.findOne({
+            where: { email: row.email.trim() },
+          });
+        }
+
+        // ── 2. CREAR USUARIO SI NO EXISTE ───────────
+        if (!user) {
+          // Verificar que tenga los datos mínimos para crearlo
+          const required = ['nombres', 'apellidos', 'email', 'docNumber', 'telefono'];
+          const missing = required.filter(f => !row[f]?.trim());
+
+          if (missing.length > 0) {
+            results.errors.push(
+              `Fila ${i + 2}: Jugador no encontrado y faltan datos: ${missing.join(', ')}`
+            );
+            results.skipped++;
+            continue;
+          }
+
+          // Generar contraseña temporal: 4 letras apellido + 4 últimos del doc
+          const passBase = row.apellidos.slice(0, 4).toLowerCase();
+          const passDoc  = row.docNumber.slice(-4);
+          const hashed   = await bcrypt.hash(`${passBase}${passDoc}`, 12);
+
+          user = await userRepo.save(userRepo.create({
+            email:              row.email.trim(),
+            password:           hashed,
+            role:               'player',
+            nombres:            row.nombres.trim(),
+            apellidos:          row.apellidos.trim(),
+            telefono:           row.telefono?.trim(),
+            direccion:          row.direccion?.trim(),
+            docNumber:          row.docNumber.trim(),
+            birthDate:          row.birthDate?.trim() ? new Date(row.birthDate) : null,
+            gender:             row.gender?.trim() || 'M',
+            mustChangePassword: true,
+            isActive:           true,
+          }));
+          results.created++;
+
+        } else {
+          results.existing++;
+        }
+
+        // ── 3. VERIFICAR INSCRIPCIÓN DUPLICADA ──────
+        const exists = await this.repo.findOne({
+          where: {
+            tournamentId,
+            playerId: user.id,
+            category: row.category?.trim(),
+          },
+        });
+
+        if (exists) {
+          results.skipped++;
+          results.errors.push(
+            `Fila ${i + 2}: ${row.email || row.docNumber} ya inscrito en ${row.category}`
+          );
+          continue;
+        }
+
+        // ── 4. CREAR INSCRIPCIÓN APROBADA ───────────
+        // status: approved porque el admin está confirmando la inscripción
+        // paymentId: 'MANUAL' indica que el pago fue presencial
+        const enrollment = this.repo.create({
+          tournamentId,
+          playerId:  user.id,
+          modality:  (row.modality?.trim() || 'singles') as any,
+          category:  row.category?.trim(),
+          seeding:   row.seeding?.trim() ? Number(row.seeding) : null,
+          status:    'approved' as any,
+          paymentId: 'MANUAL',
+        });
+
+        await this.repo.save(enrollment);
+
+        // ── 5. GUARDAR RANKING PREVIO SI VIENE ──────
+        // Solo aplica si es primer torneo del año del circuito
+        if (row.ranking?.trim()) {
+          const rankingRepo = userRepo.manager.getRepository('rankings');
+          const season = new Date().getFullYear();
+
+          const existingRanking = await rankingRepo.findOne({
+            where: {
+              playerId: user.id,
+              category: row.category?.trim(),
+              season,
+            },
+          });
+
+          if (!existingRanking) {
+            await rankingRepo.save({
+              playerId:          user.id,
+              category:          row.category?.trim(),
+              circuitLine:       'departamental',
+              totalPoints:       Number(row.ranking),
+              meritPoints:       0,
+              tournamentsPlayed: 0,
+              position:          0,
+              season,
+            });
+          }
+        }
+
+        results.enrolled++;
+
+      } catch (err) {
+        results.errors.push(`Fila ${i + 2}: ${err.message}`);
+      }
+    }
+
+    return {
+      message: 'Importación completada',
+      ...results,
+    };
+  }
 }
