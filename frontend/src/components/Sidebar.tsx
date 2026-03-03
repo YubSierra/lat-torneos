@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   LayoutDashboard, Trophy, Calendar,
-  BarChart2, CreditCard, Users, LogOut
+  BarChart2, MapPin, Users, LogOut, Play
 } from 'lucide-react';
 
 const navItems = [
@@ -10,7 +10,8 @@ const navItems = [
   { to: '/tournaments', icon: Trophy,           label: 'Torneos'      },
   { to: '/schedule',    icon: Calendar,         label: 'Programación' },
   { to: '/rankings',    icon: BarChart2,        label: 'Escalafón'    },
-  { to: '/courts',      icon: CreditCard,       label: 'Canchas'      },
+  { to: '/matches',     icon: Play,             label: 'Partidos'     },
+  { to: '/courts',      icon: MapPin,           label: 'Canchas'      },
   { to: '/players',     icon: Users,            label: 'Jugadores'    },
 ];
 

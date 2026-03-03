@@ -10,6 +10,7 @@ import Rankings from './pages/Rankings';
 import Schedule from './pages/Schedule';
 import Courts from './pages/Courts';
 import Players from './pages/Players';
+import Matches from './pages/Matches';
 
 const queryClient = new QueryClient();
 
@@ -43,6 +44,9 @@ export default function App() {
             } />
             <Route path="/players" element={
               <ProtectedRoute><Players /></ProtectedRoute>
+            } />
+            <Route path="/matches" element={
+            <ProtectedRoute><Matches /></ProtectedRoute>
             } />
 
             {/* Redirigir raíz al dashboard */}
