@@ -174,7 +174,10 @@ export class DoublesService {
     ].filter(Boolean))];
 
     const users = playerIds.length > 0
-      ? await this.userRepo.find({ where: { id: playerIds as any } })
+      ? await this.userRepo
+          .createQueryBuilder('user')
+          .where('user.id IN (:...ids)', { ids: playerIds })
+          .getMany()
       : [];
 
     const userMap = new Map(
@@ -205,9 +208,12 @@ export class DoublesService {
 
     const unpaired = enrollments.filter(e => !pairedIds.has(e.playerId));
 
-    const users = unpaired.length > 0
-      ? await this.userRepo.find({ where: { id: unpaired.map(e => e.playerId) as any } })
-      : [];
+    if (unpaired.length === 0) return [];
+
+    const users = await this.userRepo
+      .createQueryBuilder('user')
+      .where('user.id IN (:...ids)', { ids: unpaired.map(e => e.playerId) })
+      .getMany();
 
     const userMap = new Map(
       users.map(u => [u.id, `${u.nombres || ''} ${u.apellidos || ''}`.trim() || u.email])

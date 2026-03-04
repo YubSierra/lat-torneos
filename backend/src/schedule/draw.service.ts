@@ -20,7 +20,12 @@ export class DrawService {
     category: string,
     type: TournamentType,
     advancingPerGroup: number = 1, // 1 o 2 jugadores por grupo pasan al MD
+    modality: string = 'singles',
   ) {
+    if (modality === 'doubles') {
+      return this.generateDoublesDraw(tournamentId, category, type, advancingPerGroup);
+    }
+
     const enrollments = await this.enrollmentRepo.find({
       where: { tournamentId, category, status: EnrollmentStatus.APPROVED },
       order: { seeding: 'ASC' },
@@ -78,6 +83,7 @@ export class DrawService {
             player1Id: group[i],
             player2Id: group[j],
             status: MatchStatus.PENDING,
+            groupLabel,
             seeding1: this.getSeedingForPlayer(group[i], enrollments),
             seeding2: this.getSeedingForPlayer(group[j], enrollments),
           }));
@@ -373,5 +379,45 @@ export class DrawService {
   private getSeedingForPlayer(playerId: string, enrollments: Enrollment[]): number {
     if (!playerId || playerId === 'BYE') return null;
     return enrollments.find(e => e.playerId === playerId)?.seeding || null;
+  }
+
+  // ── DRAW DE DOBLES ──────────────────────────────
+  private async generateDoublesDraw(
+    tournamentId: string,
+    category: string,
+    type: TournamentType,
+    advancingPerGroup: number,
+  ) {
+    // Obtener parejas aprobadas
+    const teams = await this.matchRepo.manager
+      .getRepository('doubles_teams')
+      .find({
+        where: { tournamentId, category, status: 'approved' },
+        order: { seeding: 'ASC' },
+      });
+
+    if (teams.length < 2) {
+      throw new Error(
+        `Dobles categoría ${category}: mínimo 2 parejas aprobadas. ` +
+        `Actualmente hay ${teams.length}.`
+      );
+    }
+
+    // Convertir parejas a "jugadores" para reutilizar la lógica
+    // player1Id = id de la pareja (DoublesTeam.id)
+    const fakeEnrollments = teams.map((t: any, idx: number) => ({
+      playerId: t.id,   // usamos el ID de la pareja
+      category,
+      seeding: t.seeding || null,
+      status: 'approved',
+    })) as any[];
+
+    if (type === TournamentType.ROUND_ROBIN) {
+      return this.generateRoundRobinGroups(
+        tournamentId, `${category}_DOBLES`, fakeEnrollments, advancingPerGroup
+      );
+    }
+
+    return this.generateElimination(tournamentId, `${category}_DOBLES`, fakeEnrollments);
   }
 }

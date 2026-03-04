@@ -84,6 +84,10 @@ export class Match {
   @Column({ nullable: true })
   seeding2: number;
 
+  // ── GRUPO DEL ROUND ROBIN ────────────────────────
+  @Column({ nullable: true })
+  groupLabel: string;
+
   @CreateDateColumn()
   createdAt: Date;
 }

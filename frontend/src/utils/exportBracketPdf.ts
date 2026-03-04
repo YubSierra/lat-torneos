@@ -22,6 +22,7 @@ interface Match {
   player2Id?: string;
   status: string;
   scheduledAt?: string;
+  groupLabel?: string;
 }
 
 interface ExportOptions {
@@ -72,40 +73,88 @@ export function exportBracketPdf({ tournamentName, matches }: ExportOptions) {
       rrRounds.forEach(round => {
         const roundMatches = rounds[round];
 
-        doc.setTextColor(27, 58, 27);
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'bold');
-        doc.text(ROUND_LABELS[round], 12, yPos + 4);
-        yPos += 7;
+        // Para RR, agrupar también por groupLabel
+        if (round === 'RR') {
+          const byGroup: Record<string, Match[]> = {};
+          roundMatches.forEach((m: Match) => {
+            const group = m.groupLabel || 'Sin grupo';
+            if (!byGroup[group]) byGroup[group] = [];
+            byGroup[group].push(m);
+          });
 
-        autoTable(doc, {
-          head: [['#', 'Jugador 1', 'Siembra', 'vs', 'Jugador 2', 'Siembra', 'Estado']],
-          body: roundMatches.map((m, i) => [
-            i + 1,
-            m.player1Name || 'BYE',
-            m.seeding1 ? `[${m.seeding1}]` : '',
-            'vs',
-            m.player2Name || 'BYE',
-            m.seeding2 ? `[${m.seeding2}]` : '',
-            m.status === 'completed'
-              ? `Gano: ${m.winnerId === m.player1Id ? m.player1Name : m.player2Name}`
-              : m.status === 'live' ? 'En vivo' : 'Pendiente',
-          ]),
-          startY: yPos,
-          margin: { left: 10, right: 10 },
-          styles: { fontSize: 8, cellPadding: 3 },
-          headStyles: { fillColor: [27, 58, 27], textColor: [255,255,255], fontStyle: 'bold' },
-          columnStyles: {
-            0: { cellWidth: 8,  halign: 'center' },
-            2: { cellWidth: 15, halign: 'center', textColor: [146, 64, 14] },
-            3: { cellWidth: 10, halign: 'center', fontStyle: 'bold' },
-            5: { cellWidth: 15, halign: 'center', textColor: [146, 64, 14] },
-            6: { cellWidth: 35 },
-          },
-          alternateRowStyles: { fillColor: [240, 253, 244] },
-        });
+          Object.entries(byGroup).sort().forEach(([groupLabel, groupMatches]) => {
+            doc.setTextColor(27, 58, 27);
+            doc.setFontSize(10);
+            doc.setFont('helvetica', 'bold');
+            doc.text(`GRUPO ${groupLabel} (${groupMatches.length} partidos)`, 12, yPos + 4);
+            yPos += 7;
 
-        yPos = (doc as any).lastAutoTable.finalY + 6;
+            autoTable(doc, {
+              head: [['#', 'Jugador 1', 'Siembra', 'vs', 'Jugador 2', 'Siembra', 'Estado']],
+              body: groupMatches.map((m, i) => [
+                i + 1,
+                m.player1Name || 'BYE',
+                m.seeding1 ? `[${m.seeding1}]` : '',
+                'vs',
+                m.player2Name || 'BYE',
+                m.seeding2 ? `[${m.seeding2}]` : '',
+                m.status === 'completed'
+                  ? `Gano: ${m.winnerId === m.player1Id ? m.player1Name : m.player2Name}`
+                  : m.status === 'live' ? 'En vivo' : 'Pendiente',
+              ]),
+              startY: yPos,
+              margin: { left: 10, right: 10 },
+              styles: { fontSize: 8, cellPadding: 3 },
+              headStyles: { fillColor: [27, 58, 27], textColor: [255,255,255], fontStyle: 'bold' },
+              columnStyles: {
+                0: { cellWidth: 8,  halign: 'center' },
+                2: { cellWidth: 15, halign: 'center', textColor: [146, 64, 14] },
+                3: { cellWidth: 10, halign: 'center', fontStyle: 'bold' },
+                5: { cellWidth: 15, halign: 'center', textColor: [146, 64, 14] },
+                6: { cellWidth: 35 },
+              },
+              alternateRowStyles: { fillColor: [240, 253, 244] },
+            });
+
+            yPos = (doc as any).lastAutoTable.finalY + 6;
+          });
+        } else {
+          // Para RR_A y RR_B (Master tournaments)
+          doc.setTextColor(27, 58, 27);
+          doc.setFontSize(10);
+          doc.setFont('helvetica', 'bold');
+          doc.text(ROUND_LABELS[round], 12, yPos + 4);
+          yPos += 7;
+
+          autoTable(doc, {
+            head: [['#', 'Jugador 1', 'Siembra', 'vs', 'Jugador 2', 'Siembra', 'Estado']],
+            body: roundMatches.map((m, i) => [
+              i + 1,
+              m.player1Name || 'BYE',
+              m.seeding1 ? `[${m.seeding1}]` : '',
+              'vs',
+              m.player2Name || 'BYE',
+              m.seeding2 ? `[${m.seeding2}]` : '',
+              m.status === 'completed'
+                ? `Gano: ${m.winnerId === m.player1Id ? m.player1Name : m.player2Name}`
+                : m.status === 'live' ? 'En vivo' : 'Pendiente',
+            ]),
+            startY: yPos,
+            margin: { left: 10, right: 10 },
+            styles: { fontSize: 8, cellPadding: 3 },
+            headStyles: { fillColor: [27, 58, 27], textColor: [255,255,255], fontStyle: 'bold' },
+            columnStyles: {
+              0: { cellWidth: 8,  halign: 'center' },
+              2: { cellWidth: 15, halign: 'center', textColor: [146, 64, 14] },
+              3: { cellWidth: 10, halign: 'center', fontStyle: 'bold' },
+              5: { cellWidth: 15, halign: 'center', textColor: [146, 64, 14] },
+              6: { cellWidth: 35 },
+            },
+            alternateRowStyles: { fillColor: [240, 253, 244] },
+          });
+
+          yPos = (doc as any).lastAutoTable.finalY + 6;
+        }
       });
     }
 

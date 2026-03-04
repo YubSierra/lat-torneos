@@ -15,6 +15,10 @@ export default function Doubles() {
   const [selectedTeam, setSelectedTeam]             = useState<any>(null);
   const [newTeam, setNewTeam]                       = useState({ player1Id: '', player2Id: '', teamName: '' });
   const [pairPlayerId, setPairPlayerId]             = useState('');
+  const [showNewPlayerForm, setShowNewPlayerForm] = useState(false);
+  const [newPlayer, setNewPlayer] = useState({
+    nombres: '', apellidos: '', email: '', telefono: '', docNumber: '', category: 'TERCERA',
+  });
 
   const { data: tournaments = [] } = useQuery({
     queryKey: ['tournaments'],
@@ -73,6 +77,21 @@ export default function Doubles() {
       return res.data;
     },
     onSuccess: () => refetchTeams(),
+  });
+
+  const createPlayerMutation = useMutation({
+    mutationFn: async () => {
+      const res = await api.post(
+        `/enrollments/enroll-single/${selectedTournament}`,
+        newPlayer,
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['doubles-unpaired', selectedTournament] });
+      setShowNewPlayerForm(false);
+      setNewPlayer({ nombres: '', apellidos: '', email: '', telefono: '', docNumber: '', category: 'TERCERA' });
+    },
   });
 
   const statusColor = (status: string) => {
@@ -321,6 +340,62 @@ export default function Doubles() {
                       </option>
                     ))}
                   </select>
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPlayerForm(!showNewPlayerForm)}
+                    style={{
+                      fontSize: '12px', color: '#2D6A2D', backgroundColor: 'transparent',
+                      border: '1px dashed #2D6A2D', borderRadius: '6px',
+                      padding: '4px 10px', cursor: 'pointer', marginTop: '4px',
+                    }}
+                  >
+                    + Inscribir jugador nuevo al torneo
+                  </button>
+
+                  {showNewPlayerForm && (
+                    <div style={{ border: '1px solid #E5E7EB', borderRadius: '8px', padding: '12px', backgroundColor: '#F9FAFB' }}>
+                      <p style={{ fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
+                        Nuevo jugador
+                      </p>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                        {[
+                          { key: 'nombres', label: 'Nombres' },
+                          { key: 'apellidos', label: 'Apellidos' },
+                          { key: 'email', label: 'Email' },
+                          { key: 'telefono', label: 'Teléfono' },
+                          { key: 'docNumber', label: 'Documento' },
+                        ].map(({ key, label }) => (
+                          <input
+                            key={key}
+                            placeholder={label}
+                            value={(newPlayer as any)[key]}
+                            onChange={e => setNewPlayer({ ...newPlayer, [key]: e.target.value })}
+                            style={{ border: '1px solid #D1D5DB', borderRadius: '6px', padding: '6px 10px', fontSize: '12px' }}
+                          />
+                        ))}
+                        <select
+                          value={newPlayer.category}
+                          onChange={e => setNewPlayer({ ...newPlayer, category: e.target.value })}
+                          style={{ border: '1px solid #D1D5DB', borderRadius: '6px', padding: '6px 10px', fontSize: '12px' }}
+                        >
+                          {['PRIMERA','SEGUNDA','INTERMEDIA','TERCERA','CUARTA','QUINTA','SEXTA'].map(c => (
+                            <option key={c} value={c}>{c}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <button
+                        onClick={() => createPlayerMutation.mutate()}
+                        disabled={!newPlayer.nombres || !newPlayer.email || createPlayerMutation.isPending}
+                        style={{
+                          marginTop: '8px', width: '100%', backgroundColor: '#2D6A2D', color: 'white',
+                          padding: '6px', borderRadius: '6px', border: 'none', cursor: 'pointer',
+                          fontSize: '12px', fontWeight: '600',
+                        }}
+                      >
+                        {createPlayerMutation.isPending ? 'Inscribiendo...' : 'Inscribir y agregar a lista'}
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '4px' }}>

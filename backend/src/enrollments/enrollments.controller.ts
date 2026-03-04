@@ -55,6 +55,25 @@ export class EnrollmentsController {
     );
   }
 
+  // POST /enrollments/enroll-single/:tournamentId
+  // Inscribir un jugador individual (usado en dobles)
+  @Post('enroll-single/:tournamentId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  async enrollSinglePlayer(
+    @Param('tournamentId') tournamentId: string,
+    @Body() body: {
+      nombres: string;
+      apellidos: string;
+      email: string;
+      telefono?: string;
+      docNumber?: string;
+      category: string;
+      modality?: string;
+    },
+  ) {
+    return this.enrollmentsService.enrollSinglePlayer(tournamentId, body);
+  }
+
   // GET /enrollments/tournament/:id — inscritos de un torneo
   @Get('tournament/:id')
   @UseGuards(JwtAuthGuard)

@@ -259,4 +259,77 @@ export class EnrollmentsService {
       ...results,
     };
   }
+
+  // ── INSCRIBIR JUGADOR INDIVIDUAL ────────────────
+  async enrollSinglePlayer(
+    tournamentId: string,
+    data: {
+      nombres: string;
+      apellidos: string;
+      email: string;
+      telefono?: string;
+      docNumber?: string;
+      category: string;
+      modality?: string;
+    },
+  ) {
+    const userRepo = this.repo.manager.getRepository('users');
+    const bcrypt = require('bcrypt');
+
+    // Buscar si ya existe
+    let user: any = null;
+    if (data.docNumber) {
+      user = await userRepo.findOne({ where: { docNumber: data.docNumber } });
+    }
+    if (!user && data.email) {
+      user = await userRepo.findOne({ where: { email: data.email } });
+    }
+
+    // Crear usuario si no existe
+    if (!user) {
+      const tempPassword = `${data.apellidos.slice(0, 4).toLowerCase()}${(data.docNumber || '0000').slice(-4)}`;
+      const hashed = await bcrypt.hash(tempPassword, 10);
+
+      user = userRepo.create({
+        nombres:            data.nombres,
+        apellidos:          data.apellidos,
+        email:              data.email,
+        telefono:           data.telefono || '',
+        docNumber:          data.docNumber || null,
+        password:           hashed,
+        mustChangePassword: true,
+        role:               'player',
+        isActive:           true,
+      });
+      await userRepo.save(user);
+    }
+
+    // Verificar inscripción duplicada
+    const existing = await this.repo.findOne({
+      where: { tournamentId, playerId: user.id, category: data.category },
+    });
+    if (existing) {
+      throw new Error(`${data.nombres} ${data.apellidos} ya está inscrito en esta categoría`);
+    }
+
+    // Crear inscripción
+    const enrollment = this.repo.create({
+      tournamentId,
+      playerId:  user.id,
+      category:  data.category,
+      modality:  (data.modality || 'singles') as any,
+      status:    EnrollmentStatus.APPROVED,
+      paymentId: 'MANUAL',
+    });
+
+    await this.repo.save(enrollment);
+
+    return {
+      success: true,
+      userId:  user.id,
+      playerName: `${user.nombres} ${user.apellidos}`,
+      category: data.category,
+      message: 'Jugador inscrito exitosamente',
+    };
+  }
 }

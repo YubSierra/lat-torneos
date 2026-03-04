@@ -21,6 +21,7 @@ export class ScheduleController {
       category: string;
       type: TournamentType;
       advancingPerGroup?: number;
+      modality?: string;
     },
   ) {
     return this.drawService.generateDraw(
@@ -28,6 +29,7 @@ export class ScheduleController {
       body.category,
       body.type,
       body.advancingPerGroup || 1,
+      body.modality || 'singles',
     );
   }
 
