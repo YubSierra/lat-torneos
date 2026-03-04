@@ -9,6 +9,7 @@ import { Payment } from './payments/payment.entity';
 import { Court } from './courts/court.entity';
 import { CourtSchedule } from './courts/court-schedule.entity';
 import { Match } from './matches/match.entity';
+import { DoublesTeam } from './doubles/doubles-team.entity';
 import { AuthModule } from './auth/auth.module';
 import { TournamentsModule } from './tournaments/tournaments.module';
 import { EnrollmentsModule } from './enrollments/enrollments.module';
@@ -19,6 +20,7 @@ import { RankingsModule } from './rankings/rankings.module';
 import { Ranking } from './rankings/ranking.entity';
 import { CourtsModule } from './courts/courts.module';
 import { UsersModule } from './users/users.module';
+import { DoublesModule } from './doubles/doubles.module';
 import { RankingHistory } from './rankings/ranking-history.entity';
 @Module({
   imports: [
@@ -38,6 +40,7 @@ import { RankingHistory } from './rankings/ranking-history.entity';
           Enrollment, Payment,
           Court, CourtSchedule, Match,
           Ranking, RankingHistory,
+          DoublesTeam,
         ],
         synchronize: true,
         logging: true,
@@ -53,6 +56,7 @@ import { RankingHistory } from './rankings/ranking-history.entity';
     RankingsModule,
     CourtsModule,
     UsersModule,
+    DoublesModule,
   ],
 })
 export class AppModule {}

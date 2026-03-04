@@ -1,4 +1,5 @@
-import { IsString, IsEnum, IsNumber, IsDateString, Min, Max, IsOptional } from 'class-validator';
+import { IsString, IsEnum, IsNumber, IsDateString,
+         Min, Max, IsOptional, IsBoolean } from 'class-validator';
 import { TournamentType, CircuitLine } from '../tournament.entity';
 
 export class CreateTournamentDto {
@@ -17,8 +18,8 @@ export class CreateTournamentDto {
   stageNumber?: number;
 
   @IsNumber()
-  @Min(50000) // Art. 23 Reglamento LAT: mínimo $50.000 COP
-  @Max(150000) // Art. 23 Reglamento LAT: máximo $150.000 COP
+  @Min(0)
+  @Max(500000)
   inscriptionValue: number;
 
   @IsDateString()
@@ -32,4 +33,24 @@ export class CreateTournamentDto {
 
   @IsDateString()
   eventEnd: string;
+
+  // ── DOBLES ──────────────────────────────────────
+
+  @IsOptional()
+  @IsBoolean()
+  hasDoubles?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  doublesValue?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  doublesIncludedForSingles?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  doublesAdditionalValue?: number;
 }

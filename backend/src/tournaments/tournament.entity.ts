@@ -1,33 +1,30 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, OneToMany } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm';
 
-
-// Enum con TODOS los sistemas de juego del sistema
 export enum TournamentType {
-  // ── Sistemas LAT Oficiales ──────────────────────
-  ELIMINATION = 'elimination', // Eliminación directa simple
-  ROUND_ROBIN = 'round_robin', // Todos contra todos
-  MASTER = 'master', // 2 grupos RR + eliminatoria
-  // ── Sistemas Recreativos ────────────────────────
-  AMERICANO = 'americano', // Parejas rotativas
-  KING_OF_COURT = 'king_of_court', // Retador vs ganador por cancha
-  SUPERTIEBREAK = 'supertiebreak', // Solo tiebreaks a 10 pts
-  BOX_LEAGUE = 'box_league', // Grupos fijos con fechas flexibles
-  LADDER = 'ladder', // Escalera de retos
-  SHORT_SET = 'short_set', // 3 de 5 short sets
-  PRO_SET = 'pro_set', // 1 set a 8 games + MTB
+  ELIMINATION    = 'elimination',
+  ROUND_ROBIN    = 'round_robin',
+  MASTER         = 'master',
+  AMERICANO      = 'americano',
+  KING_OF_COURT  = 'king_of_court',
+  SUPERTIEBREAK  = 'supertiebreak',
+  BOX_LEAGUE     = 'box_league',
+  LADDER         = 'ladder',
+  SHORT_SET      = 'short_set',
+  PRO_SET        = 'pro_set',
 }
 
 export enum CircuitLine {
-  DEPARTAMENTAL = 'departamental',
+  DEPARTAMENTAL  = 'departamental',
   INTER_ESCUELAS = 'inter_escuelas',
-  INFANTIL = 'infantil',
-  SENIOR = 'senior',
-  EDADES_FCT = 'edades_fct',
-  RECREATIVO = 'recreativo',
+  INFANTIL       = 'infantil',
+  SENIOR         = 'senior',
+  EDADES_FCT     = 'edades_fct',
+  RECREATIVO     = 'recreativo',
 }
 
 @Entity('tournaments')
 export class Tournament {
+
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
@@ -41,10 +38,10 @@ export class Tournament {
   circuitLine: CircuitLine;
 
   @Column({ nullable: true })
-  stageNumber: number; // Etapa 1-7, o null para torneos recreativos
+  stageNumber: number;
 
   @Column({ type: 'decimal', precision: 10, scale: 2 })
-  inscriptionValue: number; // Valor en COP
+  inscriptionValue: number;
 
   @Column({ type: 'date' })
   registrationStart: Date;
@@ -59,7 +56,7 @@ export class Tournament {
   eventEnd: Date;
 
   @Column({ default: 6 })
-  minPlayers: number; // Mínimo 6 por categoría (Art. 23)
+  minPlayers: number;
 
   @Column({
     type: 'enum',
@@ -67,6 +64,26 @@ export class Tournament {
     default: 'draft',
   })
   status: string;
+
+  // ── CONFIGURACIÓN DE DOBLES ──────────────────────
+
+  // ¿El torneo tiene modalidad de dobles?
+  @Column({ default: false })
+  hasDoubles: boolean;
+
+  // Valor inscripción dobles (por pareja)
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  doublesValue: number;
+
+  // ¿Los jugadores de singles tienen dobles incluido?
+  // true = incluido sin costo adicional
+  // false = deben pagar doublesAdditionalValue
+  @Column({ default: false })
+  doublesIncludedForSingles: boolean;
+
+  // Valor adicional para jugadores de singles que quieran jugar dobles
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  doublesAdditionalValue: number;
 
   @CreateDateColumn()
   createdAt: Date;

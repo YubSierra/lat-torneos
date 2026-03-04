@@ -11,6 +11,7 @@ const navItems = [
   { to: '/schedule',    icon: Calendar,         label: 'Programación' },
   { to: '/rankings',    icon: BarChart2,        label: 'Escalafón'    },
   { to: '/matches',     icon: Play,             label: 'Partidos'     },
+  { to: '/doubles',     icon: Users,            label: 'Dobles'       },
   { to: '/courts',      icon: MapPin,           label: 'Canchas'      },
   { to: '/players',     icon: Users,            label: 'Jugadores'    },
 ];

@@ -39,6 +39,11 @@ export default function Tournaments() {
     inscriptionValue: 80000, stageNumber: 1,
     registrationStart: '', registrationEnd: '',
     eventStart: '', eventEnd: '',
+    // Dobles
+    hasDoubles: false,
+    doublesValue: 50000,
+    doublesIncludedForSingles: false,
+    doublesAdditionalValue: 0,
   });
 
   const { data: tournaments = [], isLoading } = useQuery({
@@ -115,6 +120,16 @@ export default function Tournaments() {
                   <p className="text-lat-green font-bold text-sm mb-3">
                     ${Number(t.inscriptionValue).toLocaleString('es-CO')} COP
                   </p>
+                  {t.hasDoubles && (
+                    <span style={{
+                      backgroundColor: '#EDE9FE', color: '#6D28D9',
+                      padding: '2px 8px', borderRadius: '999px',
+                      fontSize: '11px', fontWeight: '600',
+                      display: 'inline-block', marginBottom: '12px',
+                    }}>
+                      🤝 Dobles disponibles
+                    </span>
+                  )}
                   <button
                     onClick={() => navigate(`/tournaments/${t.id}`)}
                     className="flex items-center gap-1 text-xs text-lat-green hover:text-lat-dark transition-colors"
@@ -227,6 +242,119 @@ export default function Tournaments() {
                     required
                   />
                 </div>
+              </div>
+
+              {/* ── SECCIÓN DOBLES ── */}
+              <div style={{
+                border: '1px solid #E5E7EB', borderRadius: '10px',
+                padding: '16px', backgroundColor: '#F9FAFB',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                  <div>
+                    <p style={{ fontWeight: '600', color: '#1B3A1B', fontSize: '14px' }}>
+                      🎾 Modalidad de Dobles
+                    </p>
+                    <p style={{ fontSize: '12px', color: '#6B7280' }}>
+                      Habilita si el torneo incluye dobles
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, hasDoubles: !form.hasDoubles })}
+                    style={{
+                      width: '44px', height: '24px', borderRadius: '999px',
+                      border: 'none', cursor: 'pointer', position: 'relative',
+                      backgroundColor: form.hasDoubles ? '#2D6A2D' : '#D1D5DB',
+                      transition: 'background-color 0.2s',
+                    }}
+                  >
+                    <span style={{
+                      position: 'absolute', top: '3px',
+                      left: form.hasDoubles ? '22px' : '3px',
+                      width: '18px', height: '18px',
+                      borderRadius: '50%', backgroundColor: 'white',
+                      transition: 'left 0.2s', display: 'block',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                    }} />
+                  </button>
+                </div>
+
+                {form.hasDoubles && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {/* Valor inscripción dobles */}
+                    <div>
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '4px' }}>
+                        Valor inscripción dobles (por pareja)
+                      </label>
+                      <input
+                        type="number"
+                        value={form.doublesValue}
+                        onChange={e => setForm({ ...form, doublesValue: Number(e.target.value) })}
+                        style={{ width: '100%', border: '1px solid #D1D5DB', borderRadius: '8px', padding: '8px 12px', fontSize: '14px', boxSizing: 'border-box' as any }}
+                        placeholder="50000"
+                      />
+                    </div>
+
+                    {/* ¿Dobles incluido para singles? */}
+                    <div style={{ backgroundColor: 'white', border: '1px solid #E5E7EB', borderRadius: '8px', padding: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                        <div>
+                          <p style={{ fontSize: '13px', fontWeight: '500', color: '#374151' }}>
+                            Dobles incluido para jugadores de singles
+                          </p>
+                          <p style={{ fontSize: '11px', color: '#6B7280' }}>
+                            Si está activo, los jugadores de singles no pagan dobles adicional
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setForm({ ...form, doublesIncludedForSingles: !form.doublesIncludedForSingles })}
+                          style={{
+                            width: '44px', height: '24px', borderRadius: '999px',
+                            border: 'none', cursor: 'pointer', position: 'relative',
+                            backgroundColor: form.doublesIncludedForSingles ? '#2D6A2D' : '#D1D5DB',
+                            transition: 'background-color 0.2s', flexShrink: 0,
+                          }}
+                        >
+                          <span style={{
+                            position: 'absolute', top: '3px',
+                            left: form.doublesIncludedForSingles ? '22px' : '3px',
+                            width: '18px', height: '18px', borderRadius: '50%',
+                            backgroundColor: 'white', transition: 'left 0.2s',
+                            display: 'block', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                          }} />
+                        </button>
+                      </div>
+
+                      {/* Si NO está incluido, mostrar valor adicional */}
+                      {!form.doublesIncludedForSingles && (
+                        <div>
+                          <label style={{ display: 'block', fontSize: '12px', color: '#6B7280', marginBottom: '4px' }}>
+                            Valor adicional para jugadores de singles que quieran jugar dobles
+                          </label>
+                          <input
+                            type="number"
+                            value={form.doublesAdditionalValue}
+                            onChange={e => setForm({ ...form, doublesAdditionalValue: Number(e.target.value) })}
+                            style={{ width: '100%', border: '1px solid #D1D5DB', borderRadius: '8px', padding: '8px 12px', fontSize: '13px', boxSizing: 'border-box' as any }}
+                            placeholder="0 = incluido gratis"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Resumen */}
+                    <div style={{ backgroundColor: '#F0FDF4', border: '1px solid #86EFAC', borderRadius: '8px', padding: '10px 12px', fontSize: '12px', color: '#15803D' }}>
+                      💡 Solo dobles: <strong>${form.doublesValue.toLocaleString('es-CO')} COP</strong> por pareja
+                      {form.doublesIncludedForSingles
+                        ? ' · Singles: incluido gratis'
+                        : form.doublesAdditionalValue > 0
+                          ? ` · Singles: +$${form.doublesAdditionalValue.toLocaleString('es-CO')} COP adicional`
+                          : ' · Singles: gratis'
+                      }
+                    </div>
+                  </div>
+                )}
               </div>
 
               {createMutation.isError && (
