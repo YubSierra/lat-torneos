@@ -13,8 +13,6 @@ export class ScheduleController {
     private schedulingService: SchedulingService,
   ) {}
 
-  // POST /tournaments/:id/draw
-  // Generar el sorteo de llaves (solo admins)
   @Post('draw')
   @UseGuards(JwtAuthGuard, RolesGuard)
   generateDraw(
@@ -28,22 +26,24 @@ export class ScheduleController {
     );
   }
 
-  // POST /tournaments/:id/schedule
-  // Generar programación automática (solo admins)
   @Post('schedule')
   @UseGuards(JwtAuthGuard, RolesGuard)
   generateSchedule(
     @Param('tournamentId') tournamentId: string,
-    @Body() body: { date: string },
+    @Body() body: {
+      date: string;
+      courts: { courtId: string; blocks: { start: string; end: string }[] }[];
+      roundDurations: Record<string, number>;
+    },
   ) {
     return this.schedulingService.generateSchedule(
       tournamentId,
       body.date,
+      body.courts,
+      body.roundDurations,
     );
   }
 
-  // GET /tournaments/:id/schedule
-  // Ver programación del torneo (público)
   @Get('schedule')
   getSchedule(@Param('tournamentId') tournamentId: string) {
     return this.schedulingService.getSchedule(tournamentId);

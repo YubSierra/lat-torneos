@@ -11,7 +11,7 @@ const SURFACES = [
   { value: 'grass', label: '🟢 Pasto'   },
 ];
 
-const emptyForm = { name: '', surface: 'clay', location: '' };
+const emptyForm = { name: '', surface: 'clay', sede: '', location: '' };
 
 export default function Courts() {
   const { isAdmin } = useAuth();
@@ -49,6 +49,7 @@ export default function Courts() {
     setForm({
       name: court.name,
       surface: court.surface,
+      sede: court.sede || '',
       location: court.location || '',
     });
     setShowModal(true);
@@ -133,6 +134,11 @@ export default function Courts() {
                 <p className="text-gray-500 text-sm mb-2">
                   {SURFACES.find(s => s.value === court.surface)?.label}
                 </p>
+                {court.sede && (
+                  <p style={{ fontSize: '12px', color: '#6B7280', marginBottom: '4px' }}>
+                    🏟️ {court.sede}
+                  </p>
+                )}
                 {court.location && (
                   <p className="text-gray-400 text-xs mb-3">📍 {court.location}</p>
                 )}
@@ -234,6 +240,21 @@ export default function Courts() {
                     <option key={s.value} value={s.value}>{s.label}</option>
                   ))}
                 </select>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', color: '#374151', marginBottom: '4px' }}>
+                  Sede
+                </label>
+                <input
+                  value={form.sede}
+                  onChange={e => setForm({...form, sede: e.target.value})}
+                  style={{
+                    width: '100%', border: '1px solid #D1D5DB',
+                    borderRadius: '8px', padding: '8px 12px',
+                    fontSize: '14px', boxSizing: 'border-box' as any,
+                  }}
+                  placeholder="Sede María Luisa, Sede Estadio..."
+                />
               </div>
 
               <div>

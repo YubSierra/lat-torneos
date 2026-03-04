@@ -1,15 +1,48 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { Match, MatchStatus } from './match.entity';
 import { UpdateScoreDto } from './dto/update-score.dto';
+import { User } from '../users/user.entity';
 
 @Injectable()
 export class MatchesService {
   constructor(
     @InjectRepository(Match)
     private repo: Repository<Match>,
+    @InjectRepository(User)
+    private userRepo: Repository<User>,
   ) {}
+
+  // ── HELPER: agregar nombres a partidos ──────────
+  private async enrichWithNames(matches: Match[]) {
+    const playerIds = [...new Set([
+      ...matches.map(m => m.player1Id),
+      ...matches.map(m => m.player2Id),
+      ...matches.map(m => m.winnerId),
+    ].filter(Boolean))];
+
+    if (playerIds.length === 0) return matches;
+
+    const users = await this.userRepo.find({
+      where: { id: In(playerIds) },
+      select: ['id', 'nombres', 'apellidos', 'email'],
+    });
+
+    const userMap = new Map(
+      users.map(u => [
+        u.id,
+        `${u.nombres || ''} ${u.apellidos || ''}`.trim() || u.email,
+      ])
+    );
+
+    return matches.map(m => ({
+      ...m,
+      player1Name: userMap.get(m.player1Id) || 'BYE',
+      player2Name: userMap.get(m.player2Id) || 'BYE',
+      winnerName:  userMap.get(m.winnerId)  || null,
+    }));
+  }
 
   // ── BUSCAR UN PARTIDO ───────────────────────────
   async findOne(id: string) {
@@ -18,12 +51,22 @@ export class MatchesService {
     return match;
   }
 
-  // ── LISTAR PARTIDOS DE UN TORNEO ────────────────
+  // ── LISTAR POR TORNEO ───────────────────────────
   async findByTournament(tournamentId: string) {
-    return this.repo.find({
+    const matches = await this.repo.find({
       where: { tournamentId },
       order: { scheduledAt: 'ASC' },
     });
+    return this.enrichWithNames(matches);
+  }
+
+  // ── LISTAR POR CATEGORÍA ────────────────────────
+  async findByCategory(tournamentId: string, category: string) {
+    const matches = await this.repo.find({
+      where: { tournamentId, category },
+      order: { round: 'ASC' },
+    });
+    return this.enrichWithNames(matches);
   }
 
   // ── INICIAR PARTIDO ─────────────────────────────
@@ -36,59 +79,52 @@ export class MatchesService {
   // ── ACTUALIZAR MARCADOR ─────────────────────────
   async updateScore(dto: UpdateScoreDto) {
     const match = await this.findOne(dto.matchId);
+    match.sets1   = dto.sets1;
+    match.sets2   = dto.sets2;
+    match.games1  = dto.games1;
+    match.games2  = dto.games2;
+    match.points1 = dto.points1;
+    match.points2 = dto.points2;
 
-    // Si hay ganador, completar el partido
     if (dto.winnerId) {
       match.winnerId = dto.winnerId;
-      match.status = MatchStatus.COMPLETED;
-    }
-
-    if (dto.status) {
-      match.status = dto.status;
+      match.status   = MatchStatus.COMPLETED;
+    } else {
+      match.status = MatchStatus.LIVE;
     }
 
     return this.repo.save(match);
   }
 
-  // ── WALKOVER (Art. 23 LAT) ──────────────────────
-  // W.O. = 6-0 6-0 automático
-  // El jugador que da W.O. pierde en clasificatorio → descalificado
-  async declareWalkover(matchId: string, winnerId: string) {
-    const match = await this.findOne(matchId);
+  // ── DECLARAR W.O. ───────────────────────────────
+  async declareWalkover(id: string, winnerId: string) {
+    const match    = await this.findOne(id);
     match.winnerId = winnerId;
-    match.status = MatchStatus.WO;
+    match.status   = MatchStatus.WO;
+    match.sets1    = winnerId === match.player1Id ? 2 : 0;
+    match.sets2    = winnerId === match.player2Id ? 2 : 0;
+    match.games1   = winnerId === match.player1Id ? 12 : 0;
+    match.games2   = winnerId === match.player2Id ? 12 : 0;
     return this.repo.save(match);
   }
 
-  // ── RESULTADOS POR CATEGORÍA ────────────────────
-  async getResultsByCategory(tournamentId: string, category: string) {
-    return this.repo.find({
-      where: { tournamentId, category },
-      order: { round: 'ASC', scheduledAt: 'ASC' },
-    });
-  }
-
-  // ── ESTADÍSTICAS DE UN JUGADOR ──────────────────
+  // ── ESTADÍSTICAS DE JUGADOR ─────────────────────
   async getPlayerStats(playerId: string) {
-    const asPlayer1 = await this.repo.find({
-      where: { player1Id: playerId, status: MatchStatus.COMPLETED },
-    });
-    const asPlayer2 = await this.repo.find({
-      where: { player2Id: playerId, status: MatchStatus.COMPLETED },
-    });
+    const asPlayer1 = await this.repo.find({ where: { player1Id: playerId } });
+    const asPlayer2 = await this.repo.find({ where: { player2Id: playerId } });
+    const all = [...asPlayer1, ...asPlayer2];
 
-    const allMatches = [...asPlayer1, ...asPlayer2];
-    const wins = allMatches.filter(m => m.winnerId === playerId).length;
-    const losses = allMatches.length - wins;
+    const completed = all.filter(m => m.status === MatchStatus.COMPLETED);
+    const wins      = completed.filter(m => m.winnerId === playerId);
 
     return {
       playerId,
-      totalMatches: allMatches.length,
-      wins,
-      losses,
-      winRate: allMatches.length > 0
-        ? `${Math.round((wins / allMatches.length) * 100)}%`
-        : '0%',
+      totalMatches: completed.length,
+      wins:         wins.length,
+      losses:       completed.length - wins.length,
+      winRate:      completed.length > 0
+        ? Math.round((wins.length / completed.length) * 100)
+        : 0,
     };
   }
 }

@@ -1,14 +1,15 @@
 import { Entity, PrimaryGeneratedColumn, Column,
-         CreateDateColumn, OneToMany } from 'typeorm';
+         CreateDateColumn } from 'typeorm';
 
 export enum CourtSurface {
-  CLAY  = 'clay',   // Arcilla
-  HARD  = 'hard',   // Dura
-  GRASS = 'grass',  // Pasto
+  CLAY  = 'clay',
+  HARD  = 'hard',
+  GRASS = 'grass',
 }
 
 @Entity('courts')
 export class Court {
+
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
@@ -22,6 +23,12 @@ export class Court {
   })
   surface: CourtSurface;
 
+  // Sede donde está la cancha
+  // Ej: "Sede María Luisa", "Sede Estadio"
+  @Column({ nullable: true })
+  sede: string;
+
+  // Dirección específica de la sede
   @Column({ nullable: true })
   location: string;
 

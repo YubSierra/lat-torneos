@@ -272,10 +272,27 @@ export class RankingsService {
   // ── VER ESCALAFÓN POR CATEGORÍA ─────────────────
   async getRankings(category: string, circuitLine: string) {
     const season = new Date().getFullYear();
-    return this.rankingRepo.find({
+    const rankings = await this.rankingRepo.find({
       where: { category, circuitLine, season },
       order: { position: 'ASC' },
     });
+
+    // Obtener nombres de jugadores
+    const playerIds = rankings.map(r => r.playerId);
+    if (playerIds.length === 0) return [];
+
+    const users = await this.rankingRepo.manager
+      .getRepository('users')
+      .findByIds(playerIds);
+
+    const userMap = new Map(
+      users.map((u: any) => [u.id, `${u.nombres || ''} ${u.apellidos || ''}`.trim() || u.email])
+    );
+
+    return rankings.map(r => ({
+      ...r,
+      playerName: userMap.get(r.playerId) || r.playerId,
+    }));
   }
 
   // ── VER HISTORIAL DE UN JUGADOR ─────────────────

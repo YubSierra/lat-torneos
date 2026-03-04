@@ -22,7 +22,7 @@ export class MatchesController {
     @Param('id') id: string,
     @Param('cat') cat: string,
   ) {
-    return this.matchesService.getResultsByCategory(id, cat);
+    return this.matchesService.findByCategory(id, cat);
   }
 
   // GET /matches/player/:id/stats — estadísticas de un jugador

@@ -105,7 +105,7 @@ export default function Rankings() {
                       </span>
                     </td>
                     <td className="py-3 px-4 font-medium text-lat-dark">
-                      {r.playerId}
+                      {r.playerName || r.playerId}
                     </td>
                     <td className="py-3 px-4 text-gray-600">
                       {r.tournamentsPlayed}

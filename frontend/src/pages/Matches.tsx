@@ -141,7 +141,7 @@ export default function Matches() {
                           <div style={{ flex: 1 }}>
                             <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '2px' }}>Jugador 1</p>
                             <p style={{ fontSize: '14px', fontWeight: '600', color: '#1B3A1B' }}>
-                              {m.player1Id?.slice(0, 8)}...
+                              {m.player1Name || 'BYE'}
                             </p>
                           </div>
 
@@ -165,7 +165,7 @@ export default function Matches() {
                           <div style={{ flex: 1, textAlign: 'right' }}>
                             <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '2px' }}>Jugador 2</p>
                             <p style={{ fontSize: '14px', fontWeight: '600', color: '#1B3A1B' }}>
-                              {m.player2Id?.slice(0, 8)}...
+                              {m.player2Name || 'BYE'}
                             </p>
                           </div>
                         </div>
@@ -231,10 +231,10 @@ export default function Matches() {
                           </span>
                         </td>
                         <td className="py-3 px-4 font-medium text-lat-dark text-xs">
-                          {m.player1Id ? m.player1Id.slice(0, 12) + '...' : 'BYE'}
+                          {m.player1Name || 'BYE'}
                         </td>
                         <td className="py-3 px-4 font-medium text-lat-dark text-xs">
-                          {m.player2Id ? m.player2Id.slice(0, 12) + '...' : 'BYE'}
+                          {m.player2Name || 'BYE'}
                         </td>
                         <td className="py-3 px-4 text-gray-500 text-xs">
                           {m.scheduledAt
@@ -320,16 +320,16 @@ export default function Matches() {
                           </span>
                         </td>
                         <td className="py-3 px-4 text-xs text-gray-600">
-                          {m.player1Id ? m.player1Id.slice(0, 12) + '...' : 'BYE'}
+                          {m.player1Name || 'BYE'}
                         </td>
                         <td className="py-3 px-4 text-xs text-gray-600">
-                          {m.player2Id ? m.player2Id.slice(0, 12) + '...' : 'BYE'}
+                          {m.player2Name || 'BYE'}
                         </td>
                         <td className="py-3 px-4">
                           <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}>
                             <Trophy size={12} color="#2D6A2D" />
                             <span className="font-medium text-lat-green text-xs">
-                              {m.winnerId ? m.winnerId.slice(0, 12) + '...' : '—'}
+                              {m.winnerName || '—'}
                             </span>
                           </span>
                         </td>
@@ -429,12 +429,11 @@ export default function Matches() {
                   borderRadius: '8px', padding: '8px', fontSize: '13px',
                 }}
               >
-                <option value="">Partido en curso...</option>
                 <option value={scoringMatch.player1Id}>
-                  Ganó Jugador 1
+                  Ganó {scoringMatch.player1Name || 'Jugador 1'}
                 </option>
                 <option value={scoringMatch.player2Id}>
-                  Ganó Jugador 2
+                  Ganó {scoringMatch.player2Name || 'Jugador 2'}
                 </option>
               </select>
             </div>
