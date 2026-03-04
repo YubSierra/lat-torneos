@@ -302,7 +302,9 @@ export default function TournamentDetail() {
                 <tbody>
                   {enrollments.map((e: any, i: number) => (
                     <tr key={e.id} className={`border-b border-gray-50 ${i % 2 === 0 ? '' : 'bg-gray-50/50'}`}>
-                      <td className="py-3 px-4 font-medium text-lat-dark text-xs">{e.playerId}</td>
+                      <td className="py-3 px-4 font-medium text-lat-dark text-xs">
+                        {e.playerName || e.playerId}
+                      </td>
                       <td className="py-3 px-4">
                         <span style={{ padding: '2px 8px', borderRadius: '999px', fontSize: '11px', backgroundColor: '#DBEAFE', color: '#1D4ED8' }}>
                           {e.category}
@@ -368,9 +370,9 @@ export default function TournamentDetail() {
                           {m.category}
                         </span>
                       </td>
-                      <td className="py-3 px-4 font-medium text-lat-dark text-xs">{m.player1Id || 'BYE'}</td>
+                      <td className="py-3 px-4 font-medium text-lat-dark text-xs">{m.player1Name || 'BYE'}</td>
                       <td className="py-3 px-4 text-gray-400 text-center">vs</td>
-                      <td className="py-3 px-4 font-medium text-lat-dark text-xs">{m.player2Id || 'BYE'}</td>
+                      <td className="py-3 px-4 font-medium text-lat-dark text-xs">{m.player2Name || 'BYE'}</td>
                       <td className="py-3 px-4">
                         <span style={{
                           padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '500',

@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException,
          NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { Enrollment, EnrollmentStatus } from './enrollment.entity';
 import { CreateEnrollmentDto } from './dto/create-enrollment.dto';
 import { TournamentsService } from '../tournaments/tournaments.service';
@@ -51,10 +51,30 @@ export class EnrollmentsService {
 
   // ── LISTAR POR TORNEO ───────────────────────────
   async findByTournament(tournamentId: string) {
-    return this.repo.find({
+    const enrollments = await this.repo.find({
       where: { tournamentId },
       order: { enrolledAt: 'ASC' },
     });
+
+    if (enrollments.length === 0) return [];
+
+    const playerIds = enrollments.map(e => e.playerId);
+
+    const users = await this.repo.manager
+      .getRepository('users')
+      .find({ where: { id: In(playerIds) } });
+
+    const userMap = new Map(
+      users.map((u: any) => [
+        u.id,
+        `${u.nombres || ''} ${u.apellidos || ''}`.trim() || u.email,
+      ])
+    );
+
+    return enrollments.map(e => ({
+      ...e,
+      playerName: userMap.get(e.playerId) || e.playerId,
+    }));
   }
 
   // ── LISTAR POR JUGADOR ──────────────────────────
