@@ -17,12 +17,17 @@ export class ScheduleController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   generateDraw(
     @Param('tournamentId') tournamentId: string,
-    @Body() body: { category: string; type: TournamentType },
+    @Body() body: {
+      category: string;
+      type: TournamentType;
+      advancingPerGroup?: number;
+    },
   ) {
     return this.drawService.generateDraw(
       tournamentId,
       body.category,
       body.type,
+      body.advancingPerGroup || 1,
     );
   }
 

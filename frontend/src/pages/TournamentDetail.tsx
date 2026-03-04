@@ -25,6 +25,7 @@ export default function TournamentDetail() {
   const [drawType, setDrawType] = useState('elimination');
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<any>(null);
+  const [advancingPerGroup, setAdvancingPerGroup] = useState(1);
 
   const { data: tournament, isLoading } = useQuery({
     queryKey: ['tournament', id],
@@ -44,7 +45,7 @@ export default function TournamentDetail() {
   });
 
   const drawMutation = useMutation({
-    mutationFn: () => tournamentsApi.generateDraw(id!, selectedCategory, drawType),
+    mutationFn: () => tournamentsApi.generateDraw(id!, selectedCategory, drawType, advancingPerGroup),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['matches', id] });
       setActiveTab('matches');
@@ -422,6 +423,32 @@ export default function TournamentDetail() {
               <div style={{ backgroundColor: '#FEFCE8', border: '1px solid #FDE047', borderRadius: '8px', padding: '12px', fontSize: '13px', color: '#92400E' }}>
                 💡 Art. 23 LAT: Si hay menos de 8 jugadores, se usará Round Robin automáticamente. Los BYEs se asignan a las siembras más altas.
               </div>
+              {drawType === 'round_robin' && (
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '4px' }}>
+                    Jugadores que pasan al Main Draw por grupo
+                  </label>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    {[1, 2].map(n => (
+                      <button
+                        key={n}
+                        onClick={() => setAdvancingPerGroup(n)}
+                        style={{
+                          padding: '8px 20px', borderRadius: '8px', border: 'none',
+                          cursor: 'pointer', fontWeight: '600', fontSize: '14px',
+                          backgroundColor: advancingPerGroup === n ? '#2D6A2D' : '#F3F4F6',
+                          color: advancingPerGroup === n ? 'white' : '#374151',
+                        }}
+                      >
+                        {n} {n === 1 ? 'jugador' : 'jugadores'}
+                      </button>
+                    ))}
+                  </div>
+                  <p style={{ fontSize: '12px', color: '#6B7280', marginTop: '4px' }}>
+                    Grupos de 3-4 jugadores · El ganador{advancingPerGroup === 2 ? ' y subcampeón' : ''} de cada grupo pasa al Main Draw
+                  </p>
+                </div>
+              )}
               <button
                 onClick={() => drawMutation.mutate()}
                 disabled={drawMutation.isPending}

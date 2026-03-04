@@ -26,8 +26,8 @@ export const tournamentsApi = {
     return res.data;
   },
 
-  generateDraw: async (id: string, category: string, type: string) => {
-    const res = await api.post(`/tournaments/${id}/draw`, { category, type });
+  generateDraw: async (id: string, category: string, type: string, advancingPerGroup?: number) => {
+    const res = await api.post(`/tournaments/${id}/draw`, { category, type, advancingPerGroup });
     return res.data;
   },
 };

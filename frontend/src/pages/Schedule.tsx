@@ -6,6 +6,7 @@ import { courtsApi } from '../api/courts.api';
 import Sidebar from '../components/Sidebar';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
+import { exportSchedulePdf } from '../utils/exportSchedulePdf';
 
 const ROUNDS = [
   { key: 'R64',  label: 'Ronda 64'     },
@@ -38,6 +39,9 @@ export default function Schedule() {
   const [roundDurations, setRoundDurations]         = useState<Record<string, number>>(DEFAULT_DURATIONS);
   const [scheduleResult, setScheduleResult]         = useState<any>(null);
   const [viewBySede, setViewBySede]                 = useState(true);
+  const [observations, setObservations] = useState('');
+  const [referee, setReferee]           = useState('');
+  const [director, setDirector]         = useState('');
 
   const { data: tournaments = [] } = useQuery({
     queryKey: ['tournaments'],
@@ -185,6 +189,30 @@ export default function Schedule() {
             </div>
           </div>
         </div>
+        <div>
+        <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '4px' }}>
+          Árbitro
+        </label>
+        <input
+          type="text"
+          value={referee}
+          onChange={e => setReferee(e.target.value)}
+          placeholder="Nombre del árbitro..."
+          style={{ border: '1px solid #D1D5DB', borderRadius: '8px', padding: '8px 12px', fontSize: '14px', minWidth: '180px' }}
+        />
+      </div>
+      <div>
+        <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '4px' }}>
+          Director de torneo
+        </label>
+        <input
+          type="text"
+          value={director}
+          onChange={e => setDirector(e.target.value)}
+          placeholder="Nombre del director..."
+          style={{ border: '1px solid #D1D5DB', borderRadius: '8px', padding: '8px 12px', fontSize: '14px', minWidth: '180px' }}
+        />
+      </div>
 
         {selectedTournament && selectedDate && isAdmin && (
           <>
@@ -341,6 +369,28 @@ export default function Schedule() {
                 ))}
               </div>
             </div>
+            {/* Paso 4 — Observaciones */}
+            <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
+              <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#1B3A1B', marginBottom: '4px' }}>
+                4️⃣ Observaciones (opcional)
+              </h2>
+              <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '12px' }}>
+                Se incluirán al pie de la programación
+              </p>
+              <textarea
+                value={observations}
+                onChange={e => setObservations(e.target.value)}
+                placeholder="Ej: Se recomienda llegar 20 minutos antes. Ceremonia de premiación al finalizar la jornada..."
+                rows={3}
+                style={{
+                  width: '100%', border: '1px solid #D1D5DB',
+                  borderRadius: '8px', padding: '10px 12px',
+                  fontSize: '14px', resize: 'vertical',
+                  boxSizing: 'border-box' as any,
+                  fontFamily: 'inherit',
+                }}
+              />
+            </div>
 
             {/* Botón generar */}
             <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
@@ -395,6 +445,47 @@ export default function Schedule() {
                 </div>
               )}
             </div>
+            {generateMutation.isSuccess && scheduleResult && (
+            <div style={{
+              marginTop: '16px', backgroundColor: '#F0FDF4',
+              border: '1px solid #86EFAC', borderRadius: '8px', padding: '14px',
+            }}>
+              <p style={{ fontWeight: '600', color: '#15803D', marginBottom: '8px' }}>
+                ✅ Programación generada exitosamente
+              </p>
+              <div style={{ display: 'flex', gap: '20px', fontSize: '13px', color: '#374151', marginBottom: '12px' }}>
+                <span>📅 {scheduleResult.date}</span>
+                <span>🏟️ {scheduleResult.courtsUsed} canchas</span>
+                <span>✓ {scheduleResult.matchesScheduled} partidos programados</span>
+                {scheduleResult.matchesPending > 0 && (
+                  <span style={{ color: '#92400E' }}>⚠️ {scheduleResult.matchesPending} sin programar</span>
+                )}
+              </div>
+              <button
+                onClick={() => {
+                  const tournament = (tournaments as any[]).find((t: any) => t.id === selectedTournament);
+                  exportSchedulePdf({
+                    tournamentName: tournament?.name || 'Torneo',
+                    date: scheduleResult.date,
+                    city: 'Medellín',
+                    referee,
+                    director,
+                    observations,
+                    schedule: scheduleResult.schedule,
+                  });
+                }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                  backgroundColor: '#1D4ED8', color: 'white',
+                  padding: '10px 20px', borderRadius: '8px',
+                  border: 'none', cursor: 'pointer',
+                  fontSize: '14px', fontWeight: '600',
+                }}
+              >
+                📄 Exportar PDF
+              </button>
+            </div>
+          )}
           </>
         )}
 

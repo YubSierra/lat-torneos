@@ -15,41 +15,182 @@ export class DrawService {
   ) {}
 
   // ── GENERAR DRAW PRINCIPAL ──────────────────────
-  async generateDraw(tournamentId: string, category: string, type: TournamentType) {
-    // 1. Obtener jugadores inscritos y aprobados ordenados por seeding
+  async generateDraw(
+    tournamentId: string,
+    category: string,
+    type: TournamentType,
+    advancingPerGroup: number = 1, // 1 o 2 jugadores por grupo pasan al MD
+  ) {
     const enrollments = await this.enrollmentRepo.find({
-      where: {
-        tournamentId,
-        category,
-        status: EnrollmentStatus.APPROVED,
-      },
+      where: { tournamentId, category, status: EnrollmentStatus.APPROVED },
       order: { seeding: 'ASC' },
     });
 
     const playerCount = enrollments.length;
 
-    // Art. 23: mínimo 6 jugadores
-    if (playerCount < 6) {
+    if (playerCount < 3) {
       throw new Error(
-        `Categoría ${category}: mínimo 6 jugadores requeridos (Art. 23 LAT). ` +
+        `Categoría ${category}: mínimo 3 jugadores requeridos. ` +
         `Actualmente hay ${playerCount}.`
       );
-    }
-
-    // Art. 23: menos de 8 → Round Robin automático
-    if (playerCount < 8 && type === TournamentType.ELIMINATION) {
-      return this.generateRoundRobin(tournamentId, category, enrollments);
     }
 
     switch (type) {
       case TournamentType.ELIMINATION:
         return this.generateElimination(tournamentId, category, enrollments);
       case TournamentType.ROUND_ROBIN:
-        return this.generateRoundRobin(tournamentId, category, enrollments);
+        return this.generateRoundRobinGroups(tournamentId, category, enrollments, advancingPerGroup);
       case TournamentType.MASTER:
         return this.generateMaster(tournamentId, category, enrollments);
       default:
         return this.generateElimination(tournamentId, category, enrollments);
+    }
+  }
+
+  // ── ROUND ROBIN POR GRUPOS ──────────────────────
+  // Grupos de 3 o 4 jugadores, todos contra todos dentro del grupo
+  // Pasan al Main Draw: 1 o 2 por grupo según elija el referee
+  private async generateRoundRobinGroups(
+    tournamentId: string,
+    category: string,
+    enrollments: Enrollment[],
+    advancingPerGroup: number,
+  ) {
+    const players = enrollments.map(e => e.playerId);
+    const totalPlayers = players.length;
+
+    // ── FORMAR GRUPOS DE 3 O 4 ──────────────────
+    const groups = this.formGroups(players, enrollments);
+
+    const matches = [];
+    const groupSummary = [];
+
+    groups.forEach((group, groupIdx) => {
+      const groupLabel = String.fromCharCode(65 + groupIdx); // A, B, C...
+
+      // Todos contra todos dentro del grupo
+      for (let i = 0; i < group.length; i++) {
+        for (let j = i + 1; j < group.length; j++) {
+          matches.push(this.matchRepo.create({
+            tournamentId,
+            category,
+            round: MatchRound.RR,
+            player1Id: group[i],
+            player2Id: group[j],
+            status: MatchStatus.PENDING,
+            seeding1: this.getSeedingForPlayer(group[i], enrollments),
+            seeding2: this.getSeedingForPlayer(group[j], enrollments),
+          }));
+        }
+      }
+
+      groupSummary.push({
+        group: `Grupo ${groupLabel}`,
+        players: group.length,
+        matches: (group.length * (group.length - 1)) / 2,
+        advancing: advancingPerGroup,
+      });
+    });
+
+    await this.matchRepo.save(matches);
+
+    // Calcular cuántos pasan al Main Draw
+    const totalAdvancing = groups.reduce((sum, g) => {
+      return sum + Math.min(advancingPerGroup, g.length);
+    }, 0);
+
+    return {
+      type: 'round_robin_groups',
+      totalPlayers,
+      totalGroups: groups.length,
+      advancingPerGroup,
+      totalAdvancingToMainDraw: totalAdvancing,
+      totalMatches: matches.length,
+      groups: groupSummary,
+      nextStep: `Al terminar los grupos, ${totalAdvancing} jugadores pasan al Main Draw de eliminación directa`,
+    };
+  }
+
+  // ── FORMAR GRUPOS DE 3 O 4 ──────────────────────
+  // Lógica: preferir grupos de 4, si sobran 1→un grupo de 3, si sobran 2→dos de 3 o ajustar
+  private formGroups(players: string[], enrollments: Enrollment[]): string[][] {
+    const total = players.length;
+    const groups: string[][] = [];
+
+    // Determinar número de grupos y tamaño
+    let numGroups: number;
+    let groupSize: number;
+
+    if (total <= 4) {
+      // Un solo grupo
+      numGroups = 1;
+      groupSize = total;
+    } else if (total <= 6) {
+      // 2 grupos
+      numGroups = 2;
+      groupSize = Math.ceil(total / 2);
+    } else {
+      // Grupos de 4 preferiblemente
+      numGroups = Math.ceil(total / 4);
+      groupSize = 4;
+    }
+
+    // Inicializar grupos vacíos
+    for (let i = 0; i < numGroups; i++) groups.push([]);
+
+    // Distribuir siembras primero: siembra 1 → grupo A, siembra 2 → grupo B, etc.
+    const seeded   = enrollments.filter(e => e.seeding).sort((a, b) => a.seeding - b.seeding);
+    const unseeded = players.filter(p => !enrollments.find(e => e.playerId === p && e.seeding));
+
+    // Siembras: una por grupo en orden serpentina
+    seeded.forEach((e, idx) => {
+      const groupIdx = idx % numGroups;
+      if (groups[groupIdx].length < (groupSize + 1)) {
+        groups[groupIdx].push(e.playerId);
+      } else {
+        // Si el grupo está lleno, buscar el siguiente disponible
+        const available = groups.findIndex(g => g.length < groupSize);
+        if (available >= 0) groups[available].push(e.playerId);
+      }
+    });
+
+    // Mezclar los no sembrados y distribuirlos equitativamente
+    const shuffled = this.shuffle([...unseeded]);
+    shuffled.forEach(playerId => {
+      // Buscar el grupo con menos jugadores que aún tenga espacio
+      const target = groups
+        .map((g, i) => ({ i, len: g.length }))
+        .filter(({ len }) => len < groupSize + 1)
+        .sort((a, b) => a.len - b.len)[0];
+
+      if (target) groups[target.i].push(playerId);
+    });
+
+    // Balancear: si algún grupo tiene 5+ jugadores, mover al siguiente
+    this.balanceGroups(groups);
+
+    return groups.filter(g => g.length > 0);
+  }
+
+  // Balancear grupos para que ninguno tenga más de 4
+  private balanceGroups(groups: string[][]) {
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (let i = 0; i < groups.length; i++) {
+        if (groups[i].length > 4) {
+          // Buscar grupo con menos de 4
+          const target = groups.findIndex((g, j) => j !== i && g.length < 4);
+          if (target >= 0) {
+            groups[target].push(groups[i].pop()!);
+            changed = true;
+          } else {
+            // Crear nuevo grupo
+            groups.push([groups[i].pop()!]);
+            changed = true;
+          }
+        }
+      }
     }
   }
 
@@ -60,71 +201,49 @@ export class DrawService {
     enrollments: Enrollment[],
   ) {
     const playerCount = enrollments.length;
+    const drawSize    = this.nextPowerOfTwo(playerCount);
+    const byeCount    = drawSize - playerCount;
+    const firstRound  = this.getFirstRound(drawSize);
+    const players     = [...enrollments.map(e => e.playerId)];
 
-    // Calcular el tamaño del cuadro (siguiente potencia de 2)
-    const drawSize = this.nextPowerOfTwo(playerCount);
+    for (let i = 0; i < byeCount; i++) players.push('BYE');
 
-    // Calcular cuántos BYEs se necesitan
-    const byeCount = drawSize - playerCount;
-
-    // Determinar la ronda inicial según el tamaño del cuadro
-    const firstRound = this.getFirstRound(drawSize);
-
-    // Construir el array de participantes con BYEs
-    // Los BYEs van al final → los jugadores mejor rankeados los reciben
-    const players = [...enrollments.map(e => e.playerId)];
-
-    // Llenar con BYEs hasta completar el cuadro
-    for (let i = 0; i < byeCount; i++) {
-      players.push('BYE');
-    }
-
-    // Distribuir siembras: 1 arriba, 2 abajo, 3-4 sorteados, etc.
-    const seededPlayers = this.seedPlayers(players, enrollments);
-
-    // Generar los partidos de la primera ronda
+    const seeded = this.seedPlayers(players, enrollments);
     const matches = [];
-    for (let i = 0; i < drawSize; i += 2) {
-      const p1 = seededPlayers[i];
-      const p2 = seededPlayers[i + 1];
 
-      // Si alguno es BYE → el otro pasa automáticamente
+    for (let i = 0; i < drawSize; i += 2) {
+      const p1 = seeded[i];
+      const p2 = seeded[i + 1];
+
       if (p1 === 'BYE' || p2 === 'BYE') {
         const winner = p1 === 'BYE' ? p2 : p1;
-        const match = this.matchRepo.create({
-          tournamentId,
-          category,
+        matches.push(this.matchRepo.create({
+          tournamentId, category,
           round: firstRound,
           player1Id: p1 === 'BYE' ? null : p1,
           player2Id: p2 === 'BYE' ? null : p2,
           winnerId: winner,
-          status: MatchStatus.COMPLETED, // BYE = partido completado automáticamente
+          status: MatchStatus.COMPLETED,
           seeding1: this.getSeedingForPlayer(p1, enrollments),
           seeding2: this.getSeedingForPlayer(p2, enrollments),
-        });
-        matches.push(match);
+        }));
       } else {
-        const match = this.matchRepo.create({
-          tournamentId,
-          category,
+        matches.push(this.matchRepo.create({
+          tournamentId, category,
           round: firstRound,
           player1Id: p1,
           player2Id: p2,
           status: MatchStatus.PENDING,
           seeding1: this.getSeedingForPlayer(p1, enrollments),
           seeding2: this.getSeedingForPlayer(p2, enrollments),
-        });
-        matches.push(match);
+        }));
       }
     }
 
     await this.matchRepo.save(matches);
 
     return {
-      drawSize,
-      playerCount,
-      byeCount,
-      firstRound,
+      drawSize, playerCount, byeCount, firstRound,
       matches: matches.length,
       byes: byeCount > 0
         ? `${byeCount} BYEs asignados a las siembras más altas`
@@ -132,45 +251,7 @@ export class DrawService {
     };
   }
 
-  // ── ROUND ROBIN ─────────────────────────────────
-  private async generateRoundRobin(
-    tournamentId: string,
-    category: string,
-    enrollments: Enrollment[],
-  ) {
-    const players = enrollments.map(e => e.playerId);
-    const matches = [];
-
-    // Algoritmo: cada jugador juega contra todos los demás
-    for (let i = 0; i < players.length; i++) {
-      for (let j = i + 1; j < players.length; j++) {
-        const match = this.matchRepo.create({
-          tournamentId,
-          category,
-          round: MatchRound.RR,
-          player1Id: players[i],
-          player2Id: players[j],
-          status: MatchStatus.PENDING,
-        });
-        matches.push(match);
-      }
-    }
-
-    await this.matchRepo.save(matches);
-
-    return {
-      type: 'round_robin',
-      playerCount: players.length,
-      totalMatches: matches.length,
-      // Fórmula: n * (n-1) / 2
-      formula: `${players.length} * (${players.length} - 1) / 2 = ${matches.length} partidos`,
-    };
-  }
-
   // ── TORNEO MÁSTER LAT ───────────────────────────
-  // Art. 5: 2 grupos Round Robin + eliminatoria
-  // Siembra 1 → Grupo A, Siembra 2 → Grupo B
-  // Siembras 3-4 sorteadas, resto sorteados de a 1 en cada grupo
   private async generateMaster(
     tournamentId: string,
     category: string,
@@ -184,28 +265,20 @@ export class DrawService {
     const groupA: string[] = [];
     const groupB: string[] = [];
 
-    // Siembra 1 → Grupo A (Art. 5)
-    groupA.push(players[0]);
-    // Siembra 2 → Grupo B (Art. 5)
-    groupB.push(players[1]);
+    groupA.push(players[0]); // Siembra 1 → Grupo A
+    groupB.push(players[1]); // Siembra 2 → Grupo B
 
-    // Siembras 3 y 4 → sorteo entre grupos
     if (players[2]) {
       const rand = Math.random() < 0.5;
       groupA.push(rand ? players[2] : players[3] || players[2]);
       groupB.push(rand ? players[3] || players[2] : players[2]);
     }
 
-    // Resto → alternar entre grupos
     for (let i = 4; i < players.length; i++) {
-      if (groupA.length <= groupB.length) {
-        groupA.push(players[i]);
-      } else {
-        groupB.push(players[i]);
-      }
+      if (groupA.length <= groupB.length) groupA.push(players[i]);
+      else groupB.push(players[i]);
     }
 
-    // Generar partidos Round Robin para cada grupo
     const matches = [];
 
     for (let i = 0; i < groupA.length; i++) {
@@ -245,38 +318,37 @@ export class DrawService {
 
   // ── HELPERS ─────────────────────────────────────
 
-  // Siguiente potencia de 2 (8→8, 9→16, 17→32)
+  private shuffle<T>(arr: T[]): T[] {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+
   private nextPowerOfTwo(n: number): number {
     let power = 1;
     while (power < n) power *= 2;
     return power;
   }
 
-  // Ronda inicial según tamaño del cuadro
   private getFirstRound(drawSize: number): MatchRound {
     const rounds = {
-      64: MatchRound.R64,
-      32: MatchRound.R32,
-      16: MatchRound.R16,
-      8:  MatchRound.QF,
+      64: MatchRound.R64, 32: MatchRound.R32,
+      16: MatchRound.R16, 8:  MatchRound.QF,
     };
     return rounds[drawSize] || MatchRound.R32;
   }
 
-  // Distribuir siembras en el cuadro
-  // Siembra 1 arriba, siembra 2 abajo, resto alternados
   private seedPlayers(players: string[], enrollments: Enrollment[]): string[] {
-    const seeded = new Array(players.length).fill(null);
-    const unseeded = players.filter(p => p === 'BYE' ||
-      !enrollments.find(e => e.playerId === p && e.seeding));
+    const seeded   = new Array(players.length).fill(null);
+    const unseeded = players.filter(p =>
+      p === 'BYE' || !enrollments.find(e => e.playerId === p && e.seeding)
+    );
 
-    // Siembra 1 → posición 0 (arriba del cuadro)
     if (enrollments[0]) seeded[0] = enrollments[0].playerId;
-
-    // Siembra 2 → última posición (abajo del cuadro)
     if (enrollments[1]) seeded[players.length - 1] = enrollments[1].playerId;
 
-    // Siembras 3-4 → mitades del cuadro (sorteadas)
     if (enrollments[2]) {
       const mid = players.length / 2;
       seeded[Math.random() < 0.5 ? mid : mid - 1] = enrollments[2].playerId;
@@ -287,7 +359,6 @@ export class DrawService {
       seeded[pos] = enrollments[3].playerId;
     }
 
-    // Llenar posiciones vacías con el resto
     let idx = 0;
     for (let i = 0; i < seeded.length; i++) {
       if (!seeded[i]) {
@@ -299,10 +370,8 @@ export class DrawService {
     return seeded;
   }
 
-  // Obtener el número de siembra de un jugador
   private getSeedingForPlayer(playerId: string, enrollments: Enrollment[]): number {
-    if (playerId === 'BYE') return null;
-    const enrollment = enrollments.find(e => e.playerId === playerId);
-    return enrollment?.seeding || null;
+    if (!playerId || playerId === 'BYE') return null;
+    return enrollments.find(e => e.playerId === playerId)?.seeding || null;
   }
 }
