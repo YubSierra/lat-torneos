@@ -48,7 +48,7 @@ export function exportSchedulePdf(options: ExportOptions) {
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(20);
   doc.setFont('helvetica', 'bold');
-  doc.text('🎾 LAT', 12, 14);
+  doc.text('LAT', 12, 14);
 
   // Título torneo
   doc.setFontSize(13);

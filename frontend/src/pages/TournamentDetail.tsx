@@ -7,6 +7,7 @@ import { enrollmentsApi } from '../api/enrollments.api';
 import { matchesApi } from '../api/matches.api';
 import { useAuth } from '../context/AuthContext';
 import Sidebar from '../components/Sidebar';
+import { exportBracketPdf } from '../utils/exportBracketPdf';
 
 const CATEGORIES = ['INTERMEDIA', 'SEGUNDA', 'TERCERA', 'CUARTA', 'QUINTA'];
 
@@ -20,7 +21,7 @@ export default function TournamentDetail() {
   const { id } = useParams<{ id: string }>();
   const { isAdmin } = useAuth();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'info' | 'enrollments' | 'matches' | 'draw'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'enrollments' | 'matches' | 'draw' | 'bracket'>('info');
   const [selectedCategory, setSelectedCategory] = useState('TERCERA');
   const [drawType, setDrawType] = useState('elimination');
   const [importing, setImporting] = useState(false);
@@ -42,6 +43,12 @@ export default function TournamentDetail() {
     queryKey: ['matches', id],
     queryFn: () => matchesApi.getByTournament(id!),
     enabled: activeTab === 'matches',
+  });
+
+  const { data: bracketMatches = [] } = useQuery({
+    queryKey: ['matches', id],
+    queryFn: () => matchesApi.getByTournament(id!),
+    enabled: !!id,
   });
 
   const drawMutation = useMutation({
@@ -181,6 +188,7 @@ export default function TournamentDetail() {
             { key: 'enrollments', icon: Users,    label: 'Inscritos'    },
             { key: 'matches',     icon: Trophy,   label: 'Partidos'     },
             { key: 'draw',        icon: Calendar, label: 'Generar Draw' },
+            { key: 'bracket',     icon: Trophy,   label: 'Cuadro'       },
           ].map(({ key, icon: Icon, label }) => (
             <button
               key={key}
@@ -474,6 +482,176 @@ export default function TournamentDetail() {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Tab: Cuadro / Main Draw */}
+        {activeTab === 'bracket' && (
+          <div className="bg-white rounded-xl shadow-sm p-6">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+              <h2 className="text-lg font-bold text-lat-dark">Cuadro de Llaves</h2>
+              <button
+                onClick={() => {
+                  exportBracketPdf({
+                    tournamentName: tournament?.name || 'Torneo',
+                    matches: bracketMatches,
+                  });
+                }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                  backgroundColor: '#1D4ED8', color: 'white',
+                  padding: '8px 16px', borderRadius: '8px',
+                  border: 'none', cursor: 'pointer',
+                  fontSize: '13px', fontWeight: '600',
+                }}
+              >
+                📄 Exportar PDF
+              </button>
+            </div>
+
+            {bracketMatches.length === 0 ? (
+              <p className="text-gray-400 text-center py-8">No hay partidos generados aún.</p>
+            ) : (
+              (() => {
+                // Agrupar por categoría y ronda
+                const byCategory: Record<string, Record<string, any[]>> = {};
+                (bracketMatches as any[]).forEach((m: any) => {
+                  if (!byCategory[m.category]) byCategory[m.category] = {};
+                  if (!byCategory[m.category][m.round]) byCategory[m.category][m.round] = [];
+                  byCategory[m.category][m.round].push(m);
+                });
+
+                const ROUND_ORDER = ['R64','R32','R16','QF','SF','F','RR','RR_A','RR_B','SF_M','F_M'];
+                const ROUND_LABELS_MAP: Record<string,string> = {
+                  R64:'Ronda 64', R32:'Ronda 32', R16:'Ronda 16',
+                  QF:'Cuartos', SF:'Semifinal', F:'Final',
+                  RR:'Round Robin', RR_A:'Grupo A', RR_B:'Grupo B',
+                  SF_M:'SF Máster', F_M:'Final Máster',
+                };
+
+                return Object.entries(byCategory).map(([category, rounds]) => (
+                  <div key={category} style={{ marginBottom: '32px' }}>
+                    {/* Header categoría */}
+                    <div style={{
+                      backgroundColor: '#1B3A1B', color: 'white',
+                      borderRadius: '8px', padding: '10px 16px',
+                      marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px',
+                    }}>
+                      <span style={{ fontWeight: '700', fontSize: '15px' }}>🎾 {category}</span>
+                    </div>
+
+                    {/* Bracket visual por rondas */}
+                    <div style={{ display: 'flex', gap: '0', overflowX: 'auto', paddingBottom: '8px' }}>
+                      {ROUND_ORDER.filter(r => rounds[r]).map((round) => (
+                        <div key={round} style={{ minWidth: '200px', flex: '0 0 200px' }}>
+                          {/* Header ronda */}
+                          <div style={{
+                            backgroundColor: '#F0FDF4', border: '1px solid #86EFAC',
+                            borderRadius: '6px', padding: '6px 10px',
+                            marginBottom: '8px', marginRight: '8px',
+                            textAlign: 'center',
+                          }}>
+                            <span style={{ fontSize: '12px', fontWeight: '700', color: '#15803D' }}>
+                              {ROUND_LABELS_MAP[round] || round}
+                            </span>
+                            <span style={{ fontSize: '11px', color: '#6B7280', marginLeft: '6px' }}>
+                              ({rounds[round].length} partidos)
+                            </span>
+                          </div>
+
+                          {/* Partidos de esta ronda */}
+                          {rounds[round].map((m: any) => (
+                            <div key={m.id} style={{
+                              border: `2px solid ${m.status === 'completed' ? '#86EFAC' : m.status === 'live' ? '#FCA5A5' : '#E5E7EB'}`,
+                              borderRadius: '8px', marginBottom: '8px', marginRight: '8px',
+                              overflow: 'hidden', backgroundColor: 'white',
+                              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                            }}>
+                              {/* Jugador 1 */}
+                              <div style={{
+                                padding: '8px 10px',
+                                backgroundColor: m.winnerId === m.player1Id ? '#F0FDF4' : 'white',
+                                borderBottom: '1px solid #F3F4F6',
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                              }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  {m.seeding1 && (
+                                    <span style={{
+                                      backgroundColor: '#FEF3C7', color: '#92400E',
+                                      borderRadius: '999px', padding: '1px 5px',
+                                      fontSize: '10px', fontWeight: '700',
+                                    }}>
+                                      [{m.seeding1}]
+                                    </span>
+                                  )}
+                                  <span style={{
+                                    fontSize: '12px', fontWeight: m.winnerId === m.player1Id ? '700' : '400',
+                                    color: m.player1Id ? '#1B3A1B' : '#9CA3AF',
+                                  }}>
+                                    {m.player1Name || 'BYE'}
+                                  </span>
+                                </div>
+                                {m.winnerId === m.player1Id && (
+                                  <span style={{ color: '#15803D', fontSize: '12px' }}>✓</span>
+                                )}
+                              </div>
+
+                              {/* Jugador 2 */}
+                              <div style={{
+                                padding: '8px 10px',
+                                backgroundColor: m.winnerId === m.player2Id ? '#F0FDF4' : 'white',
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                              }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  {m.seeding2 && (
+                                    <span style={{
+                                      backgroundColor: '#FEF3C7', color: '#92400E',
+                                      borderRadius: '999px', padding: '1px 5px',
+                                      fontSize: '10px', fontWeight: '700',
+                                    }}>
+                                      [{m.seeding2}]
+                                    </span>
+                                  )}
+                                  <span style={{
+                                    fontSize: '12px', fontWeight: m.winnerId === m.player2Id ? '700' : '400',
+                                    color: m.player2Id ? '#1B3A1B' : '#9CA3AF',
+                                  }}>
+                                    {m.player2Name || 'BYE'}
+                                  </span>
+                                </div>
+                                {m.winnerId === m.player2Id && (
+                                  <span style={{ color: '#15803D', fontSize: '12px' }}>✓</span>
+                                )}
+                              </div>
+
+                              {/* Estado */}
+                              <div style={{
+                                padding: '3px 10px',
+                                backgroundColor: '#F9FAFB',
+                                borderTop: '1px solid #F3F4F6',
+                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                              }}>
+                                <span style={{ fontSize: '10px', color: '#6B7280' }}>
+                                  {m.scheduledAt
+                                    ? new Date(m.scheduledAt).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
+                                    : 'Sin programar'}
+                                </span>
+                                <span style={{
+                                  fontSize: '10px', fontWeight: '600',
+                                  color: m.status === 'completed' ? '#15803D' : m.status === 'live' ? '#DC2626' : '#92400E',
+                                }}>
+                                  {m.status === 'completed' ? '✓ Finalizado' : m.status === 'live' ? '🔴 En vivo' : '⏳ Pendiente'}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ));
+              })()
+            )}
           </div>
         )}
       </main>

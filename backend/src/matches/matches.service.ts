@@ -89,11 +89,14 @@ export class MatchesService {
     if (dto.winnerId) {
       match.winnerId = dto.winnerId;
       match.status   = MatchStatus.COMPLETED;
+      await this.repo.save(match);
+      await this.advanceWinner(match);
     } else {
       match.status = MatchStatus.LIVE;
+      await this.repo.save(match);
     }
 
-    return this.repo.save(match);
+    return match;
   }
 
   // ── DECLARAR W.O. ───────────────────────────────
@@ -105,7 +108,9 @@ export class MatchesService {
     match.sets2    = winnerId === match.player2Id ? 2 : 0;
     match.games1   = winnerId === match.player1Id ? 12 : 0;
     match.games2   = winnerId === match.player2Id ? 12 : 0;
-    return this.repo.save(match);
+    await this.repo.save(match);
+    await this.advanceWinner(match);
+    return match;
   }
 
   // ── ESTADÍSTICAS DE JUGADOR ─────────────────────
@@ -126,5 +131,91 @@ export class MatchesService {
         ? Math.round((wins.length / completed.length) * 100)
         : 0,
     };
+  }
+
+  // ── AVANCE AUTOMÁTICO AL SIGUIENTE PARTIDO ──────
+  private async advanceWinner(completedMatch: Match) {
+    if (!completedMatch.winnerId) return;
+
+    const ROUND_PROGRESSION: Record<string, string> = {
+      R64:  'R32',
+      R32:  'R16',
+      R16:  'QF',
+      QF:   'SF',
+      SF:   'F',
+      RR:   'QF',
+      RR_A: 'SF_M',
+      RR_B: 'SF_M',
+      SF_M: 'F_M',
+    };
+
+    const nextRound = ROUND_PROGRESSION[completedMatch.round];
+    if (!nextRound) return;
+
+    const { tournamentId, category } = completedMatch;
+
+    const completedInRound = await this.repo.find({
+      where: { tournamentId, category, round: completedMatch.round as any, status: MatchStatus.COMPLETED },
+      order: { createdAt: 'ASC' },
+    });
+
+    const completedWO = await this.repo.find({
+      where: { tournamentId, category, round: completedMatch.round as any, status: MatchStatus.WO },
+      order: { createdAt: 'ASC' },
+    });
+
+    const allCompleted = [...completedInRound, ...completedWO]
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+    const allInRound = await this.repo.find({
+      where: { tournamentId, category, round: completedMatch.round as any },
+    });
+
+    if (!allInRound || allInRound.length === 0) return;
+
+    const matchIndex = allInRound
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+      .findIndex(m => m.id === completedMatch.id);
+
+    if (matchIndex === -1) return;
+
+    const pairIndex  = Math.floor(matchIndex / 2);
+    const pairOffset = matchIndex % 2;
+
+    const sortedRound = allInRound.sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+    const partner = sortedRound[pairOffset === 0 ? matchIndex + 1 : matchIndex - 1];
+
+    const nextRoundMatches = await this.repo.find({
+      where: { tournamentId, category, round: nextRound as any },
+      order: { createdAt: 'ASC' },
+    });
+
+    const existingNext = nextRoundMatches[pairIndex];
+
+    if (existingNext) {
+      if (!existingNext.player1Id) {
+        existingNext.player1Id = completedMatch.winnerId;
+        await this.repo.save(existingNext);
+      } else if (!existingNext.player2Id) {
+        existingNext.player2Id = completedMatch.winnerId;
+        await this.repo.save(existingNext);
+      }
+    } else {
+      const partnerCompleted = partner &&
+        (partner.status === MatchStatus.COMPLETED || partner.status === MatchStatus.WO);
+
+      const newMatch = this.repo.create({
+        tournamentId,
+        category,
+        round: nextRound as any,
+        player1Id: completedMatch.winnerId,
+        player2Id: partnerCompleted ? partner.winnerId : null,
+        status: MatchStatus.PENDING,
+      });
+
+      await this.repo.save(newMatch);
+    }
   }
 }
