@@ -55,4 +55,30 @@ export class MatchesController {
   ) {
     return this.matchesService.declareWalkover(id, body.winnerId);
   }
+
+  // GET /matches/tournament/:id/rr-status/:category — estado del RR por grupo
+  @Get('tournament/:id/rr-status/:category')
+  getRRStatus(
+    @Param('id') id: string,
+    @Param('category') category: string,
+  ) {
+    return this.matchesService.getRRGroupStatus(id, category);
+  }
+
+  // POST /matches/tournament/:id/generate-main-draw — generar Main Draw desde RR
+  @Post('tournament/:id/generate-main-draw')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  generateMainDraw(
+    @Param('id') id: string,
+    @Body() body: {
+      category: string;
+      advancingPerGroup: number;
+    },
+  ) {
+    return this.matchesService.generateMainDrawFromRR(
+      id,
+      body.category,
+      body.advancingPerGroup || 1,
+    );
+  }
 }

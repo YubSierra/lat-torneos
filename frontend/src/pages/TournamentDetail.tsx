@@ -5,9 +5,10 @@ import { Users, Trophy, Calendar, Settings } from 'lucide-react';
 import { tournamentsApi } from '../api/tournaments.api';
 import { enrollmentsApi } from '../api/enrollments.api';
 import { matchesApi } from '../api/matches.api';
+import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import Sidebar from '../components/Sidebar';
-import GameFormatConfig, { GameFormat, DEFAULT_FORMAT, formatDescription } from '../components/GameFormatConfig';
+import GameFormatConfig, { type GameFormat, DEFAULT_FORMAT, formatDescription } from '../components/GameFormatConfig';
 import { exportBracketPdf } from '../utils/exportBracketPdf';
 
 const CATEGORIES = ['INTERMEDIA', 'SEGUNDA', 'TERCERA', 'CUARTA', 'QUINTA'];
@@ -33,6 +34,10 @@ export default function TournamentDetail() {
     default: { ...DEFAULT_FORMAT },
   });
   const [expandedRound, setExpandedRound] = useState<string | null>(null);
+  const [rrStatus, setRrStatus] = useState<any>(null);
+  const [showMainDrawModal, setShowMainDrawModal] = useState(false);
+  const [mdCategory, setMdCategory] = useState('');
+  const [mdAdvancing, setMdAdvancing] = useState(1);
 
   const { data: tournament, isLoading } = useQuery({
     queryKey: ['tournament', id],
@@ -68,6 +73,20 @@ export default function TournamentDetail() {
   const updateStatusMutation = useMutation({
     mutationFn: (status: string) => tournamentsApi.update(id!, { status }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tournament', id] }),
+  });
+
+  const generateMainDrawMutation = useMutation({
+    mutationFn: async () => {
+      const res = await api.post(`/matches/tournament/${id}/generate-main-draw`, {
+        category: mdCategory,
+        advancingPerGroup: mdAdvancing,
+      });
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['matches', id] });
+      setShowMainDrawModal(false);
+    },
   });
 
   const handleImportCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -630,29 +649,56 @@ export default function TournamentDetail() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
               <h2 className="text-lg font-bold text-lat-dark">Cuadro de Llaves</h2>
               <button
-                onClick={() => {
-                  exportBracketPdf({
-                    tournamentName: tournament?.name || 'Torneo',
-                    matches: bracketMatches,
-                  });
-                }}
+                onClick={() => exportBracketPdf({ tournamentName: tournament?.name || 'Torneo', matches: bracketMatches })}
                 style={{
                   display: 'flex', alignItems: 'center', gap: '8px',
                   backgroundColor: '#1D4ED8', color: 'white',
                   padding: '8px 16px', borderRadius: '8px',
-                  border: 'none', cursor: 'pointer',
-                  fontSize: '13px', fontWeight: '600',
+                  border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: '600',
                 }}
               >
                 📄 Exportar PDF
               </button>
+              {isAdmin && (
+                <button
+                  onClick={async () => {
+                    // Verificar si hay RR completo
+                    const categories = [...new Set((bracketMatches as any[]).map((m: any) => m.category))];
+                    const rrCats = categories.filter(c =>
+                      (bracketMatches as any[]).some((m: any) => m.category === c && m.round === 'RR')
+                    );
+                    if (rrCats.length > 0) {
+                      setMdCategory(rrCats[0]);
+                      const res = await api.get(`/matches/tournament/${id}/rr-status/${rrCats[0]}`);
+                      setRrStatus(res.data);
+                      setShowMainDrawModal(true);
+                    }
+                  }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '8px',
+                    backgroundColor: '#2D6A2D', color: 'white',
+                    padding: '8px 16px', borderRadius: '8px',
+                    border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: '600',
+                  }}
+                >
+                  🏆 Generar Main Draw
+                </button>
+              )}
             </div>
 
             {bracketMatches.length === 0 ? (
               <p className="text-gray-400 text-center py-8">No hay partidos generados aún.</p>
             ) : (
               (() => {
-                // Agrupar por categoría y ronda
+                const ROUND_ORDER = ['RR','RR_A','RR_B','R64','R32','R16','QF','SF','F','SF_M','F_M'];
+                const ROUND_LABELS_MAP: Record<string,string> = {
+                  RR:'Round Robin', RR_A:'Grupo A', RR_B:'Grupo B',
+                  R64:'Ronda 64', R32:'Ronda 32', R16:'Ronda 16',
+                  QF:'Cuartos de Final', SF:'Semifinal', F:'Final',
+                  SF_M:'SF Máster', F_M:'Final Máster',
+                };
+
+                // Agrupar por categoría → ronda
                 const byCategory: Record<string, Record<string, any[]>> = {};
                 (bracketMatches as any[]).forEach((m: any) => {
                   if (!byCategory[m.category]) byCategory[m.category] = {};
@@ -660,177 +706,348 @@ export default function TournamentDetail() {
                   byCategory[m.category][m.round].push(m);
                 });
 
-                const ROUND_ORDER = ['R64','R32','R16','QF','SF','F','RR','RR_A','RR_B','SF_M','F_M'];
-                const ROUND_LABELS_MAP: Record<string,string> = {
-                  R64:'Ronda 64', R32:'Ronda 32', R16:'Ronda 16',
-                  QF:'Cuartos', SF:'Semifinal', F:'Final',
-                  RR:'Round Robin', RR_A:'Grupo A', RR_B:'Grupo B',
-                  SF_M:'SF Máster', F_M:'Final Máster',
-                };
+                return Object.entries(byCategory).map(([category, rounds]) => {
+                  const hasRR   = Object.keys(rounds).some(r => r.startsWith('RR'));
+                  const hasElim = Object.keys(rounds).some(r => !r.startsWith('RR'));
 
-                const renderMatch = (m: any) => (
-                  <div key={m.id} style={{
-                    border: `2px solid ${m.status === 'completed' ? '#86EFAC' : m.status === 'live' ? '#FCA5A5' : '#E5E7EB'}`,
-                    borderRadius: '8px', marginBottom: '8px', marginRight: '8px',
-                    overflow: 'hidden', backgroundColor: 'white',
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-                  }}>
-                    {/* Jugador 1 */}
-                    <div style={{
-                      padding: '8px 10px',
-                      backgroundColor: m.winnerId === m.player1Id ? '#F0FDF4' : 'white',
-                      borderBottom: '1px solid #F3F4F6',
-                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        {m.seeding1 && (
-                          <span style={{
-                            backgroundColor: '#FEF3C7', color: '#92400E',
-                            borderRadius: '999px', padding: '1px 5px',
-                            fontSize: '10px', fontWeight: '700',
-                          }}>
-                            [{m.seeding1}]
-                          </span>
-                        )}
-                        <span style={{
-                          fontSize: '12px', fontWeight: m.winnerId === m.player1Id ? '700' : '400',
-                          color: m.player1Id ? '#1B3A1B' : '#9CA3AF',
-                        }}>
-                          {m.player1Name || 'BYE'}
-                        </span>
-                      </div>
-                      {m.winnerId === m.player1Id && (
-                        <span style={{ color: '#15803D', fontSize: '12px' }}>✓</span>
-                      )}
-                    </div>
-
-                    {/* Jugador 2 */}
-                    <div style={{
-                      padding: '8px 10px',
-                      backgroundColor: m.winnerId === m.player2Id ? '#F0FDF4' : 'white',
-                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        {m.seeding2 && (
-                          <span style={{
-                            backgroundColor: '#FEF3C7', color: '#92400E',
-                            borderRadius: '999px', padding: '1px 5px',
-                            fontSize: '10px', fontWeight: '700',
-                          }}>
-                            [{m.seeding2}]
-                          </span>
-                        )}
-                        <span style={{
-                          fontSize: '12px', fontWeight: m.winnerId === m.player2Id ? '700' : '400',
-                          color: m.player2Id ? '#1B3A1B' : '#9CA3AF',
-                        }}>
-                          {m.player2Name || 'BYE'}
-                        </span>
-                      </div>
-                      {m.winnerId === m.player2Id && (
-                        <span style={{ color: '#15803D', fontSize: '12px' }}>✓</span>
-                      )}
-                    </div>
-
-                    {/* Estado */}
-                    <div style={{
-                      padding: '3px 10px',
-                      backgroundColor: '#F9FAFB',
-                      borderTop: '1px solid #F3F4F6',
-                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    }}>
-                      <span style={{ fontSize: '10px', color: '#6B7280' }}>
-                        {m.scheduledAt
-                          ? new Date(m.scheduledAt).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
-                          : 'Sin programar'}
-                      </span>
-                      <span style={{
-                        fontSize: '10px', fontWeight: '600',
-                        color: m.status === 'completed' ? '#15803D' : m.status === 'live' ? '#DC2626' : '#92400E',
+                  return (
+                    <div key={category} style={{ marginBottom: '40px' }}>
+                      {/* Header categoría */}
+                      <div style={{
+                        backgroundColor: '#1B3A1B', color: 'white',
+                        borderRadius: '8px', padding: '10px 16px', marginBottom: '20px',
                       }}>
-                        {m.status === 'completed' ? '✓ Finalizado' : m.status === 'live' ? '🔴 En vivo' : '⏳ Pendiente'}
-                      </span>
-                    </div>
-                  </div>
-                );
+                        <span style={{ fontWeight: '700', fontSize: '15px' }}>🎾 {category}</span>
+                      </div>
 
-                return Object.entries(byCategory).map(([category, rounds]) => (
-                  <div key={category} style={{ marginBottom: '32px' }}>
-                    {/* Header categoría */}
-                    <div style={{
-                      backgroundColor: '#1B3A1B', color: 'white',
-                      borderRadius: '8px', padding: '10px 16px',
-                      marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px',
-                    }}>
-                      <span style={{ fontWeight: '700', fontSize: '15px' }}>🎾 {category}</span>
-                    </div>
+                      {/* ── FASE DE GRUPOS (RR) ── */}
+                      {hasRR && (
+                        <div style={{ marginBottom: '24px' }}>
+                          <p style={{ fontSize: '13px', fontWeight: '700', color: '#6B7280', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            Fase de Grupos
+                          </p>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px' }}>
+                            {ROUND_ORDER.filter(r => r.startsWith('RR') && rounds[r]).map(round => {
+                              // Agrupar por groupLabel
+                              const byGroup: Record<string, any[]> = {};
+                              rounds[round].forEach((m: any) => {
+                                const g = m.groupLabel || 'A';
+                                if (!byGroup[g]) byGroup[g] = [];
+                                byGroup[g].push(m);
+                              });
 
-                    {/* Bracket visual por rondas */}
-                    {ROUND_ORDER.filter(r => rounds[r]).map((round) => {
-                      // Para RR, agrupar también por groupLabel
-                      if (round === 'RR') {
-                        const byGroup: Record<string, any[]> = {};
-                        rounds[round].forEach((m: any) => {
-                          const group = m.groupLabel || 'Sin grupo';
-                          if (!byGroup[group]) byGroup[group] = [];
-                          byGroup[group].push(m);
-                        });
+                              return Object.entries(byGroup).sort().map(([group, gMatches]) => {
+                                // Obtener jugadores únicos del grupo con sus posiciones
+                                const playerSet = new Map<string, { name: string; seeding: number | null; wins: number; losses: number }>();
+                                gMatches.forEach((m: any) => {
+                                  if (m.player1Id && !playerSet.has(m.player1Id)) {
+                                    playerSet.set(m.player1Id, { name: m.player1Name || 'BYE', seeding: m.seeding1, wins: 0, losses: 0 });
+                                  }
+                                  if (m.player2Id && !playerSet.has(m.player2Id)) {
+                                    playerSet.set(m.player2Id, { name: m.player2Name || 'BYE', seeding: m.seeding2, wins: 0, losses: 0 });
+                                  }
+                                  // Contar victorias
+                                  if (m.winnerId) {
+                                    const w = playerSet.get(m.winnerId);
+                                    const loserId = m.winnerId === m.player1Id ? m.player2Id : m.player1Id;
+                                    const l = playerSet.get(loserId);
+                                    if (w) w.wins++;
+                                    if (l) l.losses++;
+                                  }
+                                });
 
-                        return (
-                          <div key={round} style={{ marginBottom: '24px' }}>
-                            {Object.entries(byGroup).sort().map(([groupLabel, matches]) => (
-                              <div key={groupLabel} style={{ marginBottom: '20px' }}>
+                                const players = [...playerSet.entries()].sort((a, b) => b[1].wins - a[1].wins);
+                                const total = gMatches.length;
+                                const played = gMatches.filter((m: any) => m.status === 'completed' || m.status === 'wo').length;
+
+                                return (
+                                  <div key={`${round}_${group}`} style={{
+                                    border: '1px solid #E5E7EB', borderRadius: '10px',
+                                    overflow: 'hidden', minWidth: '220px', flex: '0 0 auto',
+                                  }}>
+                                    {/* Header grupo */}
+                                    <div style={{
+                                      backgroundColor: '#F0FDF4', borderBottom: '1px solid #86EFAC',
+                                      padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                    }}>
+                                      <span style={{ fontWeight: '700', color: '#15803D', fontSize: '13px' }}>
+                                        Grupo {group}
+                                      </span>
+                                      <span style={{ fontSize: '11px', color: '#6B7280' }}>
+                                        {played}/{total} partidos
+                                      </span>
+                                    </div>
+
+                                    {/* Tabla de posiciones */}
+                                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                      <thead>
+                                        <tr style={{ backgroundColor: '#F9FAFB' }}>
+                                          <th style={{ padding: '6px 10px', fontSize: '10px', color: '#6B7280', fontWeight: '500', textAlign: 'left' }}>Pos</th>
+                                          <th style={{ padding: '6px 10px', fontSize: '10px', color: '#6B7280', fontWeight: '500', textAlign: 'left' }}>Jugador</th>
+                                          <th style={{ padding: '6px 8px', fontSize: '10px', color: '#6B7280', fontWeight: '500', textAlign: 'center' }}>V</th>
+                                          <th style={{ padding: '6px 8px', fontSize: '10px', color: '#6B7280', fontWeight: '500', textAlign: 'center' }}>D</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {players.map(([pid, p], idx) => (
+                                          <tr key={pid} style={{
+                                            borderTop: '1px solid #F3F4F6',
+                                            backgroundColor: idx === 0 && played === total ? '#F0FDF4' : 'white',
+                                          }}>
+                                            <td style={{ padding: '8px 10px', fontSize: '13px', fontWeight: '700', color: '#1B3A1B' }}>
+                                              {idx + 1}
+                                              {idx === 0 && played === total && <span style={{ marginLeft: '2px', color: '#15803D' }}>✓</span>}
+                                            </td>
+                                            <td style={{ padding: '8px 10px', fontSize: '12px', color: '#374151' }}>
+                                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                {p.seeding && (
+                                                  <span style={{ backgroundColor: '#FEF3C7', color: '#92400E', borderRadius: '999px', padding: '1px 4px', fontSize: '9px', fontWeight: '700' }}>
+                                                    [{p.seeding}]
+                                                  </span>
+                                                )}
+                                                <span style={{ fontWeight: idx === 0 ? '600' : '400' }}>{p.name}</span>
+                                              </div>
+                                            </td>
+                                            <td style={{ padding: '8px', fontSize: '12px', fontWeight: '700', color: '#15803D', textAlign: 'center' }}>{p.wins}</td>
+                                            <td style={{ padding: '8px', fontSize: '12px', color: '#DC2626', textAlign: 'center' }}>{p.losses}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+
+                                    {/* Partidos del grupo */}
+                                    <div style={{ borderTop: '1px solid #E5E7EB', padding: '8px' }}>
+                                      {gMatches.map((m: any) => (
+                                        <div key={m.id} style={{
+                                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                          padding: '4px 6px', borderRadius: '4px', marginBottom: '2px',
+                                          backgroundColor: m.status === 'completed' ? '#F0FDF4' : '#F9FAFB',
+                                          fontSize: '11px',
+                                        }}>
+                                          <span style={{ color: m.winnerId === m.player1Id ? '#15803D' : '#374151', fontWeight: m.winnerId === m.player1Id ? '600' : '400' }}>
+                                            {m.player1Name || 'BYE'}
+                                          </span>
+                                          <span style={{ color: '#9CA3AF', margin: '0 4px' }}>vs</span>
+                                          <span style={{ color: m.winnerId === m.player2Id ? '#15803D' : '#374151', fontWeight: m.winnerId === m.player2Id ? '600' : '400' }}>
+                                            {m.player2Name || 'BYE'}
+                                          </span>
+                                          <span style={{ marginLeft: '6px', color: m.status === 'completed' ? '#15803D' : '#9CA3AF', fontSize: '10px' }}>
+                                            {m.status === 'completed' ? '✓' : m.status === 'live' ? '🔴' : '⏳'}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                );
+                              });
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ── CUADRO DE ELIMINACIÓN ── */}
+                      {hasElim && (
+                        <div>
+                          <p style={{ fontSize: '13px', fontWeight: '700', color: '#6B7280', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            {hasRR ? 'Main Draw — Eliminación Directa' : 'Cuadro de Eliminación'}
+                          </p>
+                          <div style={{ display: 'flex', gap: '0', overflowX: 'auto', paddingBottom: '8px' }}>
+                            {ROUND_ORDER.filter(r => !r.startsWith('RR') && rounds[r]).map((round) => (
+                              <div key={round} style={{ minWidth: '180px', flex: '0 0 180px' }}>
+                                {/* Header ronda */}
                                 <div style={{
-                                  backgroundColor: '#F0FDF4', border: '1px solid #86EFAC',
+                                  backgroundColor: '#1B3A1B', color: 'white',
                                   borderRadius: '6px', padding: '6px 10px',
-                                  marginBottom: '8px', textAlign: 'center',
+                                  marginBottom: '8px', marginRight: '8px', textAlign: 'center',
                                 }}>
-                                  <span style={{ fontSize: '12px', fontWeight: '700', color: '#15803D' }}>
-                                    Grupo {groupLabel}
+                                  <span style={{ fontSize: '12px', fontWeight: '700' }}>
+                                    {ROUND_LABELS_MAP[round] || round}
                                   </span>
-                                  <span style={{ fontSize: '11px', color: '#6B7280', marginLeft: '6px' }}>
-                                    ({matches.length} partidos)
+                                  <span style={{ fontSize: '10px', opacity: 0.7, marginLeft: '4px' }}>
+                                    ({rounds[round].length})
                                   </span>
                                 </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '8px' }}>
-                                  {matches.map((m: any) => renderMatch(m))}
-                                </div>
+
+                                {/* Partidos — solo posición + nombre */}
+                                {rounds[round].map((m: any, idx: number) => (
+                                  <div key={m.id} style={{
+                                    border: `2px solid ${m.status === 'completed' ? '#86EFAC' : m.status === 'live' ? '#FCA5A5' : '#E5E7EB'}`,
+                                    borderRadius: '8px', marginBottom: '8px', marginRight: '8px',
+                                    overflow: 'hidden', backgroundColor: 'white',
+                                    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+                                  }}>
+                                    {/* Posición en el cuadro */}
+                                    <div style={{
+                                      backgroundColor: '#F9FAFB', borderBottom: '1px solid #F3F4F6',
+                                      padding: '2px 8px', display: 'flex', justifyContent: 'space-between',
+                                    }}>
+                                      <span style={{ fontSize: '9px', color: '#9CA3AF' }}>#{idx * 2 + 1} — #{idx * 2 + 2}</span>
+                                      {m.scheduledAt && (
+                                        <span style={{ fontSize: '9px', color: '#6B7280' }}>
+                                          {new Date(m.scheduledAt).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {/* Jugador 1 */}
+                                    <div style={{
+                                      padding: '7px 10px',
+                                      backgroundColor: m.winnerId === m.player1Id ? '#F0FDF4' : 'white',
+                                      borderBottom: '1px solid #F3F4F6',
+                                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                    }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                        {m.seeding1 && (
+                                          <span style={{ backgroundColor: '#FEF3C7', color: '#92400E', borderRadius: '999px', padding: '1px 4px', fontSize: '9px', fontWeight: '700' }}>
+                                            [{m.seeding1}]
+                                          </span>
+                                        )}
+                                        <span style={{
+                                          fontSize: '12px',
+                                          fontWeight: m.winnerId === m.player1Id ? '700' : '400',
+                                          color: m.player1Id ? '#1B3A1B' : '#9CA3AF',
+                                        }}>
+                                          {m.player1Name || 'BYE'}
+                                        </span>
+                                      </div>
+                                      {m.winnerId === m.player1Id && <span style={{ color: '#15803D', fontSize: '11px' }}>✓</span>}
+                                    </div>
+
+                                    {/* Jugador 2 */}
+                                    <div style={{
+                                      padding: '7px 10px',
+                                      backgroundColor: m.winnerId === m.player2Id ? '#F0FDF4' : 'white',
+                                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                    }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                        {m.seeding2 && (
+                                          <span style={{ backgroundColor: '#FEF3C7', color: '#92400E', borderRadius: '999px', padding: '1px 4px', fontSize: '9px', fontWeight: '700' }}>
+                                            [{m.seeding2}]
+                                          </span>
+                                        )}
+                                        <span style={{
+                                          fontSize: '12px',
+                                          fontWeight: m.winnerId === m.player2Id ? '700' : '400',
+                                          color: m.player2Id ? '#1B3A1B' : '#9CA3AF',
+                                        }}>
+                                          {m.player2Name || 'BYE'}
+                                        </span>
+                                      </div>
+                                      {m.winnerId === m.player2Id && <span style={{ color: '#15803D', fontSize: '11px' }}>✓</span>}
+                                    </div>
+                                  </div>
+                                ))}
                               </div>
                             ))}
                           </div>
-                        );
-                      }
-
-                      // Para otros rounds, usar el layout de scroll horizontal
-                      return (
-                        <div key={round} style={{ marginBottom: '24px' }}>
-                          <div style={{ display: 'flex', gap: '0', overflowX: 'auto', paddingBottom: '8px' }}>
-                            <div style={{ minWidth: '200px', flex: '0 0 200px' }}>
-                              {/* Header ronda */}
-                              <div style={{
-                                backgroundColor: '#F0FDF4', border: '1px solid #86EFAC',
-                                borderRadius: '6px', padding: '6px 10px',
-                                marginBottom: '8px', marginRight: '8px',
-                                textAlign: 'center',
-                              }}>
-                                <span style={{ fontSize: '12px', fontWeight: '700', color: '#15803D' }}>
-                                  {ROUND_LABELS_MAP[round] || round}
-                                </span>
-                                <span style={{ fontSize: '11px', color: '#6B7280', marginLeft: '6px' }}>
-                                  ({rounds[round].length} partidos)
-                                </span>
-                              </div>
-
-                              {/* Partidos de esta ronda */}
-                              {rounds[round].map((m: any) => renderMatch(m))}
-                            </div>
-                          </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                ));
+                      )}
+                    </div>
+                  );
+                });
               })()
+            )}
+
+            {showMainDrawModal && rrStatus && (
+              <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+                <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '500px', maxWidth: '95vw' }}>
+                  <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#1B3A1B', marginBottom: '4px' }}>
+                    Generar Main Draw
+                  </h3>
+                  <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '20px' }}>
+                    Categoría: <strong>{mdCategory}</strong>
+                  </p>
+
+                  {/* Estado de grupos */}
+                  <div style={{ marginBottom: '20px' }}>
+                    {rrStatus.groups.map((g: any) => (
+                      <div key={g.groupLabel} style={{
+                        border: `1px solid ${g.complete ? '#86EFAC' : '#FDE68A'}`,
+                        borderRadius: '8px', padding: '12px', marginBottom: '8px',
+                        backgroundColor: g.complete ? '#F0FDF4' : '#FFFBEB',
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                          <span style={{ fontWeight: '600', color: '#1B3A1B' }}>Grupo {g.groupLabel}</span>
+                          <span style={{ fontSize: '12px', color: g.complete ? '#15803D' : '#92400E' }}>
+                            {g.complete ? '✓ Completo' : `${g.finished}/${g.total} partidos`}
+                          </span>
+                        </div>
+                        <table style={{ width: '100%', fontSize: '12px' }}>
+                          <tbody>
+                            {g.standings.map((p: any, idx: number) => (
+                              <tr key={p.playerId} style={{ opacity: idx < mdAdvancing ? 1 : 0.5 }}>
+                                <td style={{ padding: '2px 4px', fontWeight: '700', color: '#1B3A1B' }}>{p.position}</td>
+                                <td style={{ padding: '2px 4px', color: '#374151' }}>
+                                  {idx < mdAdvancing && <span style={{ marginRight: '4px', color: '#15803D' }}>→</span>}
+                                  {p.playerName}
+                                </td>
+                                <td style={{ padding: '2px 8px', color: '#15803D', fontWeight: '600' }}>{p.wins}V</td>
+                                <td style={{ padding: '2px 4px', color: '#DC2626' }}>{p.losses}D</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Jugadores por grupo */}
+                  <div style={{ marginBottom: '20px' }}>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '8px' }}>
+                      Jugadores que pasan al Main Draw por grupo
+                    </label>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      {[1, 2].map(n => (
+                        <button
+                          key={n}
+                          onClick={() => setMdAdvancing(n)}
+                          style={{
+                            flex: 1, padding: '10px', borderRadius: '8px', border: 'none',
+                            cursor: 'pointer', fontWeight: '600', fontSize: '14px',
+                            backgroundColor: mdAdvancing === n ? '#2D6A2D' : '#F3F4F6',
+                            color: mdAdvancing === n ? 'white' : '#374151',
+                          }}
+                        >
+                          {n} {n === 1 ? 'jugador' : 'jugadores'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {!rrStatus.allComplete && (
+                    <div style={{ backgroundColor: '#FEF9C3', border: '1px solid #FDE047', borderRadius: '8px', padding: '10px', fontSize: '12px', color: '#92400E', marginBottom: '16px' }}>
+                      ⚠️ Hay grupos con partidos pendientes. El Main Draw se generará con los resultados actuales.
+                    </div>
+                  )}
+
+                  {generateMainDrawMutation.isError && (
+                    <div style={{ backgroundColor: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', padding: '10px', fontSize: '12px', color: '#DC2626', marginBottom: '16px' }}>
+                      ❌ Error al generar. Verifica que todos los grupos tengan resultados.
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <button
+                      onClick={() => setShowMainDrawModal(false)}
+                      style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #D1D5DB', backgroundColor: 'white', cursor: 'pointer', fontSize: '14px' }}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={() => generateMainDrawMutation.mutate()}
+                      disabled={generateMainDrawMutation.isPending}
+                      style={{
+                        flex: 2, padding: '12px', borderRadius: '8px', border: 'none',
+                        backgroundColor: '#2D6A2D', color: 'white', cursor: 'pointer',
+                        fontSize: '14px', fontWeight: '700',
+                        opacity: generateMainDrawMutation.isPending ? 0.5 : 1,
+                      }}
+                    >
+                      {generateMainDrawMutation.isPending ? 'Generando...' : '🏆 Confirmar y Generar Main Draw'}
+                    </button>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
         )}

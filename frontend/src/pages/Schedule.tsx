@@ -189,31 +189,33 @@ export default function Schedule() {
               />
             </div>
           </div>
+          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '16px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '4px' }}>
+                Árbitro
+              </label>
+              <input
+                type="text"
+                value={referee}
+                onChange={e => setReferee(e.target.value)}
+                placeholder="Nombre del árbitro..."
+                style={{ border: '1px solid #D1D5DB', borderRadius: '8px', padding: '8px 12px', fontSize: '14px', minWidth: '180px' }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '4px' }}>
+                Director de torneo
+              </label>
+              <input
+                type="text"
+                value={director}
+                onChange={e => setDirector(e.target.value)}
+                placeholder="Nombre del director..."
+                style={{ border: '1px solid #D1D5DB', borderRadius: '8px', padding: '8px 12px', fontSize: '14px', minWidth: '180px' }}
+              />
+            </div>
+          </div>
         </div>
-        <div>
-        <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '4px' }}>
-          Árbitro
-        </label>
-        <input
-          type="text"
-          value={referee}
-          onChange={e => setReferee(e.target.value)}
-          placeholder="Nombre del árbitro..."
-          style={{ border: '1px solid #D1D5DB', borderRadius: '8px', padding: '8px 12px', fontSize: '14px', minWidth: '180px' }}
-        />
-      </div>
-      <div>
-        <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '4px' }}>
-          Director de torneo
-        </label>
-        <input
-          type="text"
-          value={director}
-          onChange={e => setDirector(e.target.value)}
-          placeholder="Nombre del director..."
-          style={{ border: '1px solid #D1D5DB', borderRadius: '8px', padding: '8px 12px', fontSize: '14px', minWidth: '180px' }}
-        />
-      </div>
 
         {selectedTournament && selectedDate && isAdmin && (
           <>
@@ -445,25 +447,6 @@ export default function Schedule() {
                 <p style={{ textAlign: 'center', fontSize: '13px', color: '#9CA3AF', marginTop: '8px' }}>
                   Selecciona al menos una cancha para generar la programación
                 </p>
-              )}
-
-              {generateMutation.isSuccess && scheduleResult && (
-                <div style={{
-                  marginTop: '16px', backgroundColor: '#F0FDF4',
-                  border: '1px solid #86EFAC', borderRadius: '8px', padding: '14px',
-                }}>
-                  <p style={{ fontWeight: '600', color: '#15803D', marginBottom: '8px' }}>
-                    ✅ Programación generada exitosamente
-                  </p>
-                  <div style={{ display: 'flex', gap: '20px', fontSize: '13px', color: '#374151' }}>
-                    <span>📅 {scheduleResult.date}</span>
-                    <span>🏟️ {scheduleResult.courtsUsed} canchas</span>
-                    <span>✓ {scheduleResult.matchesScheduled} partidos programados</span>
-                    {scheduleResult.matchesPending > 0 && (
-                      <span style={{ color: '#92400E' }}>⚠️ {scheduleResult.matchesPending} sin programar</span>
-                    )}
-                  </div>
-                </div>
               )}
 
               {generateMutation.isError && (

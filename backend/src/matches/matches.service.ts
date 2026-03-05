@@ -218,4 +218,181 @@ export class MatchesService {
       await this.repo.save(newMatch);
     }
   }
+
+  // ── ESTADO DEL RR POR GRUPO ─────────────────────
+  async getRRGroupStatus(tournamentId: string, category: string) {
+    const matches = await this.repo.find({
+      where: { tournamentId, category, round: 'RR' as any },
+      order: { createdAt: 'ASC' },
+    });
+
+    if (matches.length === 0) return { groups: [], allComplete: false };
+
+    // Agrupar por groupLabel
+    const byGroup = new Map<string, Match[]>();
+    matches.forEach(m => {
+      const g = (m as any).groupLabel || 'A';
+      if (!byGroup.has(g)) byGroup.set(g, []);
+      byGroup.get(g)!.push(m);
+    });
+
+    // Obtener nombres de jugadores
+    const playerIds = [...new Set([
+      ...matches.map(m => m.player1Id),
+      ...matches.map(m => m.player2Id),
+    ].filter(Boolean))];
+
+    const users = playerIds.length > 0
+      ? await this.userRepo
+          .createQueryBuilder('u')
+          .where('u.id IN (:...ids)', { ids: playerIds })
+          .getMany()
+      : [];
+    const userMap = new Map(
+      users.map(u => [u.id, `${u.nombres || ''} ${u.apellidos || ''}`.trim() || u.email])
+    );
+
+    const groups = [];
+
+    byGroup.forEach((gMatches, groupLabel) => {
+      const total    = gMatches.length;
+      const finished = gMatches.filter(m =>
+        m.status === MatchStatus.COMPLETED || m.status === MatchStatus.WO
+      ).length;
+
+      // Calcular standings
+      const standings = new Map<string, { wins: number; losses: number; name: string }>();
+      gMatches.forEach(m => {
+        if (!standings.has(m.player1Id)) {
+          standings.set(m.player1Id, { wins: 0, losses: 0, name: userMap.get(m.player1Id) || m.player1Id });
+        }
+        if (!standings.has(m.player2Id)) {
+          standings.set(m.player2Id, { wins: 0, losses: 0, name: userMap.get(m.player2Id) || m.player2Id });
+        }
+        if (m.winnerId) {
+          standings.get(m.winnerId)!.wins++;
+          const loserId = m.winnerId === m.player1Id ? m.player2Id : m.player1Id;
+          if (standings.has(loserId)) standings.get(loserId)!.losses++;
+        }
+      });
+
+      const sorted = [...standings.entries()]
+        .sort((a, b) => b[1].wins - a[1].wins)
+        .map(([playerId, s], idx) => ({
+          position: idx + 1,
+          playerId,
+          playerName: s.name,
+          wins: s.wins,
+          losses: s.losses,
+        }));
+
+      groups.push({
+        groupLabel,
+        total,
+        finished,
+        complete: finished === total,
+        standings: sorted,
+      });
+    });
+
+    const allComplete = groups.every(g => g.complete);
+
+    return { groups, allComplete };
+  }
+
+  // ── GENERAR MAIN DRAW DESDE RR ──────────────────
+  // advancingPerGroup: cuántos jugadores pasan por grupo (1 o 2)
+  async generateMainDrawFromRR(
+    tournamentId: string,
+    category: string,
+    advancingPerGroup: number = 1,
+  ) {
+    // Verificar que todos los grupos estén completos
+    const status = await this.getRRGroupStatus(tournamentId, category);
+    if (!status.allComplete) {
+      throw new Error('No todos los partidos del Round Robin están terminados');
+    }
+
+    // Obtener ganadores/clasificados por grupo
+    const qualifiers: string[] = [];
+    status.groups.forEach(group => {
+      const advancing = group.standings.slice(0, advancingPerGroup);
+      advancing.forEach(p => qualifiers.push(p.playerId));
+    });
+
+    if (qualifiers.length < 2) {
+      throw new Error('Se necesitan al menos 2 clasificados para generar el Main Draw');
+    }
+
+    // Verificar que no existan ya partidos de eliminación para esta categoría
+    const existing = await this.repo.find({
+      where: { tournamentId, category, round: 'QF' as any },
+    });
+    if (existing.length > 0) {
+      throw new Error('El Main Draw ya fue generado para esta categoría');
+    }
+
+    // Calcular tamaño del cuadro
+    const drawSize = this.nextPowerOfTwo(qualifiers.length);
+    const byeCount = drawSize - qualifiers.length;
+    const firstRound = this.getFirstRound(drawSize);
+
+    // Llenar con BYEs
+    const players = [...qualifiers];
+    for (let i = 0; i < byeCount; i++) players.push('BYE');
+
+    // Generar partidos
+    const matches = [];
+    for (let i = 0; i < drawSize; i += 2) {
+      const p1 = players[i];
+      const p2 = players[i + 1];
+
+      if (p1 === 'BYE' || p2 === 'BYE') {
+        const winner = p1 === 'BYE' ? p2 : p1;
+        matches.push(this.repo.create({
+          tournamentId,
+          category,
+          round: firstRound as any,
+          player1Id: p1 === 'BYE' ? null : p1,
+          player2Id: p2 === 'BYE' ? null : p2,
+          winnerId: winner,
+          status: MatchStatus.COMPLETED,
+        }));
+      } else {
+        matches.push(this.repo.create({
+          tournamentId,
+          category,
+          round: firstRound as any,
+          player1Id: p1,
+          player2Id: p2,
+          status: MatchStatus.PENDING,
+        }));
+      }
+    }
+
+    await this.repo.save(matches);
+
+    return {
+      qualifiers: qualifiers.length,
+      drawSize,
+      byeCount,
+      firstRound,
+      matches: matches.length,
+      groups: status.groups.map(g => ({
+        group: `Grupo ${g.groupLabel}`,
+        classified: g.standings.slice(0, advancingPerGroup).map(p => p.playerName),
+      })),
+    };
+  }
+
+  private nextPowerOfTwo(n: number): number {
+    let p = 1;
+    while (p < n) p *= 2;
+    return p;
+  }
+
+  private getFirstRound(drawSize: number): string {
+    const r: Record<number, string> = { 64: 'R64', 32: 'R32', 16: 'R16', 8: 'QF', 4: 'SF', 2: 'F' };
+    return r[drawSize] || 'R16';
+  }
 }
