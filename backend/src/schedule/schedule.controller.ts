@@ -41,6 +41,7 @@ export class ScheduleController {
       date: string;
       courts: { courtId: string; blocks: { start: string; end: string }[] }[];
       roundDurations: Record<string, number>;
+      maxMatchesPerPlayer?: number;
     },
   ) {
     return this.schedulingService.generateSchedule(
@@ -48,6 +49,7 @@ export class ScheduleController {
       body.date,
       body.courts,
       body.roundDurations,
+      body.maxMatchesPerPlayer || 2,
     );
   }
 

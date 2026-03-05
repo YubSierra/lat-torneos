@@ -356,95 +356,163 @@ export default function Matches() {
       {/* Modal actualizar marcador */}
       {scoringMatch && (
         <div style={{
-          position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
+          position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50,
         }}>
           <div style={{
-            backgroundColor: 'white', borderRadius: '16px',
-            padding: '32px', width: '100%', maxWidth: '400px',
+            backgroundColor: 'white', borderRadius: '20px',
+            padding: '28px', width: '100%', maxWidth: '480px',
+            maxHeight: '90vh', overflowY: 'auto',
           }}>
-            <h2 style={{ fontSize: '18px', fontWeight: 'bold', color: '#1B3A1B', marginBottom: '20px' }}>
-              🎾 Actualizar Marcador
+            <h2 style={{ fontSize: '18px', fontWeight: 'bold', color: '#1B3A1B', marginBottom: '4px' }}>
+              Actualizar Marcador
             </h2>
+            <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '20px' }}>
+              {scoringMatch.player1Name || 'J1'} vs {scoringMatch.player2Name || 'J2'}
+            </p>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-              {[
-                { label: 'Sets J1', key: 'sets1' },
-                { label: 'Sets J2', key: 'sets2' },
-                { label: 'Games J1', key: 'games1' },
-                { label: 'Games J2', key: 'games2' },
-              ].map(({ label, key }) => (
-                <div key={key}>
-                  <label style={{ display: 'block', fontSize: '12px', color: '#6B7280', marginBottom: '4px' }}>
-                    {label}
-                  </label>
-                  <input
-                    type="number" min={0} max={7}
-                    value={(score as any)[key]}
-                    onChange={e => setScore({ ...score, [key]: Number(e.target.value) })}
-                    style={{
-                      width: '100%', border: '1px solid #D1D5DB',
-                      borderRadius: '8px', padding: '8px', fontSize: '18px',
-                      fontWeight: 'bold', textAlign: 'center', boxSizing: 'border-box',
-                    }}
-                  />
-                </div>
-              ))}
+            {/* ── SETS ── */}
+            <div style={{ marginBottom: '16px' }}>
+              <p style={{ fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Sets</p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                {[
+                  { label: scoringMatch.player1Name || 'Jugador 1', key: 'sets1' },
+                  { label: scoringMatch.player2Name || 'Jugador 2', key: 'sets2' },
+                ].map(({ label, key }) => (
+                  <div key={key} style={{ textAlign: 'center' }}>
+                    <p style={{ fontSize: '11px', color: '#6B7280', marginBottom: '6px', fontWeight: '500' }}>{label}</p>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                      <button
+                        onClick={() => setScore({ ...score, [key]: Math.max(0, (score as any)[key] - 1) })}
+                        style={{ width: '32px', height: '32px', borderRadius: '50%', border: '1px solid #D1D5DB', backgroundColor: '#F9FAFB', cursor: 'pointer', fontSize: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                      >−</button>
+                      <span style={{ fontSize: '28px', fontWeight: '800', color: '#1B3A1B', minWidth: '32px', textAlign: 'center' }}>
+                        {(score as any)[key]}
+                      </span>
+                      <button
+                        onClick={() => setScore({ ...score, [key]: Math.min(7, (score as any)[key] + 1) })}
+                        style={{ width: '32px', height: '32px', borderRadius: '50%', border: 'none', backgroundColor: '#2D6A2D', color: 'white', cursor: 'pointer', fontSize: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                      >+</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-              {[
-                { label: 'Puntos J1', key: 'points1' },
-                { label: 'Puntos J2', key: 'points2' },
-              ].map(({ label, key }) => (
-                <div key={key}>
-                  <label style={{ display: 'block', fontSize: '12px', color: '#6B7280', marginBottom: '4px' }}>
-                    {label}
-                  </label>
-                  <select
-                    value={(score as any)[key]}
-                    onChange={e => setScore({ ...score, [key]: e.target.value })}
+            {/* ── GAMES ── */}
+            <div style={{ marginBottom: '16px' }}>
+              <p style={{ fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Games (set actual)</p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                {[
+                  { label: scoringMatch.player1Name || 'Jugador 1', key: 'games1' },
+                  { label: scoringMatch.player2Name || 'Jugador 2', key: 'games2' },
+                ].map(({ label, key }) => (
+                  <div key={key} style={{ textAlign: 'center' }}>
+                    <p style={{ fontSize: '11px', color: '#6B7280', marginBottom: '6px', fontWeight: '500' }}>{label}</p>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                      <button
+                        onClick={() => setScore({ ...score, [key]: Math.max(0, (score as any)[key] - 1) })}
+                        style={{ width: '32px', height: '32px', borderRadius: '50%', border: '1px solid #D1D5DB', backgroundColor: '#F9FAFB', cursor: 'pointer', fontSize: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                      >−</button>
+                      <span style={{ fontSize: '28px', fontWeight: '800', color: '#1B3A1B', minWidth: '32px', textAlign: 'center' }}>
+                        {(score as any)[key]}
+                      </span>
+                      <button
+                        onClick={() => setScore({ ...score, [key]: Math.min(7, (score as any)[key] + 1) })}
+                        style={{ width: '32px', height: '32px', borderRadius: '50%', border: 'none', backgroundColor: '#2D6A2D', color: 'white', cursor: 'pointer', fontSize: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                      >+</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* ── PUNTOS ── */}
+            <div style={{ marginBottom: '20px' }}>
+              <p style={{ fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Puntos (game actual)</p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                {[
+                  { label: scoringMatch.player1Name || 'Jugador 1', key: 'points1' },
+                  { label: scoringMatch.player2Name || 'Jugador 2', key: 'points2' },
+                ].map(({ label, key }) => (
+                  <div key={key} style={{ textAlign: 'center' }}>
+                    <p style={{ fontSize: '11px', color: '#6B7280', marginBottom: '6px', fontWeight: '500' }}>{label}</p>
+                    <div style={{ display: 'flex', gap: '4px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                      {['0', '15', '30', '40', 'AD'].map(p => (
+                        <button
+                          key={p}
+                          onClick={() => setScore({ ...score, [key]: p })}
+                          style={{
+                            padding: '6px 10px', borderRadius: '6px', fontSize: '13px', fontWeight: '600',
+                            border: 'none', cursor: 'pointer',
+                            backgroundColor: (score as any)[key] === p ? '#2D6A2D' : '#F3F4F6',
+                            color: (score as any)[key] === p ? 'white' : '#374151',
+                          }}
+                        >{p}</button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* ── GANADOR ── */}
+            <div style={{ marginBottom: '20px', backgroundColor: '#F9FAFB', borderRadius: '10px', padding: '14px' }}>
+              <p style={{ fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Resultado final (opcional)
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <button
+                  onClick={() => setScore({ ...score, winnerId: '' })}
+                  style={{
+                    padding: '10px', borderRadius: '8px', border: '2px solid',
+                    borderColor: score.winnerId === '' ? '#2D6A2D' : '#E5E7EB',
+                    backgroundColor: score.winnerId === '' ? '#F0FDF4' : 'white',
+                    cursor: 'pointer', fontSize: '13px', fontWeight: '500',
+                    color: score.winnerId === '' ? '#15803D' : '#6B7280',
+                  }}
+                >
+                  Partido en curso — sin ganador aún
+                </button>
+                {scoringMatch.player1Id && (
+                  <button
+                    onClick={() => setScore({ ...score, winnerId: scoringMatch.player1Id })}
                     style={{
-                      width: '100%', border: '1px solid #D1D5DB',
-                      borderRadius: '8px', padding: '8px', fontSize: '14px',
+                      padding: '10px', borderRadius: '8px', border: '2px solid',
+                      borderColor: score.winnerId === scoringMatch.player1Id ? '#2D6A2D' : '#E5E7EB',
+                      backgroundColor: score.winnerId === scoringMatch.player1Id ? '#F0FDF4' : 'white',
+                      cursor: 'pointer', fontSize: '13px', fontWeight: '600',
+                      color: score.winnerId === scoringMatch.player1Id ? '#15803D' : '#1B3A1B',
                     }}
                   >
-                    {['0', '15', '30', '40', 'AD'].map(p => (
-                      <option key={p} value={p}>{p}</option>
-                    ))}
-                  </select>
-                </div>
-              ))}
+                    Ganó {scoringMatch.player1Name || 'Jugador 1'}
+                  </button>
+                )}
+                {scoringMatch.player2Id && (
+                  <button
+                    onClick={() => setScore({ ...score, winnerId: scoringMatch.player2Id })}
+                    style={{
+                      padding: '10px', borderRadius: '8px', border: '2px solid',
+                      borderColor: score.winnerId === scoringMatch.player2Id ? '#2D6A2D' : '#E5E7EB',
+                      backgroundColor: score.winnerId === scoringMatch.player2Id ? '#F0FDF4' : 'white',
+                      cursor: 'pointer', fontSize: '13px', fontWeight: '600',
+                      color: score.winnerId === scoringMatch.player2Id ? '#15803D' : '#1B3A1B',
+                    }}
+                  >
+                    Ganó {scoringMatch.player2Name || 'Jugador 2'}
+                  </button>
+                )}
+              </div>
             </div>
 
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', fontSize: '12px', color: '#6B7280', marginBottom: '4px' }}>
-                Ganador (dejar vacío si el partido continúa)
-              </label>
-              <select
-                value={score.winnerId}
-                onChange={e => setScore({ ...score, winnerId: e.target.value })}
-                style={{
-                  width: '100%', border: '1px solid #D1D5DB',
-                  borderRadius: '8px', padding: '8px', fontSize: '13px',
-                }}
-              >
-                <option value={scoringMatch.player1Id}>
-                  Ganó {scoringMatch.player1Name || 'Jugador 1'}
-                </option>
-                <option value={scoringMatch.player2Id}>
-                  Ganó {scoringMatch.player2Name || 'Jugador 2'}
-                </option>
-              </select>
-            </div>
-
-            <div style={{ display: 'flex', gap: '12px' }}>
+            {/* ── BOTONES ── */}
+            <div style={{ display: 'flex', gap: '10px' }}>
               <button
                 onClick={() => setScoringMatch(null)}
                 style={{
                   flex: 1, border: '1px solid #D1D5DB', color: '#4B5563',
-                  padding: '10px', borderRadius: '8px', background: 'white',
-                  cursor: 'pointer', fontSize: '14px',
+                  padding: '12px', borderRadius: '10px', background: 'white',
+                  cursor: 'pointer', fontSize: '14px', fontWeight: '500',
                 }}
               >
                 Cancelar
@@ -452,12 +520,12 @@ export default function Matches() {
               <button
                 onClick={handleUpdateScore}
                 style={{
-                  flex: 1, backgroundColor: '#2D6A2D', color: 'white',
-                  padding: '10px', borderRadius: '8px', border: 'none',
-                  cursor: 'pointer', fontSize: '14px', fontWeight: '500',
+                  flex: 2, backgroundColor: '#2D6A2D', color: 'white',
+                  padding: '12px', borderRadius: '10px', border: 'none',
+                  cursor: 'pointer', fontSize: '14px', fontWeight: '700',
                 }}
               >
-                Actualizar
+                Guardar Marcador
               </button>
             </div>
           </div>

@@ -42,6 +42,7 @@ export default function Schedule() {
   const [observations, setObservations] = useState('');
   const [referee, setReferee]           = useState('');
   const [director, setDirector]         = useState('');
+  const [maxMatchesPerPlayer, setMaxMatchesPerPlayer] = useState(2);
 
   const { data: tournaments = [] } = useQuery({
     queryKey: ['tournaments'],
@@ -66,7 +67,7 @@ export default function Schedule() {
     mutationFn: async () => {
       const res = await api.post(
         `/tournaments/${selectedTournament}/schedule`,
-        { date: selectedDate, courts: courtConfigs, roundDurations }
+        { date: selectedDate, courts: courtConfigs, roundDurations, maxMatchesPerPlayer }
       );
       return res.data;
     },
@@ -368,7 +369,37 @@ export default function Schedule() {
                   </div>
                 ))}
               </div>
+
+              {/* Máximo partidos por jugador */}
+              <div style={{
+                marginTop: '16px', paddingTop: '16px',
+                borderTop: '1px solid #E5E7EB',
+              }}>
+                <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#1B3A1B', marginBottom: '8px' }}>
+                  Máximo de partidos por jugador por día
+                </label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {[1, 2, 3].map(n => (
+                    <button
+                      key={n}
+                      onClick={() => setMaxMatchesPerPlayer(n)}
+                      style={{
+                        padding: '8px 20px', borderRadius: '8px', border: 'none',
+                        cursor: 'pointer', fontWeight: '600', fontSize: '14px',
+                        backgroundColor: maxMatchesPerPlayer === n ? '#2D6A2D' : '#F3F4F6',
+                        color: maxMatchesPerPlayer === n ? 'white' : '#374151',
+                      }}
+                    >
+                      {n} {n === 1 ? 'partido' : 'partidos'}
+                    </button>
+                  ))}
+                </div>
+                <p style={{ fontSize: '12px', color: '#6B7280', marginTop: '6px' }}>
+                  El sistema validará que ningún jugador supere este límite en el día
+                </p>
+              </div>
             </div>
+
             {/* Paso 4 — Observaciones */}
             <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
               <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#1B3A1B', marginBottom: '4px' }}>
