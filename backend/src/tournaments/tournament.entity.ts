@@ -85,6 +85,34 @@ export class Tournament {
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
   doublesAdditionalValue: number;
 
+  // ── SISTEMA DE JUEGO POR DEFECTO ─────────────────
+  @Column({ default: true })
+  withAd: boolean;
+
+  // Formato por defecto serializado como JSON
+  @Column({ type: 'jsonb', nullable: true })
+  defaultGameFormat: {
+    sets: number;
+    gamesPerSet: number;
+    withAd: boolean;
+    tiebreakAtDeuce: boolean;
+    tiebreakPoints: number;
+    finalSetTiebreak: boolean;
+    finalSetPoints: number;
+  };
+
+  // Formato por ronda { R16: {...}, QF: {...}, SF: {...}, F: {...} }
+  @Column({ type: 'jsonb', nullable: true })
+  roundGameFormats: Record<string, {
+    sets: number;
+    gamesPerSet: number;
+    withAd: boolean;
+    tiebreakAtDeuce: boolean;
+    tiebreakPoints: number;
+    finalSetTiebreak: boolean;
+    finalSetPoints: number;
+  }>;
+
   @CreateDateColumn()
   createdAt: Date;
 }

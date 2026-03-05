@@ -21,6 +21,7 @@ export class DrawService {
     type: TournamentType,
     advancingPerGroup: number = 1, // 1 o 2 jugadores por grupo pasan al MD
     modality: string = 'singles',
+    roundGameFormats: Record<string, any> = {},
   ) {
     if (modality === 'doubles') {
       return this.generateDoublesDraw(tournamentId, category, type, advancingPerGroup);
@@ -42,13 +43,13 @@ export class DrawService {
 
     switch (type) {
       case TournamentType.ELIMINATION:
-        return this.generateElimination(tournamentId, category, enrollments);
+        return this.generateElimination(tournamentId, category, enrollments, roundGameFormats);
       case TournamentType.ROUND_ROBIN:
-        return this.generateRoundRobinGroups(tournamentId, category, enrollments, advancingPerGroup);
+        return this.generateRoundRobinGroups(tournamentId, category, enrollments, advancingPerGroup, roundGameFormats);
       case TournamentType.MASTER:
         return this.generateMaster(tournamentId, category, enrollments);
       default:
-        return this.generateElimination(tournamentId, category, enrollments);
+        return this.generateElimination(tournamentId, category, enrollments, roundGameFormats);
     }
   }
 
@@ -60,6 +61,7 @@ export class DrawService {
     category: string,
     enrollments: Enrollment[],
     advancingPerGroup: number,
+    roundGameFormats: Record<string, any> = {},
   ) {
     const players = enrollments.map(e => e.playerId);
     const totalPlayers = players.length;
@@ -86,6 +88,7 @@ export class DrawService {
             groupLabel,
             seeding1: this.getSeedingForPlayer(group[i], enrollments),
             seeding2: this.getSeedingForPlayer(group[j], enrollments),
+            gameFormat: roundGameFormats['RR'] || roundGameFormats['default'] || null,
           }));
         }
       }
@@ -205,6 +208,7 @@ export class DrawService {
     tournamentId: string,
     category: string,
     enrollments: Enrollment[],
+    roundGameFormats: Record<string, any> = {},
   ) {
     const playerCount = enrollments.length;
     const drawSize    = this.nextPowerOfTwo(playerCount);
@@ -232,6 +236,7 @@ export class DrawService {
           status: MatchStatus.COMPLETED,
           seeding1: this.getSeedingForPlayer(p1, enrollments),
           seeding2: this.getSeedingForPlayer(p2, enrollments),
+          gameFormat: roundGameFormats[firstRound] || roundGameFormats['default'] || null,
         }));
       } else {
         matches.push(this.matchRepo.create({
@@ -242,6 +247,7 @@ export class DrawService {
           status: MatchStatus.PENDING,
           seeding1: this.getSeedingForPlayer(p1, enrollments),
           seeding2: this.getSeedingForPlayer(p2, enrollments),
+          gameFormat: roundGameFormats[firstRound] || roundGameFormats['default'] || null,
         }));
       }
     }

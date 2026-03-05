@@ -53,4 +53,32 @@ export class CreateTournamentDto {
   @IsNumber()
   @Min(0)
   doublesAdditionalValue?: number;
+
+  // ── SISTEMA DE JUEGO ─────────────────────────────
+
+  @IsOptional()
+  @IsBoolean()
+  withAd?: boolean;
+
+  @IsOptional()
+  defaultGameFormat?: {
+    sets: number;
+    gamesPerSet: number;
+    withAd: boolean;
+    tiebreakAtDeuce: boolean;
+    tiebreakPoints: number;
+    finalSetTiebreak: boolean;
+    finalSetPoints: number;
+  };
+
+  @IsOptional()
+  roundGameFormats?: Record<string, {
+    sets: number;
+    gamesPerSet: number;
+    withAd: boolean;
+    tiebreakAtDeuce: boolean;
+    tiebreakPoints: number;
+    finalSetTiebreak: boolean;
+    finalSetPoints: number;
+  }>;
 }

@@ -7,6 +7,7 @@ import { enrollmentsApi } from '../api/enrollments.api';
 import { matchesApi } from '../api/matches.api';
 import { useAuth } from '../context/AuthContext';
 import Sidebar from '../components/Sidebar';
+import GameFormatConfig, { GameFormat, DEFAULT_FORMAT, formatDescription } from '../components/GameFormatConfig';
 import { exportBracketPdf } from '../utils/exportBracketPdf';
 
 const CATEGORIES = ['INTERMEDIA', 'SEGUNDA', 'TERCERA', 'CUARTA', 'QUINTA'];
@@ -28,6 +29,10 @@ export default function TournamentDetail() {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<any>(null);
   const [advancingPerGroup, setAdvancingPerGroup] = useState(1);
+  const [roundGameFormats, setRoundGameFormats] = useState<Record<string, GameFormat>>({
+    default: { ...DEFAULT_FORMAT },
+  });
+  const [expandedRound, setExpandedRound] = useState<string | null>(null);
 
   const { data: tournament, isLoading } = useQuery({
     queryKey: ['tournament', id],
@@ -53,7 +58,7 @@ export default function TournamentDetail() {
   });
 
   const drawMutation = useMutation({
-    mutationFn: () => tournamentsApi.generateDraw(id!, selectedCategory, drawType, advancingPerGroup, drawModality),
+    mutationFn: () => tournamentsApi.generateDraw(id!, selectedCategory, drawType, advancingPerGroup, drawModality, roundGameFormats),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['matches', id] });
       setActiveTab('matches');
@@ -453,6 +458,117 @@ export default function TournamentDetail() {
                   </div>
                 </div>
               )}
+
+              {/* Sistema de juego por ronda */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Sistema de juego por ronda
+                </label>
+
+                {/* Formato por defecto */}
+                <div style={{ marginBottom: '8px' }}>
+                  <button
+                    onClick={() => setExpandedRound(expandedRound === 'default' ? null : 'default')}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      border: '1px solid #D1D5DB',
+                      backgroundColor: 'white',
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                    }}
+                  >
+                    <span style={{ fontWeight: '600', color: '#1B3A1B' }}>
+                      Todas las rondas (por defecto)
+                    </span>
+                    <span style={{ fontSize: '11px', color: '#6B7280' }}>
+                      {formatDescription(roundGameFormats['default'] || DEFAULT_FORMAT)}
+                    </span>
+                  </button>
+                  {expandedRound === 'default' && (
+                    <div style={{ marginTop: '6px' }}>
+                      <GameFormatConfig
+                        value={roundGameFormats['default'] || DEFAULT_FORMAT}
+                        onChange={f => setRoundGameFormats({ ...roundGameFormats, default: f })}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Formato por ronda específica */}
+                {['R64', 'R32', 'R16', 'QF', 'SF', 'F', 'RR'].map(round => (
+                  <div key={round} style={{ marginBottom: '6px' }}>
+                    <button
+                      onClick={() => setExpandedRound(expandedRound === round ? null : round)}
+                      style={{
+                        width: '100%',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '8px 12px',
+                        borderRadius: '8px',
+                        border: `1px solid ${roundGameFormats[round] ? '#86EFAC' : '#E5E7EB'}`,
+                        backgroundColor: roundGameFormats[round] ? '#F0FDF4' : '#F9FAFB',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                      }}
+                    >
+                      <span style={{ fontWeight: '500', color: '#374151' }}>
+                        {round === 'RR'
+                          ? 'Round Robin'
+                          : round === 'QF'
+                          ? 'Cuartos'
+                          : round === 'SF'
+                          ? 'Semifinal'
+                          : round === 'F'
+                          ? 'Final'
+                          : round}
+                        {roundGameFormats[round] ? ' ✓' : ' (usa por defecto)'}
+                      </span>
+                      {roundGameFormats[round] && (
+                        <span style={{ fontSize: '10px', color: '#6B7280' }}>
+                          {formatDescription(roundGameFormats[round])}
+                        </span>
+                      )}
+                    </button>
+                    {expandedRound === round && (
+                      <div style={{ marginTop: '6px' }}>
+                        <GameFormatConfig
+                          value={
+                            roundGameFormats[round] || roundGameFormats['default'] || DEFAULT_FORMAT
+                          }
+                          onChange={f => setRoundGameFormats({ ...roundGameFormats, [round]: f })}
+                          label={`Configurar ${round}`}
+                        />
+                        {roundGameFormats[round] && (
+                          <button
+                            onClick={() => {
+                              const updated = { ...roundGameFormats };
+                              delete updated[round];
+                              setRoundGameFormats(updated);
+                            }}
+                            style={{
+                              marginTop: '4px',
+                              fontSize: '11px',
+                              color: '#DC2626',
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            ✕ Usar formato por defecto para esta ronda
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
               <div style={{ backgroundColor: '#FEFCE8', border: '1px solid #FDE047', borderRadius: '8px', padding: '12px', fontSize: '13px', color: '#92400E' }}>
                 💡 Art. 23 LAT: Si hay menos de 8 jugadores, se usará Round Robin automáticamente. Los BYEs se asignan a las siembras más altas.
               </div>

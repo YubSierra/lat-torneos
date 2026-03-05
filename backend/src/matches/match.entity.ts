@@ -84,6 +84,19 @@ export class Match {
   @Column({ nullable: true })
   seeding2: number;
 
+  // ── SISTEMA DE JUEGO ─────────────────────────────
+  // Guardado como JSON para flexibilidad total
+  @Column({ type: 'jsonb', nullable: true })
+  gameFormat: {
+    sets: number; // 1, 2, 3, 5
+    gamesPerSet: number; // 4, 6, 8
+    withAd: boolean; // Con o sin Ad
+    tiebreakAtDeuce: boolean; // Tiebreak al empate en games
+    tiebreakPoints: number; // 7, 10, 12
+    finalSetTiebreak: boolean; // Match tiebreak al empate en sets
+    finalSetPoints: number; // 7, 10, 12
+  };
+
   // ── GRUPO DEL ROUND ROBIN ────────────────────────
   @Column({ nullable: true })
   groupLabel: string;
