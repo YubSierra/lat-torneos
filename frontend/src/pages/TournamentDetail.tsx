@@ -330,6 +330,7 @@ export default function TournamentDetail() {
                     <th className="text-left py-3 px-4 text-gray-500 font-medium">Siembra</th>
                     <th className="text-left py-3 px-4 text-gray-500 font-medium">Pago</th>
                     <th className="text-left py-3 px-4 text-gray-500 font-medium">Estado</th>
+                    {isAdmin && <th className="text-left py-3 px-4 text-gray-500 font-medium">Acciones</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -363,6 +364,28 @@ export default function TournamentDetail() {
                           {e.status === 'approved' ? '✓ Aprobado' : e.status === 'pending' ? '⏳ Pendiente' : '✗ Rechazado'}
                         </span>
                       </td>
+                      {isAdmin && (
+                        <td className="py-3 px-4">
+                          <button
+                            onClick={async () => {
+                              if (!confirm(`¿Eliminar inscripción de ${e.playerName}?`)) return;
+                              try {
+                                await api.delete(`/enrollments/${e.id}`);
+                                queryClient.invalidateQueries({ queryKey: ['enrollments', id] });
+                              } catch {
+                                alert('Error al eliminar inscripción');
+                              }
+                            }}
+                            style={{
+                              backgroundColor: '#FEF2F2', color: '#DC2626',
+                              border: '1px solid #FECACA', borderRadius: '6px',
+                              padding: '3px 8px', fontSize: '11px', cursor: 'pointer',
+                            }}
+                          >
+                            🗑
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

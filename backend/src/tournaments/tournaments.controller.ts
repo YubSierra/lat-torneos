@@ -37,7 +37,7 @@ export class TournamentsController {
 
   // DELETE /tournaments/:id — solo admins pueden eliminar
   @Delete(':id')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard)
   remove(@Param('id') id: string) {
     return this.tournamentsService.remove(id);
   }

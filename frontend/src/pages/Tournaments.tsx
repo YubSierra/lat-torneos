@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Eye } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { tournamentsApi } from '../api/tournaments.api';
+import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import Sidebar from '../components/Sidebar';
 import { useNavigate } from 'react-router-dom';
@@ -130,13 +131,36 @@ export default function Tournaments() {
                       🤝 Dobles disponibles
                     </span>
                   )}
-                  <button
-                    onClick={() => navigate(`/tournaments/${t.id}`)}
-                    className="flex items-center gap-1 text-xs text-lat-green hover:text-lat-dark transition-colors"
-                  >
-                    <Eye size={14} />
-                    Ver detalles
-                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px' }}>
+                    <button
+                      onClick={() => navigate(`/tournaments/${t.id}`)}
+                      className="flex items-center gap-1 text-xs text-lat-green hover:text-lat-dark transition-colors"
+                    >
+                      Ver detalle →
+                    </button>
+                    {isAdmin && (
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (!confirm(`¿Eliminar "${t.name}"? Se borrarán todos los partidos, inscripciones y programación.`)) return;
+                          try {
+                            await api.delete(`/tournaments/${t.id}`);
+                            queryClient.invalidateQueries({ queryKey: ['tournaments'] });
+                          } catch {
+                            alert('Error al eliminar el torneo');
+                          }
+                        }}
+                        style={{
+                          backgroundColor: '#FEF2F2', color: '#DC2626',
+                          border: '1px solid #FECACA', borderRadius: '6px',
+                          padding: '4px 10px', fontSize: '11px',
+                          cursor: 'pointer', fontWeight: '500',
+                        }}
+                      >
+                        🗑 Eliminar
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body,
+import { Controller, Get, Post, Delete, Body,
          Param, UseGuards, UploadedFile,
          UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -96,5 +96,12 @@ export class EnrollmentsController {
     @Param('cat') cat: string,
   ) {
     return this.enrollmentsService.countByCategory(id, cat);
+  }
+
+  // DELETE /enrollments/:id — eliminar inscripción (admin)
+  @Delete(':id')
+  @UseGuards(JwtAuthGuard)
+  remove(@Param('id') id: string) {
+    return this.enrollmentsService.remove(id);
   }
 }

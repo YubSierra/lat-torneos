@@ -219,6 +219,25 @@ export class MatchesService {
     }
   }
 
+  // ── ELIMINAR PARTIDO ─────────────────────────────
+  async removeMatch(id: string) {
+    const match = await this.findOne(id);
+    await this.repo.remove(match);
+    return { message: 'Partido eliminado correctamente' };
+  }
+
+  // ── LIMPIAR PROGRAMACIÓN DEL DÍA ────────────────
+  async clearScheduleByDate(tournamentId: string, date: string) {
+    await this.repo
+      .createQueryBuilder()
+      .update()
+      .set({ scheduledAt: null, courtId: null, estimatedDuration: 90 })
+      .where('tournamentId = :tournamentId', { tournamentId })
+      .andWhere('DATE(scheduledAt) = :date', { date })
+      .execute();
+    return { message: `Programación del ${date} eliminada` };
+  }
+
   // ── ESTADO DEL RR POR GRUPO ─────────────────────
   async getRRGroupStatus(tournamentId: string, category: string) {
     const matches = await this.repo.find({

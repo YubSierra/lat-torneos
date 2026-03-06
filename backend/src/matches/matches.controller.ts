@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch,
+import { Controller, Get, Post, Patch, Delete,
          Body, Param, UseGuards } from '@nestjs/common';
 import { MatchesService } from './matches.service';
 import { UpdateScoreDto } from './dto/update-score.dto';
@@ -54,6 +54,23 @@ export class MatchesController {
     @Body() body: { winnerId: string },
   ) {
     return this.matchesService.declareWalkover(id, body.winnerId);
+  }
+
+  // DELETE /matches/:id — eliminar partido (admin)
+  @Delete(':id')
+  @UseGuards(JwtAuthGuard)
+  removeMatch(@Param('id') id: string) {
+    return this.matchesService.removeMatch(id);
+  }
+
+  // DELETE /matches/tournament/:id/schedule/:date — limpiar programación del día
+  @Delete('tournament/:id/schedule/:date')
+  @UseGuards(JwtAuthGuard)
+  clearSchedule(
+    @Param('id') tournamentId: string,
+    @Param('date') date: string,
+  ) {
+    return this.matchesService.clearScheduleByDate(tournamentId, date);
   }
 
   // GET /matches/tournament/:id/rr-status/:category — estado del RR por grupo

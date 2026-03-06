@@ -41,6 +41,12 @@ export class TournamentsService {
   // ── ELIMINAR ────────────────────────────────────
   async remove(id: string) {
     const tournament = await this.findOne(id);
+
+    try { await this.repo.manager.query('DELETE FROM matches WHERE "tournamentId" = $1', [id]); } catch (e) {}
+    try { await this.repo.manager.query('DELETE FROM doubles_teams WHERE "tournamentId" = $1', [id]); } catch (e) {}
+    try { await this.repo.manager.query('DELETE FROM enrollments WHERE "tournamentId" = $1', [id]); } catch (e) {}
+    try { await this.repo.manager.query('DELETE FROM ranking_history WHERE "tournamentId" = $1', [id]); } catch (e) {}
+
     await this.repo.remove(tournament);
     return { message: 'Torneo eliminado correctamente' };
   }

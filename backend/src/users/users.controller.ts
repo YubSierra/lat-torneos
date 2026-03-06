@@ -1,10 +1,11 @@
-import { Controller, Get, Post, Body,
-         UseGuards, UploadedFile,
+import { Controller, Get, Post, Patch, Delete, Body,
+         Param, Query, UseGuards, UploadedFile,
          UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './user.entity';
+import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/jwt.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import * as bcrypt from 'bcrypt';
@@ -14,38 +15,56 @@ export class UsersController {
   constructor(
     @InjectRepository(User)
     private userRepo: Repository<User>,
+    private usersService: UsersService,
   ) {}
 
-  // GET /users — listar todos los usuarios (solo admins)
   @Get()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  async findAll() {
-    return this.userRepo.find({
-      select: [
-        'id', 'email', 'role', 'isActive', 'createdAt',
-        'nombres', 'apellidos', 'telefono', 'docNumber',
-        'direccion', 'gender', 'birthDate',
-      ],
-      order: { createdAt: 'DESC' },
-    });
+  findAll() {
+    return this.usersService.findAll();
   }
 
-  // POST /users/import-csv — importar jugadores desde CSV
+  @Get('search')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  search(@Query('q') q: string) {
+    return this.usersService.search(q || '');
+  }
+
+  @Get(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  findOne(@Param('id') id: string) {
+    return this.usersService.findOne(id);
+  }
+
+  @Patch(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  update(@Param('id') id: string, @Body() body: Partial<User>) {
+    return this.usersService.update(id, body);
+  }
+
+  // Desactivar jugador (soft delete)
+  @Delete(':id')
+  @UseGuards(JwtAuthGuard)
+  remove(@Param('id') id: string) {
+    return this.usersService.remove(id);
+  }
+
+  // Eliminar jugador permanentemente
+  @Delete(':id/hard')
+  @UseGuards(JwtAuthGuard)
+  hardDelete(@Param('id') id: string) {
+    return this.usersService.hardDelete(id);
+  }
+
   @Post('import-csv')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @UseInterceptors(FileInterceptor('file'))
   async importCsv(@UploadedFile() file: Express.Multer.File) {
     if (!file) throw new Error('No se recibió archivo');
-
     const content = file.buffer.toString('utf-8');
-    const lines = content.split('\n').filter(l => l.trim());
+    const lines   = content.split('\n').filter(l => l.trim());
     const headers = lines[0].split(',').map(h => h.trim());
-
-    const results = {
-      created: 0,
-      skipped: 0,
-      errors: [] as string[],
-    };
+    const results = { created: 0, skipped: 0, errors: [] as string[] };
 
     for (let i = 1; i < lines.length; i++) {
       const values = lines[i].split(',').map(v => v.trim());
@@ -53,55 +72,29 @@ export class UsersController {
       headers.forEach((h, idx) => { row[h] = values[idx] || ''; });
 
       try {
-        // Verificar si el usuario ya existe por email o documento
         const exists = await this.userRepo.findOne({
-          where: [
-            { email: row.email },
-            { docNumber: row.docNumber },
-          ],
+          where: [{ email: row.email }, { docNumber: row.docNumber }],
         });
+        if (exists) { results.skipped++; continue; }
 
-        if (exists) {
-          results.skipped++;
-          results.errors.push(`Línea ${i + 1}: ${row.email} ya existe`);
-          continue;
-        }
-
-        // Generar contraseña temporal: primeras 4 letras del apellido + doc últimos 4
         const passBase = (row.apellidos || 'user').slice(0, 4).toLowerCase();
         const passDoc  = (row.docNumber || '0000').slice(-4);
-        const tempPassword = `${passBase}${passDoc}`;
-        const hashed = await bcrypt.hash(tempPassword, 12);
+        const hashed   = await bcrypt.hash(`${passBase}${passDoc}`, 12);
 
-        // Crear usuario con todos los datos
-        const user = this.userRepo.create({
-          email:              row.email,
-          password:           hashed,
-          role:               'player' as any,
-          nombres:            row.nombres,
-          apellidos:          row.apellidos,
-          telefono:           row.telefono,
-          direccion:          row.direccion,
-          docNumber:          row.docNumber,
-          birthDate:          row.birthDate ? new Date(row.birthDate) : null,
-          gender:             row.gender || 'M',
-          mustChangePassword: true,
-          isActive:           true,
-        });
-
-        await this.userRepo.save(user);
+        await this.userRepo.save(this.userRepo.create({
+          email: row.email, password: hashed, role: 'player' as any,
+          nombres: row.nombres, apellidos: row.apellidos,
+          telefono: row.telefono, direccion: row.direccion,
+          docNumber: row.docNumber,
+          birthDate: row.birthDate ? new Date(row.birthDate) : null,
+          gender: row.gender || 'M',
+          mustChangePassword: true, isActive: true,
+        }));
         results.created++;
-
       } catch (err) {
         results.errors.push(`Línea ${i + 1}: ${err.message}`);
       }
     }
-
-    return {
-      message: `Importación completada`,
-      created: results.created,
-      skipped: results.skipped,
-      errors:  results.errors,
-    };
+    return { message: 'Importación completada', ...results };
   }
 }

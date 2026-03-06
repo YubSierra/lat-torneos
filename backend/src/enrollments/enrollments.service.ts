@@ -332,4 +332,12 @@ export class EnrollmentsService {
       message: 'Jugador inscrito exitosamente',
     };
   }
+
+  // ── ELIMINAR INSCRIPCIÓN ─────────────────────────
+  async remove(id: string) {
+    const enrollment = await this.repo.findOne({ where: { id } });
+    if (!enrollment) throw new Error('Inscripción no encontrada');
+    await this.repo.remove(enrollment);
+    return { message: 'Inscripción eliminada correctamente' };
+  }
 }

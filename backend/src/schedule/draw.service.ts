@@ -89,7 +89,7 @@ export class DrawService {
             seeding1: this.getSeedingForPlayer(group[i], enrollments),
             seeding2: this.getSeedingForPlayer(group[j], enrollments),
             gameFormat: roundGameFormats['RR'] || roundGameFormats['default'] || null,
-          }));
+          } as any));
         }
       }
 

@@ -12,6 +12,7 @@ import Courts from './pages/Courts';
 import Players from './pages/Players';
 import Matches from './pages/Matches';
 import Doubles from './pages/Doubles';
+import Users from './pages/Users';
 
 const queryClient = new QueryClient();
 
@@ -51,6 +52,9 @@ export default function App() {
             } />
             <Route path="/doubles" element={
               <ProtectedRoute><Doubles /></ProtectedRoute>
+            } />
+            <Route path="/users" element={
+              <ProtectedRoute><Users /></ProtectedRoute>
             } />
 
             {/* Redirigir raíz al dashboard */}

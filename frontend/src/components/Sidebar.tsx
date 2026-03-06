@@ -14,6 +14,7 @@ const navItems = [
   { to: '/doubles',     icon: Users,            label: 'Dobles'       },
   { to: '/courts',      icon: MapPin,           label: 'Canchas'      },
   { to: '/players',     icon: Users,            label: 'Jugadores'    },
+  { to: '/users',       icon: Users,            label: 'Usuarios'     },
 ];
 
 export default function Sidebar() {
