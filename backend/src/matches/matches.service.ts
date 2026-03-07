@@ -137,6 +137,11 @@ export class MatchesService {
   private async advanceWinner(completedMatch: Match) {
     if (!completedMatch.winnerId) return;
 
+    // ── RR no avanza automáticamente ────────────────
+    // El Main Draw se genera manualmente por el referee
+    // cuando todos los partidos del grupo estén completos
+    if (['RR', 'RR_A', 'RR_B'].includes(completedMatch.round)) return;
+
     const ROUND_PROGRESSION: Record<string, string> = {
       R64:  'R32',
       R32:  'R16',

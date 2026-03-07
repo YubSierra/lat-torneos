@@ -34,6 +34,11 @@ export default function MatchScorer() {
   const [inFinalTiebreak, setInFinalTiebreak] = useState(false);
   const [status, setStatus]                 = useState('pending');
   const [winnerId, setWinnerId]             = useState<string | null>(null);
+  const [showManualResult, setShowManualResult] = useState(false);
+  const [manualSets, setManualSets] = useState<{g1: number; g2: number; tb1?: number; tb2?: number}[]>([
+    { g1: 0, g2: 0 }, { g1: 0, g2: 0 },
+  ]);
+  const [manualWinner, setManualWinner] = useState('');
 
   const POINTS_ORDER = ['0', '15', '30', '40', 'AD'];
 
@@ -420,6 +425,236 @@ export default function MatchScorer() {
           >
             Volver
           </button>
+        </div>
+      )}
+
+      {/* Resultado manual — para partidos que ya se jugaron */}
+      {!winnerId && (
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px', marginTop: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <div>
+              <p style={{ fontSize: '14px', fontWeight: '700', color: '#1B3A1B' }}>Ingresar resultado final</p>
+              <p style={{ fontSize: '12px', color: '#6B7280' }}>Para partidos que ya se jugaron sin marcador en vivo</p>
+            </div>
+            <button
+              onClick={() => setShowManualResult(!showManualResult)}
+              style={{ backgroundColor: showManualResult ? '#F3F4F6' : '#1B3A1B', color: showManualResult ? '#374151' : 'white', padding: '8px 14px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}
+            >
+              {showManualResult ? 'Cancelar' : 'Ingresar resultado'}
+            </button>
+          </div>
+
+          {showManualResult && (
+            <div>
+              {/* Sets */}
+              <div style={{ marginBottom: '16px' }}>
+                {manualSets.map((s, i) => (
+                  <div key={i} style={{ marginBottom: '12px', backgroundColor: '#F9FAFB', borderRadius: '8px', padding: '12px' }}>
+                    <p style={{ fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '10px' }}>
+                      Set {i + 1}
+                      {i === manualSets.length - 1 && manualSets.length > 2 && (
+                        <button
+                          onClick={() => setManualSets(manualSets.slice(0, -1))}
+                          style={{ marginLeft: '8px', fontSize: '10px', color: '#DC2626', background: 'none', border: 'none', cursor: 'pointer' }}
+                        >
+                          quitar
+                        </button>
+                      )}
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      {([
+                        { label: match.player1Name, key: 'g1' as const },
+                        { label: match.player2Name, key: 'g2' as const },
+                      ] as { label: string; key: 'g1' | 'g2' }[]).map(({ label, key }) => (
+                        <div key={key} style={{ textAlign: 'center' }}>
+                          <p style={{ fontSize: '11px', color: '#6B7280', marginBottom: '6px' }}>{label}</p>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                            <button
+                              onClick={() => {
+                                const updated = [...manualSets];
+                                updated[i] = { ...updated[i], [key]: Math.max(0, updated[i][key] - 1) };
+                                setManualSets(updated);
+                              }}
+                              style={{ width: '28px', height: '28px', borderRadius: '50%', border: '1px solid #D1D5DB', backgroundColor: '#F9FAFB', cursor: 'pointer', fontSize: '16px' }}
+                            >−</button>
+                            <span style={{ fontSize: '24px', fontWeight: '800', color: '#1B3A1B', minWidth: '28px', textAlign: 'center' }}>
+                              {s[key]}
+                            </span>
+                            <button
+                              onClick={() => {
+                                const updated = [...manualSets];
+                                updated[i] = { ...updated[i], [key]: updated[i][key] + 1 };
+                                setManualSets(updated);
+                              }}
+                              style={{ width: '28px', height: '28px', borderRadius: '50%', border: 'none', backgroundColor: '#2D6A2D', color: 'white', cursor: 'pointer', fontSize: '16px' }}
+                            >+</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Tiebreak si hay empate */}
+                    {s.g1 === format.gamesPerSet && s.g2 === format.gamesPerSet && (
+                      <div style={{ marginTop: '10px', borderTop: '1px solid #E5E7EB', paddingTop: '10px' }}>
+                        <p style={{ fontSize: '11px', color: '#92400E', marginBottom: '6px', fontWeight: '600' }}>
+                          Tiebreak ({s.g1}-{s.g2})
+                        </p>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                          {([
+                            { label: match.player1Name, key: 'tb1' as const },
+                            { label: match.player2Name, key: 'tb2' as const },
+                          ] as { label: string; key: 'tb1' | 'tb2' }[]).map(({ label, key }) => (
+                            <div key={key} style={{ textAlign: 'center' }}>
+                              <p style={{ fontSize: '10px', color: '#6B7280', marginBottom: '4px' }}>{label}</p>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                                <button
+                                  onClick={() => {
+                                    const updated = [...manualSets];
+                                    updated[i] = { ...updated[i], [key]: Math.max(0, (updated[i][key] || 0) - 1) };
+                                    setManualSets(updated);
+                                  }}
+                                  style={{ width: '24px', height: '24px', borderRadius: '50%', border: '1px solid #D1D5DB', backgroundColor: '#F9FAFB', cursor: 'pointer', fontSize: '14px' }}
+                                >−</button>
+                                <span style={{ fontSize: '20px', fontWeight: '800', color: '#92400E', minWidth: '24px', textAlign: 'center' }}>
+                                  {s[key] || 0}
+                                </span>
+                                <button
+                                  onClick={() => {
+                                    const updated = [...manualSets];
+                                    updated[i] = { ...updated[i], [key]: (updated[i][key] || 0) + 1 };
+                                    setManualSets(updated);
+                                  }}
+                                  style={{ width: '24px', height: '24px', borderRadius: '50%', border: 'none', backgroundColor: '#92400E', color: 'white', cursor: 'pointer', fontSize: '14px' }}
+                                >+</button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {manualSets.length < format.sets && (
+                  <button
+                    onClick={() => setManualSets([...manualSets, { g1: 0, g2: 0 }])}
+                    style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px dashed #D1D5DB', backgroundColor: 'white', cursor: 'pointer', fontSize: '13px', color: '#6B7280' }}
+                  >
+                    + Agregar set adicional
+                  </button>
+                )}
+              </div>
+
+              {/* Match Tiebreak si empate en sets */}
+              {(() => {
+                const ms1 = manualSets.filter(s => s.g1 > s.g2).length;
+                const ms2 = manualSets.filter(s => s.g2 > s.g1).length;
+                const setsToWin = Math.ceil(format.sets / 2);
+                if (ms1 === setsToWin - 1 && ms2 === setsToWin - 1 && format.finalSetTiebreak) {
+                  return (
+                    <div style={{ backgroundColor: '#FEF9C3', border: '1px solid #FDE047', borderRadius: '8px', padding: '12px', marginBottom: '12px' }}>
+                      <p style={{ fontSize: '12px', fontWeight: '600', color: '#92400E', marginBottom: '8px' }}>
+                        Match Tiebreak a {format.finalSetPoints} pts (diferencia de 2)
+                      </p>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                        {[
+                          { label: match.player1Name, key: 'mtb1' },
+                          { label: match.player2Name, key: 'mtb2' },
+                        ].map(({ label, key }) => (
+                          <div key={key} style={{ textAlign: 'center' }}>
+                            <p style={{ fontSize: '11px', color: '#6B7280', marginBottom: '4px' }}>{label}</p>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                              <button
+                                onClick={() => {
+                                  const updated = [...manualSets];
+                                  const last = updated[updated.length - 1];
+                                  updated[updated.length - 1] = { ...last, [key]: Math.max(0, ((last as any)[key] || 0) - 1) };
+                                  setManualSets(updated);
+                                }}
+                                style={{ width: '24px', height: '24px', borderRadius: '50%', border: '1px solid #D1D5DB', backgroundColor: '#F9FAFB', cursor: 'pointer', fontSize: '14px' }}
+                              >−</button>
+                              <span style={{ fontSize: '20px', fontWeight: '800', color: '#92400E', minWidth: '24px', textAlign: 'center' }}>
+                                {(manualSets[manualSets.length - 1] as any)?.[key] || 0}
+                              </span>
+                              <button
+                                onClick={() => {
+                                  const updated = [...manualSets];
+                                  const last = updated[updated.length - 1];
+                                  updated[updated.length - 1] = { ...last, [key]: ((last as any)[key] || 0) + 1 };
+                                  setManualSets(updated);
+                                }}
+                                style={{ width: '24px', height: '24px', borderRadius: '50%', border: 'none', backgroundColor: '#92400E', color: 'white', cursor: 'pointer', fontSize: '14px' }}
+                              >+</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+
+              {/* Ganador */}
+              <div style={{ marginBottom: '16px' }}>
+                <p style={{ fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>Ganador</p>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {[
+                    { id: match.player1Id, name: match.player1Name },
+                    { id: match.player2Id, name: match.player2Name },
+                  ].map(p => (
+                    <button
+                      key={p.id}
+                      onClick={() => setManualWinner(p.id)}
+                      style={{
+                        flex: 1, padding: '10px', borderRadius: '8px', border: '2px solid',
+                        borderColor: manualWinner === p.id ? '#2D6A2D' : '#E5E7EB',
+                        backgroundColor: manualWinner === p.id ? '#F0FDF4' : 'white',
+                        cursor: 'pointer', fontSize: '13px', fontWeight: '600',
+                        color: manualWinner === p.id ? '#15803D' : '#374151',
+                      }}
+                    >
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Guardar */}
+              <button
+                disabled={!manualWinner}
+                onClick={() => {
+                  const sets = manualSets.map(s => ({
+                    games1: s.g1, games2: s.g2,
+                    tiebreak1: s.tb1, tiebreak2: s.tb2,
+                  }));
+                  socketRef.current?.emit('updateLiveScore', {
+                    matchId,
+                    sets,
+                    currentSet: sets.length,
+                    currentGames1: 0,
+                    currentGames2: 0,
+                    currentPoints1: '0',
+                    currentPoints2: '0',
+                    winnerId: manualWinner,
+                    status: 'completed',
+                  });
+                  setWinnerId(manualWinner);
+                  setStatus('completed');
+                  setCompletedSets(sets);
+                  setShowManualResult(false);
+                }}
+                style={{
+                  width: '100%', padding: '12px', borderRadius: '10px', border: 'none',
+                  backgroundColor: manualWinner ? '#2D6A2D' : '#D1D5DB',
+                  color: 'white', cursor: manualWinner ? 'pointer' : 'not-allowed',
+                  fontSize: '14px', fontWeight: '700',
+                }}
+              >
+                Guardar resultado final
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
