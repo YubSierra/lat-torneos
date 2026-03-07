@@ -73,6 +73,12 @@ export class MatchesController {
     return this.matchesService.clearScheduleByDate(tournamentId, date);
   }
 
+  // GET /matches/:id/live — público, no requiere auth
+  @Get(':id/live')
+  getMatchLive(@Param('id') id: string) {
+    return this.matchesService.getMatchWithFormat(id);
+  }
+
   // GET /matches/tournament/:id/rr-status/:category — estado del RR por grupo
   @Get('tournament/:id/rr-status/:category')
   getRRStatus(

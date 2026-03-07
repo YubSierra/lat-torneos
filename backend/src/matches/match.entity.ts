@@ -97,6 +97,13 @@ export class Match {
     finalSetPoints: number; // 7, 10, 12
   };
 
+  // ── MARCADOR EN VIVO ─────────────────────────────
+  @Column({ nullable: true })
+  currentSet: number;
+
+  @Column({ type: 'jsonb', nullable: true })
+  setsHistory: any;
+
   // ── GRUPO DEL ROUND ROBIN ────────────────────────
   @Column({ nullable: true })
   groupLabel: string;

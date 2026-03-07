@@ -83,15 +83,74 @@ export function exportBracketPdf({ tournamentName, matches }: ExportOptions) {
           });
 
           Object.entries(byGroup).sort().forEach(([groupLabel, groupMatches]) => {
-            doc.setTextColor(27, 58, 27);
+            if (yPos > 170) { doc.addPage(); yPos = 15; }
+
+            // Header grupo
+            doc.setFillColor(240, 253, 244);
+            doc.setDrawColor(134, 239, 172);
+            doc.rect(10, yPos, pageW - 20, 8, 'FD');
+            doc.setTextColor(21, 128, 61);
             doc.setFontSize(10);
             doc.setFont('helvetica', 'bold');
-            doc.text(`GRUPO ${groupLabel} (${groupMatches.length} partidos)`, 12, yPos + 4);
-            yPos += 7;
+            doc.text(`GRUPO ${groupLabel}  —  ${groupMatches.length} partidos`, 14, yPos + 5.5);
+            yPos += 10;
+
+            // ── TABLA DE POSICIONES ──
+            const standings = new Map<string, { name: string; seeding: number|null; wins: number; losses: number }>();
+            groupMatches.forEach((m: Match) => {
+              if (m.player1Id && !standings.has(m.player1Id)) {
+                standings.set(m.player1Id, { name: m.player1Name || 'BYE', seeding: m.seeding1 || null, wins: 0, losses: 0 });
+              }
+              if (m.player2Id && !standings.has(m.player2Id)) {
+                standings.set(m.player2Id, { name: m.player2Name || 'BYE', seeding: m.seeding2 || null, wins: 0, losses: 0 });
+              }
+              if (m.winnerId) {
+                const w = standings.get(m.winnerId);
+                const loserId = m.winnerId === m.player1Id ? m.player2Id! : m.player1Id!;
+                const l = standings.get(loserId);
+                if (w) w.wins++;
+                if (l) l.losses++;
+              }
+            });
+
+            const sorted = [...standings.entries()]
+              .sort((a, b) => b[1].wins - a[1].wins);
 
             autoTable(doc, {
+              head: [['Pos', 'Jugador', 'Siembra', 'V', 'D']],
+              body: sorted.map(([, p], idx) => [
+                idx + 1,
+                p.name,
+                p.seeding ? `[${p.seeding}]` : '',
+                p.wins,
+                p.losses,
+              ]),
+              startY: yPos,
+              margin: { left: 10, right: 10 },
+              tableWidth: 80,
+              styles: { fontSize: 8, cellPadding: 3 },
+              headStyles: { fillColor: [21, 128, 61], textColor: [255,255,255], fontStyle: 'bold' },
+              columnStyles: {
+                0: { cellWidth: 10, halign: 'center' },
+                2: { cellWidth: 18, halign: 'center', textColor: [146, 64, 14] },
+                3: { cellWidth: 10, halign: 'center', textColor: [21, 128, 61], fontStyle: 'bold' },
+                4: { cellWidth: 10, halign: 'center', textColor: [220, 38, 38] },
+              },
+              alternateRowStyles: { fillColor: [240, 253, 244] },
+              didDrawCell: (data) => {
+                // Resaltar líder
+                if (data.row.index === 0 && data.section === 'body') {
+                  doc.setFillColor(240, 253, 244);
+                }
+              },
+            });
+
+            const standingsBottom = (doc as any).lastAutoTable.finalY;
+
+            // ── PARTIDOS DEL GRUPO ──
+            autoTable(doc, {
               head: [['#', 'Jugador 1', 'Siembra', 'vs', 'Jugador 2', 'Siembra', 'Estado']],
-              body: groupMatches.map((m, i) => [
+              body: groupMatches.map((m: Match, i: number) => [
                 i + 1,
                 m.player1Name || 'BYE',
                 m.seeding1 ? `[${m.seeding1}]` : '',
@@ -102,21 +161,21 @@ export function exportBracketPdf({ tournamentName, matches }: ExportOptions) {
                   ? `Gano: ${m.winnerId === m.player1Id ? m.player1Name : m.player2Name}`
                   : m.status === 'live' ? 'En vivo' : 'Pendiente',
               ]),
-              startY: yPos,
+              startY: (doc as any).lastAutoTable.finalY + 4,
               margin: { left: 10, right: 10 },
               styles: { fontSize: 8, cellPadding: 3 },
               headStyles: { fillColor: [27, 58, 27], textColor: [255,255,255], fontStyle: 'bold' },
               columnStyles: {
                 0: { cellWidth: 8,  halign: 'center' },
-                2: { cellWidth: 15, halign: 'center', textColor: [146, 64, 14] },
-                3: { cellWidth: 10, halign: 'center', fontStyle: 'bold' },
-                5: { cellWidth: 15, halign: 'center', textColor: [146, 64, 14] },
-                6: { cellWidth: 35 },
+                2: { cellWidth: 14, halign: 'center', textColor: [146, 64, 14] },
+                3: { cellWidth: 8,  halign: 'center', fontStyle: 'bold' },
+                5: { cellWidth: 14, halign: 'center', textColor: [146, 64, 14] },
+                6: { cellWidth: 30 },
               },
               alternateRowStyles: { fillColor: [240, 253, 244] },
             });
 
-            yPos = (doc as any).lastAutoTable.finalY + 6;
+            yPos = (doc as any).lastAutoTable.finalY + 8;
           });
         } else {
           // Para RR_A y RR_B (Master tournaments)

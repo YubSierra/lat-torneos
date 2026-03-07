@@ -404,6 +404,72 @@ export class MatchesService {
     };
   }
 
+  // ── ACTUALIZAR MARCADOR EN VIVO ─────────────────
+  async updateLiveScore(dto: {
+    matchId: string;
+    sets: { games1: number; games2: number; tiebreak1?: number; tiebreak2?: number }[];
+    currentSet: number;
+    currentGames1: number;
+    currentGames2: number;
+    currentPoints1: string;
+    currentPoints2: string;
+    winnerId?: string;
+    status?: string;
+  }) {
+    const match = await this.findOne(dto.matchId);
+
+    // Guardar historial de sets como JSON
+    (match as any).setsHistory   = JSON.stringify(dto.sets);
+    (match as any).currentSet    = dto.currentSet;
+    match.games1                 = dto.currentGames1;
+    match.games2                 = dto.currentGames2;
+    match.points1                = dto.currentPoints1;
+    match.points2                = dto.currentPoints2;
+
+    // Calcular sets ganados
+    let sets1 = 0, sets2 = 0;
+    dto.sets.forEach(s => {
+      if (s.games1 > s.games2) sets1++;
+      else if (s.games2 > s.games1) sets2++;
+    });
+    match.sets1 = sets1;
+    match.sets2 = sets2;
+
+    if (dto.winnerId) {
+      match.winnerId = dto.winnerId;
+      match.status   = MatchStatus.COMPLETED;
+      await this.advanceWinner(match);
+    } else {
+      match.status = MatchStatus.LIVE;
+    }
+
+    return this.repo.save(match);
+  }
+
+  // ── OBTENER PARTIDO CON FORMATO ─────────────────
+  async getMatchWithFormat(matchId: string) {
+    const match = await this.repo.findOne({ where: { id: matchId } });
+    if (!match) throw new Error('Partido no encontrado');
+
+    const playerIds = [match.player1Id, match.player2Id].filter(Boolean);
+    const users = playerIds.length > 0
+      ? await this.userRepo
+          .createQueryBuilder('u')
+          .where('u.id IN (:...ids)', { ids: playerIds })
+          .getMany()
+      : [];
+    const userMap = new Map(
+      users.map(u => [u.id, `${u.nombres || ''} ${u.apellidos || ''}`.trim() || u.email])
+    );
+
+    return {
+      ...match,
+      player1Name: userMap.get(match.player1Id) || 'Jugador 1',
+      player2Name: userMap.get(match.player2Id) || 'Jugador 2',
+      setsHistory: (match as any).setsHistory ? JSON.parse((match as any).setsHistory) : [],
+    };
+  }
+
   private nextPowerOfTwo(n: number): number {
     let p = 1;
     while (p < n) p *= 2;

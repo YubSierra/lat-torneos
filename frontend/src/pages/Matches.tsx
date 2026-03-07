@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { Play, Trophy } from 'lucide-react';
 import { tournamentsApi } from '../api/tournaments.api';
 import { matchesApi } from '../api/matches.api';
@@ -15,6 +16,7 @@ const ROUND_LABELS: Record<string, string> = {
 
 export default function Matches() {
   const { isAdmin } = useAuth();
+  const navigate = useNavigate();
   const [selectedTournament, setSelectedTournament] = useState('');
   const [scoringMatch, setScoringMatch] = useState<any>(null);
   const [score, setScore] = useState({
@@ -269,6 +271,16 @@ export default function Matches() {
                                 }}
                               >
                                 W.O.
+                              </button>
+                              <button
+                                onClick={() => navigate(`/scorer/${m.id}`)}
+                                style={{
+                                  backgroundColor: '#EF4444', color: 'white',
+                                  padding: '4px 10px', borderRadius: '6px',
+                                  border: 'none', cursor: 'pointer', fontSize: '11px',
+                                }}
+                              >
+                                Scorer
                               </button>
                             </div>
                           </td>

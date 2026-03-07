@@ -13,6 +13,8 @@ import Players from './pages/Players';
 import Matches from './pages/Matches';
 import Doubles from './pages/Doubles';
 import Users from './pages/Users';
+import LiveMatch from './pages/LiveMatch';
+import MatchScorer from './pages/MatchScorer';
 
 const queryClient = new QueryClient();
 
@@ -56,6 +58,10 @@ export default function App() {
             <Route path="/users" element={
               <ProtectedRoute><Users /></ProtectedRoute>
             } />
+
+            {/* Rutas públicas de marcador */}
+            <Route path="/live/:matchId" element={<LiveMatch />} />
+            <Route path="/scorer/:matchId" element={<MatchScorer />} />
 
             {/* Redirigir raíz al dashboard */}
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
