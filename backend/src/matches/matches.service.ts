@@ -20,7 +20,7 @@ export class MatchesService {
       ...matches.map(m => m.player1Id),
       ...matches.map(m => m.player2Id),
       ...matches.map(m => m.winnerId),
-    ].filter(Boolean))];
+    ].filter(id => id && id !== 'BYE' && id.length === 36))]; // ← filtrar BYE y nulls
 
     if (playerIds.length === 0) return matches;
 
@@ -331,28 +331,25 @@ export class MatchesService {
     category: string,
     advancingPerGroup: number = 1,
   ) {
-    // Verificar que todos los grupos estén completos
     const status = await this.getRRGroupStatus(tournamentId, category);
-    if (!status.allComplete) {
-      throw new Error('No todos los partidos del Round Robin están terminados');
-    }
 
-    // Obtener ganadores/clasificados por grupo
     const qualifiers: string[] = [];
     status.groups.forEach(group => {
-      const advancing = group.standings.slice(0, advancingPerGroup);
-      advancing.forEach(p => qualifiers.push(p.playerId));
+      group.standings.slice(0, advancingPerGroup).forEach(p => qualifiers.push(p.playerId));
     });
 
     if (qualifiers.length < 2) {
-      throw new Error('Se necesitan al menos 2 clasificados para generar el Main Draw');
+      throw new Error(`Solo hay ${qualifiers.length} clasificados. Mínimo 2 para generar Main Draw.`);
     }
 
-    // Verificar que no existan ya partidos de eliminación para esta categoría
-    const existing = await this.repo.find({
-      where: { tournamentId, category, round: 'QF' as any },
-    });
-    if (existing.length > 0) {
+    const existingElim = await this.repo
+      .createQueryBuilder('m')
+      .where('m.tournamentId = :tid', { tid: tournamentId })
+      .andWhere('m.category = :cat', { cat: category })
+      .andWhere('m.round NOT IN (:...rrRounds)', { rrRounds: ['RR', 'RR_A', 'RR_B'] })
+      .getMany();
+
+    if (existingElim.length > 0) {
       throw new Error('El Main Draw ya fue generado para esta categoría');
     }
 

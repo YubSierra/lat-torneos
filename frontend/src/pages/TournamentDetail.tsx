@@ -83,9 +83,14 @@ export default function TournamentDetail() {
       });
       return res.data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['matches', id] });
       setShowMainDrawModal(false);
+      alert(`✅ Main Draw generado: ${data.qualifiers} clasificados · ${data.matches} partidos desde ${data.firstRound}`);
+    },
+    onError: (error: any) => {
+      const msg = error?.response?.data?.message || error?.message || 'Error desconocido';
+      alert(`❌ ${msg}`);
     },
   });
 

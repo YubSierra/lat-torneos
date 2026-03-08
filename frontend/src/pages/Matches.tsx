@@ -1,3 +1,4 @@
+// frontend/src/pages/Matches.tsx
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
@@ -7,6 +8,7 @@ import { matchesApi } from '../api/matches.api';
 import { useSocket } from '../hooks/useSocket';
 import { useAuth } from '../context/AuthContext';
 import Sidebar from '../components/Sidebar';
+import WOModal from '../components/WOModal';  // ← NUEVO
 
 const ROUND_LABELS: Record<string, string> = {
   R64: 'R64', R32: 'R32', R16: 'R16',
@@ -14,10 +16,28 @@ const ROUND_LABELS: Record<string, string> = {
   RR: 'Round Robin', RR_A: 'Grupo A', RR_B: 'Grupo B',
 };
 
+// ── Tipo para el estado del modal ────────────────────────────────────────────
+// Guardamos todo el partido que necesita el modal
+interface WOModalState {
+  isOpen: boolean;
+  match: {
+    id: string;
+    player1Id: string;
+    player2Id: string;
+    player1Name: string;
+    player2Name: string;
+    round: string;
+    category: string;
+  } | null;
+}
+
 export default function Matches() {
   const { isAdmin } = useAuth();
   const navigate = useNavigate();
   const [selectedTournament, setSelectedTournament] = useState('');
+
+  // Estado del modal W.O.
+  const [woModal, setWoModal] = useState<WOModalState>({ isOpen: false, match: null });
 
   const { scores, startMatch } = useSocket(selectedTournament);
 
@@ -32,20 +52,45 @@ export default function Matches() {
     enabled: !!selectedTournament,
   });
 
+  // ── Handlers ──────────────────────────────────────────────────────────────
+
   const handleStartMatch = async (matchId: string) => {
     await matchesApi.startMatch(matchId);
     startMatch(matchId);
     refetch();
   };
 
-  const handleWalkover = async (matchId: string, winnerId: string) => {
-    await matchesApi.declareWalkover(matchId, winnerId);
-    refetch();
+  // Abre el modal W.O. pasándole los datos del partido
+  const handleWOClick = (m: any) => {
+    setWoModal({
+      isOpen: true,
+      match: {
+        id:          m.id,
+        player1Id:   m.player1Id,
+        player2Id:   m.player2Id,
+        player1Name: m.player1Name || 'Jugador 1',
+        player2Name: m.player2Name || 'Jugador 2',
+        round:       m.round,
+        category:    m.category,
+      },
+    });
   };
 
-  const liveMatches  = matches.filter((m: any) => m.status === 'live');
+  // Se llama cuando el árbitro confirma el W.O. en el modal
+  const handleWOConfirm = async (matchId: string, winnerId: string, reason: string) => {
+    try {
+      await matchesApi.declareWalkover(matchId, winnerId);
+      setWoModal({ isOpen: false, match: null });
+      refetch();
+    } catch (error) {
+      console.error('Error al declarar W.O.:', error);
+      // Aquí puedes agregar una notificación de error en el futuro
+    }
+  };
+
+  const liveMatches    = matches.filter((m: any) => m.status === 'live');
   const pendingMatches = matches.filter((m: any) => m.status === 'pending');
-  const doneMatches  = matches.filter((m: any) =>
+  const doneMatches    = matches.filter((m: any) =>
     m.status === 'completed' || m.status === 'wo'
   );
 
@@ -81,99 +126,68 @@ export default function Matches() {
         </div>
 
         {!selectedTournament ? (
-          <p className="text-gray-400 text-center py-8">
-            Selecciona un torneo para ver los partidos
-          </p>
+          <div className="bg-white rounded-xl shadow-sm p-12 text-center">
+            <p className="text-gray-400 text-lg">Selecciona un torneo para ver los partidos</p>
+          </div>
         ) : (
           <>
-            {/* Partidos EN VIVO */}
-            {liveMatches.length > 0 && (
-              <div className="mb-6">
-                <h2 className="text-lg font-bold text-red-600 mb-3 flex items-center gap-2">
-                  🔴 En Vivo ({liveMatches.length})
-                </h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* ── Partidos EN VIVO ── */}
+            <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
+              <h2 className="text-lg font-bold text-lat-dark mb-4">
+                🔴 En Vivo ({liveMatches.length})
+              </h2>
+              {liveMatches.length === 0 ? (
+                <p className="text-gray-400 text-center py-4">No hay partidos en vivo</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   {liveMatches.map((m: any) => {
                     const liveScore = scores[m.id];
                     return (
-                      <div key={m.id} style={{
-                        backgroundColor: 'white', borderRadius: '12px',
-                        padding: '20px', border: '2px solid #EF4444',
-                        boxShadow: '0 0 15px rgba(239,68,68,0.2)',
-                      }}>
-                        {/* Ronda y categoría */}
-                        <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-                          <span style={{
-                            padding: '2px 8px', borderRadius: '999px',
-                            fontSize: '11px', fontWeight: '600',
-                            backgroundColor: '#F3E8FF', color: '#6B21A8',
-                          }}>
-                            {ROUND_LABELS[m.round] || m.round}
-                          </span>
-                          <span style={{
-                            padding: '2px 8px', borderRadius: '999px',
-                            fontSize: '11px', backgroundColor: '#DBEAFE', color: '#1D4ED8',
-                          }}>
-                            {m.category}
-                          </span>
-                        </div>
-
-                        {/* Marcador */}
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <div style={{ flex: 1 }}>
-                            <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '2px' }}>Jugador 1</p>
-                            <p style={{ fontSize: '14px', fontWeight: '600', color: '#1B3A1B' }}>
-                              {m.player1Name || 'BYE'}
-                            </p>
-                          </div>
-
-                          <div style={{ textAlign: 'center', padding: '0 16px' }}>
-                            <div style={{
-                              display: 'flex', gap: '12px', alignItems: 'center',
-                              fontSize: '32px', fontWeight: 'bold', color: '#1B3A1B',
-                            }}>
-                              <span>{liveScore?.sets1 ?? 0}</span>
-                              <span style={{ fontSize: '20px', color: '#9CA3AF' }}>—</span>
-                              <span>{liveScore?.sets2 ?? 0}</span>
+                      <div
+                        key={m.id}
+                        style={{
+                          border: '2px solid #EF4444', borderRadius: '12px',
+                          padding: '16px', backgroundColor: '#FFF5F5',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div>
+                            <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                              <span style={{ padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '600', backgroundColor: '#F3E8FF', color: '#6B21A8' }}>
+                                {ROUND_LABELS[m.round] || m.round}
+                              </span>
+                              <span style={{ padding: '2px 8px', borderRadius: '999px', fontSize: '11px', backgroundColor: '#DBEAFE', color: '#1D4ED8' }}>
+                                {m.category}
+                              </span>
                             </div>
-                            <p style={{ fontSize: '11px', color: '#9CA3AF', marginTop: '2px' }}>
-                              {liveScore?.games1 ?? 0} - {liveScore?.games2 ?? 0} games
-                            </p>
-                            <p style={{ fontSize: '11px', color: '#9CA3AF' }}>
-                              {liveScore?.points1 ?? '0'} - {liveScore?.points2 ?? '0'} pts
-                            </p>
+                            <p className="font-semibold text-lat-dark">{m.player1Name || 'BYE'}</p>
+                            <p className="font-semibold text-lat-dark">{m.player2Name || 'BYE'}</p>
                           </div>
-
-                          <div style={{ flex: 1, textAlign: 'right' }}>
-                            <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '2px' }}>Jugador 2</p>
-                            <p style={{ fontSize: '14px', fontWeight: '600', color: '#1B3A1B' }}>
-                              {m.player2Name || 'BYE'}
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Botón scorer */}
-                        {isAdmin && (
+                          {liveScore && (
+                            <div style={{ textAlign: 'right', fontSize: '24px', fontWeight: '800', color: '#1B3A1B' }}>
+                              <div>{liveScore.games1}</div>
+                              <div>{liveScore.games2}</div>
+                            </div>
+                          )}
                           <button
                             onClick={() => navigate(`/scorer/${m.id}`)}
                             style={{
-                              marginTop: '12px', width: '100%',
                               backgroundColor: '#EF4444', color: 'white',
-                              padding: '8px', borderRadius: '8px',
-                              border: 'none', cursor: 'pointer', fontSize: '13px',
+                              padding: '8px 16px', borderRadius: '8px',
+                              border: 'none', cursor: 'pointer', fontWeight: '600',
                             }}
                           >
                             Scorer
                           </button>
-                        )}
+                        </div>
                       </div>
                     );
                   })}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
 
-            {/* Partidos PENDIENTES */}
+            {/* ── Partidos PENDIENTES ── */}
             <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
               <h2 className="text-lg font-bold text-lat-dark mb-4">
                 ⏳ Pendientes ({pendingMatches.length})
@@ -196,19 +210,12 @@ export default function Matches() {
                     {pendingMatches.map((m: any, i: number) => (
                       <tr key={m.id} className={`border-b border-gray-50 ${i % 2 === 0 ? '' : 'bg-gray-50/50'}`}>
                         <td className="py-3 px-4">
-                          <span style={{
-                            padding: '2px 8px', borderRadius: '999px',
-                            fontSize: '11px', fontWeight: '600',
-                            backgroundColor: '#F3E8FF', color: '#6B21A8',
-                          }}>
+                          <span style={{ padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '600', backgroundColor: '#F3E8FF', color: '#6B21A8' }}>
                             {ROUND_LABELS[m.round] || m.round}
                           </span>
                         </td>
                         <td className="py-3 px-4">
-                          <span style={{
-                            padding: '2px 8px', borderRadius: '999px',
-                            fontSize: '11px', backgroundColor: '#DBEAFE', color: '#1D4ED8',
-                          }}>
+                          <span style={{ padding: '2px 8px', borderRadius: '999px', fontSize: '11px', backgroundColor: '#DBEAFE', color: '#1D4ED8' }}>
                             {m.category}
                           </span>
                         </td>
@@ -226,6 +233,7 @@ export default function Matches() {
                         {isAdmin && (
                           <td className="py-3 px-4">
                             <div style={{ display: 'flex', gap: '4px' }}>
+                              {/* Botón Iniciar */}
                               <button
                                 onClick={() => handleStartMatch(m.id)}
                                 style={{
@@ -238,20 +246,21 @@ export default function Matches() {
                                 <Play size={12} />
                                 Iniciar
                               </button>
+
+                              {/* ✅ Botón W.O. — ahora abre el modal */}
                               <button
-                                onClick={() => {
-                                  if (confirm('¿Declarar W.O.? El jugador 1 gana 6-0 6-0')) {
-                                    handleWalkover(m.id, m.player1Id);
-                                  }
-                                }}
+                                onClick={() => handleWOClick(m)}
                                 style={{
                                   backgroundColor: '#FEF3C7', color: '#92400E',
                                   padding: '4px 8px', borderRadius: '6px',
                                   border: 'none', cursor: 'pointer', fontSize: '11px',
+                                  fontWeight: '600',
                                 }}
                               >
                                 W.O.
                               </button>
+
+                              {/* Botón Scorer */}
                               <button
                                 onClick={() => navigate(`/scorer/${m.id}`)}
                                 style={{
@@ -272,7 +281,7 @@ export default function Matches() {
               )}
             </div>
 
-            {/* Partidos TERMINADOS */}
+            {/* ── Partidos TERMINADOS ── */}
             <div className="bg-white rounded-xl shadow-sm p-6">
               <h2 className="text-lg font-bold text-lat-dark mb-4">
                 ✅ Terminados ({doneMatches.length})
@@ -295,28 +304,17 @@ export default function Matches() {
                     {doneMatches.map((m: any, i: number) => (
                       <tr key={m.id} className={`border-b border-gray-50 ${i % 2 === 0 ? '' : 'bg-gray-50/50'}`}>
                         <td className="py-3 px-4">
-                          <span style={{
-                            padding: '2px 8px', borderRadius: '999px',
-                            fontSize: '11px', fontWeight: '600',
-                            backgroundColor: '#F3E8FF', color: '#6B21A8',
-                          }}>
+                          <span style={{ padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '600', backgroundColor: '#F3E8FF', color: '#6B21A8' }}>
                             {ROUND_LABELS[m.round] || m.round}
                           </span>
                         </td>
                         <td className="py-3 px-4">
-                          <span style={{
-                            padding: '2px 8px', borderRadius: '999px',
-                            fontSize: '11px', backgroundColor: '#DBEAFE', color: '#1D4ED8',
-                          }}>
+                          <span style={{ padding: '2px 8px', borderRadius: '999px', fontSize: '11px', backgroundColor: '#DBEAFE', color: '#1D4ED8' }}>
                             {m.category}
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-xs text-gray-600">
-                          {m.player1Name || 'BYE'}
-                        </td>
-                        <td className="py-3 px-4 text-xs text-gray-600">
-                          {m.player2Name || 'BYE'}
-                        </td>
+                        <td className="py-3 px-4 text-xs text-gray-600">{m.player1Name || 'BYE'}</td>
+                        <td className="py-3 px-4 text-xs text-gray-600">{m.player2Name || 'BYE'}</td>
                         <td className="py-3 px-4">
                           <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}>
                             <Trophy size={12} color="#2D6A2D" />
@@ -332,7 +330,7 @@ export default function Matches() {
                             backgroundColor: m.status === 'wo' ? '#FEF3C7' : '#DCFCE7',
                             color: m.status === 'wo' ? '#92400E' : '#15803D',
                           }}>
-                            {m.status === 'wo' ? 'W.O.' : '✓ Terminado'}
+                            {m.status === 'wo' ? '🏳️ W.O.' : '✓ Terminado'}
                           </span>
                         </td>
                       </tr>
@@ -345,6 +343,13 @@ export default function Matches() {
         )}
       </main>
 
+      {/* ── Modal W.O. — se renderiza fuera del flujo normal ── */}
+      <WOModal
+        isOpen={woModal.isOpen}
+        match={woModal.match}
+        onConfirm={handleWOConfirm}
+        onCancel={() => setWoModal({ isOpen: false, match: null })}
+      />
     </div>
   );
 }

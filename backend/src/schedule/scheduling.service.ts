@@ -107,7 +107,7 @@ export class SchedulingService {
     const assignments        = [];
     const playerMatchCount   = new Map<string, number>(); // playerId → count ese día
     const playerScheduled    = new Map<string, { start: number; end: number }[]>(); // playerId → slots ocupados
-    const usedSlots          = new Set<number>(); // índices de slots usados
+    const usedSlotsByCourt   = new Map<string, Set<number>>(); // courtId → slots usados
 
     // Inicializar contadores con partidos ya existentes
     existingScheduled.forEach(m => {
@@ -132,8 +132,9 @@ export class SchedulingService {
       // Buscar slot válido
       let assigned = false;
       for (let i = 0; i < slots.length; i++) {
-        if (usedSlots.has(i)) continue;
         const slot = slots[i];
+        const courtSlots = usedSlotsByCourt.get(slot.courtId) || new Set<number>();
+        if (courtSlots.has(i)) continue;
         if (slot.duration < duration) continue;
 
         const slotStart = this.timeToMinutes(slot.time);
@@ -168,7 +169,8 @@ export class SchedulingService {
           playerScheduled.get(pid!)!.push({ start: slotStart, end: slotEnd });
         });
 
-        usedSlots.add(i);
+        if (!usedSlotsByCourt.has(slot.courtId)) usedSlotsByCourt.set(slot.courtId, new Set());
+        usedSlotsByCourt.get(slot.courtId)!.add(i);
 
         // Obtener nombres
         const [player1, player2] = await Promise.all([
