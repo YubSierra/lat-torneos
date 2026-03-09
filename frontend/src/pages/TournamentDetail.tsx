@@ -16,6 +16,7 @@ import { exportBracketPdf } from '../utils/exportBracketPdf';
 import BracketView from '../components/BracketView';
 import SuspendModal, { type SuspendMode } from '../components/SuspendModal';
 import InscribirJugadorModal from '../components/InscribirJugadorModal';
+import CambiarPagoModal      from '../components/CambiarPagoModal';
 
 // ── Constantes ──────────────────────────────────────────────────────────────
 const CATEGORIES = ['INTERMEDIA', 'SEGUNDA', 'TERCERA', 'CUARTA', 'QUINTA'];
@@ -43,10 +44,12 @@ export default function TournamentDetail() {
   const [advancingPerGroup, setAdvancingPerGroup] = useState(1);
   const [roundGameFormats,  setRoundGameFormats]  = useState<Record<string, GameFormat>>({ default: { ...DEFAULT_FORMAT } });
   const [expandedRound,     setExpandedRound]     = useState<string | null>(null);
+  const [includeReserved,   setIncludeReserved]   = useState(false); // ← draw con reservados
 
   // ── Import CSV ────────────────────────────────────────────────────────
-  const [importing,    setImporting]    = useState(false);
-  const [importResult, setImportResult] = useState<any>(null);
+  const [importing,         setImporting]         = useState(false);
+  const [importResult,      setImportResult]       = useState<any>(null);
+  const [csvPaymentMethod,  setCsvPaymentMethod]   = useState('manual'); // ← forma de pago CSV
 
   // ── Main Draw modal ───────────────────────────────────────────────────
   const [rrStatus,          setRrStatus]          = useState<any>(null);
@@ -64,6 +67,10 @@ export default function TournamentDetail() {
   const [showInscribirModal, setShowInscribirModal] = useState(false);
   const [inscribirError,     setInscribirError]     = useState<string | null>(null);
   const [inscribirLoading,   setInscribirLoading]   = useState(false);
+
+  // ── Modal cambiar forma de pago ───────────────────────────────────────
+  const [cambiarPagoModal, setCambiarPagoModal] = useState<{ open: boolean; enrollment: any | null }>({ open: false, enrollment: null });
+  const [cambiarPagoLoading, setCambiarPagoLoading] = useState(false);
 
   // ── Queries ───────────────────────────────────────────────────────────
   const { data: tournament, isLoading } = useQuery({
@@ -92,7 +99,7 @@ export default function TournamentDetail() {
   // ── Mutations ─────────────────────────────────────────────────────────
   const drawMutation = useMutation({
     mutationFn: () =>
-      tournamentsApi.generateDraw(id!, selectedCategory, drawType, advancingPerGroup, drawModality, roundGameFormats),
+      tournamentsApi.generateDraw(id!, selectedCategory, drawType, advancingPerGroup, drawModality, roundGameFormats, includeReserved),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['matches', id] });
       queryClient.invalidateQueries({ queryKey: ['bracket-matches', id] });
@@ -144,18 +151,24 @@ export default function TournamentDetail() {
     const file = e.target.files?.[0];
     if (!file) return;
     setImporting(true);
+    setImportResult(null);
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('paymentMethod', csvPaymentMethod); // ← envía forma de pago
     try {
-      const res = await api.post(`/enrollments/import/${id}`, formData, {
+      // ⚠️ El endpoint del backend es import-csv (no import)
+      const res = await api.post(`/enrollments/import-csv/${id}`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       setImportResult(res.data);
       queryClient.invalidateQueries({ queryKey: ['enrollments', id] });
-    } catch {
-      setImportResult({ error: 'Error al importar el archivo' });
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.message || 'Error al importar el archivo';
+      setImportResult({ error: msg });
     } finally {
       setImporting(false);
+      // Resetear el input para permitir subir el mismo archivo de nuevo
+      e.target.value = '';
     }
   };
 
@@ -163,6 +176,20 @@ export default function TournamentDetail() {
   const approvePayment = async (enrollmentId: string) => {
     await api.patch(`/enrollments/${enrollmentId}/approve-payment`);
     queryClient.invalidateQueries({ queryKey: ['enrollments', id] });
+  };
+
+  // ── Cambiar forma de pago (admin) ─────────────────────────────────────
+  const handleCambiarPago = async (enrollmentId: string, paymentMethod: string, adminNotes: string) => {
+    setCambiarPagoLoading(true);
+    try {
+      await api.patch(`/enrollments/${enrollmentId}/payment-method`, { paymentMethod, adminNotes });
+      queryClient.invalidateQueries({ queryKey: ['enrollments', id] });
+      setCambiarPagoModal({ open: false, enrollment: null });
+    } catch (err: any) {
+      alert(err?.response?.data?.message || 'Error al cambiar forma de pago');
+    } finally {
+      setCambiarPagoLoading(false);
+    }
   };
 
   // ── Inscribir jugador individual ──────────────────────────────────────
@@ -336,62 +363,81 @@ export default function TournamentDetail() {
         {/* ══════════════════════════════════════════════════════════════ */}
         {activeTab === 'enrollments' && (
           <div className="bg-white rounded-xl shadow-sm p-6">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-              <h2 className="text-lg font-bold text-lat-dark">
-                Jugadores inscritos ({(enrollments as any[]).length})
-              </h2>
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                <h2 className="text-lg font-bold text-lat-dark">
+                  Jugadores inscritos ({(enrollments as any[]).length})
+                </h2>
+                {isAdmin && (
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+
+                    {/* 👤 Inscribir jugador individual */}
+                    <button
+                      onClick={() => setShowInscribirModal(true)}
+                      style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#2D6A2D', color: 'white', padding: '7px 14px', borderRadius: '8px', fontSize: '13px', fontWeight: '600', cursor: 'pointer', border: 'none' }}
+                    >
+                      👤 Inscribir Jugador
+                    </button>
+
+                    {/* 📥 Descargar plantilla CSV */}
+                    <button
+                      onClick={() => {
+                        const headers = 'nombres,apellidos,email,telefono,docNumber,birthDate,gender,category,modality,seeding,ranking,adminNotes\n';
+                        const example = 'Juan,García,juan@email.com,3001234567,12345678,1990-05-15,M,TERCERA,singles,1,100,\n';
+                        const blob = new Blob([headers + example], { type: 'text/csv;charset=utf-8;' });
+                        const url  = URL.createObjectURL(blob);
+                        const a    = document.createElement('a');
+                        a.href = url; a.download = 'plantilla_inscripcion.csv'; a.click();
+                        URL.revokeObjectURL(url);
+                      }}
+                      style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#EFF6FF', color: '#1D4ED8', border: '1.5px solid #BFDBFE', borderRadius: '8px', padding: '7px 14px', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
+                    >
+                      📥 Plantilla CSV
+                    </button>
+
+                    {/* 📂 Importar CSV */}
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: importing ? '#F3F4F6' : '#1D4ED8', color: importing ? '#6B7280' : 'white', padding: '7px 14px', borderRadius: '8px', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>
+                      {importing ? 'Importando...' : '📂 Importar CSV'}
+                      <input type="file" accept=".csv" onChange={handleImportCsv} style={{ display: 'none' }} />
+                    </label>
+
+                  </div>
+                )}
+              </div>
+
+              {/* ── Selector forma de pago para CSV ── */}
               {isAdmin && (
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-
-                  {/* 👤 Inscribir jugador individual */}
-                  <button
-                    onClick={() => setShowInscribirModal(true)}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: '6px',
-                      backgroundColor: '#2D6A2D', color: 'white',
-                      padding: '7px 14px', borderRadius: '8px',
-                      fontSize: '13px', fontWeight: '600', cursor: 'pointer',
-                      border: 'none',
-                    }}
-                  >
-                    👤 Inscribir Jugador
-                  </button>
-
-                  {/* 📥 Descargar plantilla CSV */}
-                  <button
-                    onClick={() => {
-                      const headers = 'nombres,apellidos,email,telefono,docNumber,birthDate,gender,category,modality,seeding,ranking\n';
-                      const example = 'Juan,García,juan@email.com,3001234567,12345678,1990-05-15,M,TERCERA,singles,1,100\n';
-                      const blob = new Blob([headers + example], { type: 'text/csv;charset=utf-8;' });
-                      const url  = URL.createObjectURL(blob);
-                      const a    = document.createElement('a');
-                      a.href     = url;
-                      a.download = 'plantilla_inscripcion.csv';
-                      a.click();
-                      URL.revokeObjectURL(url);
-                    }}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: '6px',
-                      backgroundColor: '#EFF6FF', color: '#1D4ED8',
-                      border: '1.5px solid #BFDBFE', borderRadius: '8px',
-                      padding: '7px 14px', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
-                    }}
-                  >
-                    📥 Plantilla CSV
-                  </button>
-
-                  {/* 📂 Importar CSV */}
-                  <label style={{
-                    display: 'flex', alignItems: 'center', gap: '6px',
-                    backgroundColor: importing ? '#F3F4F6' : '#1D4ED8',
-                    color: importing ? '#6B7280' : 'white',
-                    padding: '7px 14px', borderRadius: '8px',
-                    fontSize: '13px', fontWeight: '600', cursor: 'pointer',
-                  }}>
-                    {importing ? 'Importando...' : '📂 Importar CSV'}
-                    <input type="file" accept=".csv" onChange={handleImportCsv} style={{ display: 'none' }} />
-                  </label>
-
+                <div style={{ backgroundColor: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: '10px', padding: '12px 14px' }}>
+                  <p style={{ fontSize: '12px', fontWeight: '700', color: '#374151', marginBottom: '8px' }}>
+                    💳 Forma de pago para el CSV que importes:
+                  </p>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    {[
+                      { value: 'manual',   label: '💵 Efectivo',     color: '#15803D', bg: '#F0FDF4', border: '#86EFAC'  },
+                      { value: 'transfer', label: '🏦 Transferencia', color: '#1D4ED8', bg: '#EFF6FF', border: '#BFDBFE'  },
+                      { value: 'courtesy', label: '🎁 Cortesía',      color: '#6B21A8', bg: '#F3E8FF', border: '#DDD6FE'  },
+                      { value: 'reserved', label: '⏳ Reservado',     color: '#92400E', bg: '#FEF3C7', border: '#FDE68A'  },
+                    ].map(pm => (
+                      <button
+                        key={pm.value}
+                        type="button"
+                        onClick={() => setCsvPaymentMethod(pm.value)}
+                        style={{
+                          padding: '6px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: '700',
+                          border: `2px solid ${csvPaymentMethod === pm.value ? pm.border : '#E5E7EB'}`,
+                          backgroundColor: csvPaymentMethod === pm.value ? pm.bg : 'white',
+                          color: csvPaymentMethod === pm.value ? pm.color : '#6B7280',
+                        }}
+                      >
+                        {pm.label}
+                      </button>
+                    ))}
+                  </div>
+                  {csvPaymentMethod === 'reserved' && (
+                    <p style={{ fontSize: '11px', color: '#92400E', marginTop: '6px', fontStyle: 'italic' }}>
+                      ⚠️ Los jugadores importados quedarán como <strong>Reservados</strong>. No aparecerán en el draw hasta que confirmes su pago o actives "incluir reservados" al generar el cuadro.
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -400,7 +446,29 @@ export default function TournamentDetail() {
               <div style={{ marginBottom: '16px', backgroundColor: importResult.error ? '#FEF2F2' : '#F0FDF4', border: `1px solid ${importResult.error ? '#FECACA' : '#86EFAC'}`, borderRadius: '8px', padding: '12px', fontSize: '13px' }}>
                 {importResult.error
                   ? <span style={{ color: '#DC2626' }}>❌ {importResult.error}</span>
-                  : <span style={{ color: '#15803D' }}>✅ {importResult.created} inscritos · {importResult.errors?.length || 0} errores</span>
+                  : (
+                    <div>
+                      <p style={{ fontWeight: '700', color: '#15803D', marginBottom: '6px' }}>
+                        ✅ Importación completada
+                      </p>
+                      <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '12px' }}>
+                        <span style={{ color: '#15803D' }}>✅ Inscritos: <strong>{importResult.enrolled ?? importResult.created ?? 0}</strong></span>
+                        <span style={{ color: '#1D4ED8' }}>👤 Usuarios nuevos: <strong>{importResult.created ?? 0}</strong></span>
+                        <span style={{ color: '#92400E' }}>🔄 Ya existían: <strong>{importResult.existing ?? 0}</strong></span>
+                        {(importResult.skipped ?? 0) > 0 && (
+                          <span style={{ color: '#DC2626' }}>⚠️ Omitidos: <strong>{importResult.skipped}</strong></span>
+                        )}
+                      </div>
+                      {importResult.errors?.length > 0 && (
+                        <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #DCFCE7' }}>
+                          <p style={{ fontSize: '11px', color: '#DC2626', fontWeight: '600', marginBottom: '4px' }}>Errores por fila:</p>
+                          {importResult.errors.map((err: string, i: number) => (
+                            <p key={i} style={{ fontSize: '11px', color: '#DC2626', margin: '2px 0' }}>• {err}</p>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
                 }
               </div>
             )}
@@ -417,7 +485,34 @@ export default function TournamentDetail() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(enrollments as any[]).map((e: any, i: number) => (
+                  {(enrollments as any[]).map((e: any, i: number) => {
+                    // ── Helper: mapea e.status → color + label
+                    const statusCfg: Record<string, { bg: string; color: string; label: string }> = {
+                      approved:  { bg: '#DCFCE7', color: '#15803D', label: '✓ Aprobado'    },
+                      pending:   { bg: '#FEF9C3', color: '#92400E', label: '⏳ Pendiente'   },
+                      reserved:  { bg: '#FEF3C7', color: '#B45309', label: '⏳ Reservado'   },
+                      rejected:  { bg: '#FEE2E2', color: '#DC2626', label: '✗ Rechazado'   },
+                      alternate: { bg: '#F3E8FF', color: '#6B21A8', label: '🔄 Alterno'     },
+                    };
+                    const sc = statusCfg[e.status] ?? statusCfg['rejected'];
+
+                    // Forma de pago (si viene del backend)
+                    const pmLabels: Record<string, string> = {
+                      manual:      '💵 Efectivo',
+                      transfer:    '🏦 Transferencia',
+                      courtesy:    '🎁 Cortesía',
+                      reserved:    '⏳ Reservado',
+                      mercadopago: '💳 MercadoPago',
+                      MANUAL:      '💵 Efectivo',
+                      TRANSFER:    '🏦 Transferencia',
+                    };
+                    const pmLabel = e.paymentMethod
+                      ? pmLabels[e.paymentMethod] ?? e.paymentMethod
+                      : e.paymentId
+                        ? pmLabels[e.paymentId] ?? null
+                        : null;
+
+                    return (
                     <tr key={e.id} style={{ borderBottom: '1px solid #F3F4F6', backgroundColor: i % 2 === 0 ? 'white' : '#FAFAFA' }}>
                       <td style={{ padding: '9px 12px' }}>
                         <div style={{ fontWeight: '600', color: '#1B3A1B' }}>{e.playerName}</div>
@@ -428,25 +523,40 @@ export default function TournamentDetail() {
                           {e.category}
                         </span>
                       </td>
-                      <td style={{ padding: '9px 12px', color: '#374151' }}>{e.modality || 'Singles'}</td>
+                      <td style={{ padding: '9px 12px', color: '#374151' }}>{e.modality || 'singles'}</td>
                       <td style={{ padding: '9px 12px', color: '#374151' }}>{e.seeding ? `#${e.seeding}` : '—'}</td>
                       <td style={{ padding: '9px 12px' }}>
-                        <span style={{
-                          padding: '3px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '700',
-                          backgroundColor: e.paymentStatus === 'approved' ? '#DCFCE7' : e.paymentStatus === 'pending' ? '#FEF9C3' : '#FEE2E2',
-                          color: e.paymentStatus === 'approved' ? '#15803D' : e.paymentStatus === 'pending' ? '#92400E' : '#DC2626',
-                        }}>
-                          {e.paymentStatus === 'approved' ? '✓ Aprobado' : e.paymentStatus === 'pending' ? '⏳ Pendiente' : '✗ Rechazado'}
+                        {/* Estado de inscripción */}
+                        <span style={{ padding: '3px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '700', backgroundColor: sc.bg, color: sc.color }}>
+                          {sc.label}
                         </span>
+                        {/* Forma de pago debajo si existe */}
+                        {pmLabel && (
+                          <div style={{ fontSize: '10px', color: '#9CA3AF', marginTop: '3px' }}>{pmLabel}</div>
+                        )}
+                        {/* Notas del admin */}
+                        {e.adminNotes && (
+                          <div style={{ fontSize: '10px', color: '#B45309', marginTop: '2px', fontStyle: 'italic' }}>📝 {e.adminNotes}</div>
+                        )}
                       </td>
                       <td style={{ padding: '9px 12px' }}>
                         <div style={{ display: 'flex', gap: '6px' }}>
-                          {isAdmin && e.paymentStatus === 'pending' && (
+                          {/* Aprobar pago — para pending y reserved */}
+                          {isAdmin && (e.status === 'pending' || e.status === 'reserved') && (
                             <button
                               onClick={() => approvePayment(e.id)}
                               style={{ backgroundColor: '#F0FDF4', color: '#15803D', border: '1px solid #86EFAC', borderRadius: '6px', padding: '3px 9px', fontSize: '11px', cursor: 'pointer', fontWeight: '600' }}
                             >
                               💵 Aprobar
+                            </button>
+                          )}
+                          {/* Cambiar forma de pago — siempre visible para admin */}
+                          {isAdmin && (
+                            <button
+                              onClick={() => setCambiarPagoModal({ open: true, enrollment: e })}
+                              style={{ backgroundColor: '#EFF6FF', color: '#1D4ED8', border: '1px solid #BFDBFE', borderRadius: '6px', padding: '3px 9px', fontSize: '11px', cursor: 'pointer', fontWeight: '600' }}
+                            >
+                              💳 Pago
                             </button>
                           )}
                           {isAdmin && (
@@ -464,7 +574,8 @@ export default function TournamentDetail() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             )}
@@ -713,13 +824,34 @@ export default function TournamentDetail() {
                 })()}
               </div>
 
+              {/* ── Toggle incluir reservados ── */}
+              <div style={{ backgroundColor: '#FFFBEB', border: '1.5px solid #FDE68A', borderRadius: '10px', padding: '14px 16px', display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                <button
+                  type="button"
+                  onClick={() => setIncludeReserved(v => !v)}
+                  style={{ width: '42px', height: '24px', borderRadius: '999px', border: 'none', cursor: 'pointer', position: 'relative', flexShrink: 0, marginTop: '2px', backgroundColor: includeReserved ? '#F59E0B' : '#D1D5DB', transition: 'background-color 0.2s' }}
+                >
+                  <span style={{ position: 'absolute', top: '3px', left: includeReserved ? '21px' : '3px', width: '18px', height: '18px', borderRadius: '50%', backgroundColor: 'white', transition: 'left 0.2s', display: 'block', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
+                </button>
+                <div>
+                  <p style={{ fontSize: '13px', fontWeight: '700', color: '#92400E', margin: 0 }}>
+                    {includeReserved ? '⏳ Incluir jugadores Reservados en el draw' : '⏳ Excluir jugadores Reservados del draw'}
+                  </p>
+                  <p style={{ fontSize: '11px', color: '#92400E', opacity: 0.8, margin: '3px 0 0' }}>
+                    {includeReserved
+                      ? 'Los jugadores con pago pendiente (Reservados) SÍ entrarán al cuadro. Confirma que realmente participarán antes de continuar.'
+                      : 'Solo los jugadores con pago Aprobado entrarán al cuadro. Los Reservados quedan fuera.'}
+                  </p>
+                </div>
+              </div>
+
               {/* Botón generar */}
               <button
                 onClick={() => drawMutation.mutate()}
                 disabled={drawMutation.isPending}
                 style={{ width: '100%', backgroundColor: '#2D6A2D', color: 'white', padding: '13px', borderRadius: '10px', border: 'none', cursor: 'pointer', fontSize: '14px', fontWeight: '700', opacity: drawMutation.isPending ? 0.7 : 1 }}
               >
-                {drawMutation.isPending ? 'Generando...' : '🎾 Generar Draw'}
+                {drawMutation.isPending ? 'Generando...' : `🎾 Generar Draw${includeReserved ? ' (con Reservados)' : ''}`}
               </button>
 
               {drawMutation.isSuccess && (
@@ -912,6 +1044,17 @@ export default function TournamentDetail() {
         }}
         onCancel={() => setSuspendModal({ open: false })}
         isLoading={suspendMatchMutation.isPending}
+      />
+
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* MODAL: Admin cambia forma de pago de una inscripción              */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      <CambiarPagoModal
+        isOpen={cambiarPagoModal.open}
+        enrollment={cambiarPagoModal.enrollment}
+        onConfirm={handleCambiarPago}
+        onCancel={() => setCambiarPagoModal({ open: false, enrollment: null })}
+        isLoading={cambiarPagoLoading}
       />
     </div>
   );

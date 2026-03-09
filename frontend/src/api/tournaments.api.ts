@@ -1,3 +1,4 @@
+// frontend/src/api/tournaments.api.ts  ← REEMPLAZA COMPLETO
 import api from './axios';
 
 export const tournamentsApi = {
@@ -26,11 +27,6 @@ export const tournamentsApi = {
     return res.data;
   },
 
-  getCategories: async (tournamentId: string) => {
-    const res = await api.get(`/tournaments/${tournamentId}`);
-    return res.data?.categories || [];
-  },
-
   generateDraw: async (
     id: string,
     category: string,
@@ -38,9 +34,15 @@ export const tournamentsApi = {
     advancingPerGroup = 1,
     modality = 'singles',
     roundGameFormats = {},
+    includeReserved = false,  // ← NUEVO: incluir jugadores con pago reservado
   ) => {
     const res = await api.post(`/tournaments/${id}/draw`, {
-      category, type, advancingPerGroup, modality, roundGameFormats,
+      category,
+      type,
+      advancingPerGroup,
+      modality,
+      roundGameFormats,
+      includeReserved,
     });
     return res.data;
   },

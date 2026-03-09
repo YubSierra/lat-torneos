@@ -3,10 +3,19 @@ import { Entity, PrimaryGeneratedColumn, Column,
 import { Tournament } from '../tournaments/tournament.entity';
 
 export enum EnrollmentStatus {
-  PENDING = 'pending', // Inscripción creada, pago pendiente
-  APPROVED = 'approved', // Pago confirmado, inscripción activa
-  REJECTED = 'rejected', // Pago rechazado
-  ALTERNATE = 'alternate', // Jugador alterno (Art. 10)
+  PENDING   = 'pending',   // Pago pendiente (online)
+  APPROVED  = 'approved',  // Inscripción activa / pago confirmado
+  REJECTED  = 'rejected',  // Pago rechazado
+  ALTERNATE = 'alternate', // Jugador alterno (Art. 10 LAT)
+  RESERVED  = 'reserved',  // Cupo apartado — pago NO confirmado aún
+}
+
+export enum PaymentMethod {
+  MANUAL      = 'manual',      // Efectivo presencial
+  TRANSFER    = 'transfer',    // Transferencia bancaria
+  MERCADOPAGO = 'mercadopago', // Pasarela online MP
+  COURTESY    = 'courtesy',    // Cortesía / exento
+  RESERVED    = 'reserved',    // Sin confirmar — reservado
 }
 
 export enum Modality {
@@ -19,7 +28,6 @@ export class Enrollment {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  // Relación con el torneo
   @ManyToOne(() => Tournament)
   @JoinColumn()
   tournament: Tournament;
@@ -27,22 +35,15 @@ export class Enrollment {
   @Column()
   tournamentId: string;
 
-  // Jugador principal
   @Column()
   playerId: string;
 
-  // Compañero de dobles (opcional)
   @Column({ nullable: true })
   partnerId: string;
 
-  @Column({
-    type: 'enum',
-    enum: Modality,
-    default: Modality.SINGLES,
-  })
+  @Column({ type: 'enum', enum: Modality, default: Modality.SINGLES })
   modality: Modality;
 
-  // Categoría: INTERMEDIA, SEGUNDA, etc.
   @Column()
   category: string;
 
@@ -53,13 +54,25 @@ export class Enrollment {
   })
   status: EnrollmentStatus;
 
-  // Número de siembra asignado por el admin
   @Column({ nullable: true })
   seeding: number;
 
-  // ID del pago asociado
+  // paymentId: ID de MP, 'MANUAL', 'TRANSFER', 'COURTESY', 'RESERVED'
   @Column({ nullable: true })
   paymentId: string;
+
+  // Forma de pago seleccionada
+  @Column({
+    type: 'enum',
+    enum: PaymentMethod,
+    nullable: true,
+    default: null,
+  })
+  paymentMethod: PaymentMethod;
+
+  // Notas internas del admin
+  @Column({ nullable: true })
+  adminNotes: string;
 
   @CreateDateColumn()
   enrolledAt: Date;

@@ -119,7 +119,7 @@ export class EnrollmentsService {
     });
   }
   // ── IMPORTAR DESDE CSV ──────────────────────────
-  async importFromCsv(tournamentId: string, rows: any[], userRepo: any) {
+  async importFromCsv(tournamentId: string, rows: any[], userRepo: any, paymentMethod: string = 'manual') {
     const bcrypt = require('bcrypt');
     const results = {
       created: 0,
@@ -128,6 +128,10 @@ export class EnrollmentsService {
       skipped: 0,
       errors: [] as string[],
     };
+
+    const isReserved  = paymentMethod === 'reserved';
+    const enrollStatus = isReserved ? 'reserved' : 'approved';
+    const paymentId    = isReserved ? 'RESERVED' : paymentMethod.toUpperCase();
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
@@ -204,17 +208,17 @@ export class EnrollmentsService {
           continue;
         }
 
-        // ── 4. CREAR INSCRIPCIÓN APROBADA ───────────
-        // status: approved porque el admin está confirmando la inscripción
-        // paymentId: 'MANUAL' indica que el pago fue presencial
+        // ── 4. CREAR INSCRIPCIÓN ─────────────────────
         const enrollment = this.repo.create({
           tournamentId,
-          playerId:  user.id,
-          modality:  (row.modality?.trim() || 'singles') as any,
-          category:  row.category?.trim(),
-          seeding:   row.seeding?.trim() ? Number(row.seeding) : null,
-          status:    'approved' as any,
-          paymentId: 'MANUAL',
+          playerId:      user.id,
+          modality:      (row.modality?.trim() || 'singles') as any,
+          category:      row.category?.trim(),
+          seeding:       row.seeding?.trim() ? Number(row.seeding) : null,
+          status:        enrollStatus as any,
+          paymentMethod: paymentMethod as any,
+          paymentId:     paymentId,
+          adminNotes:    row.adminNotes?.trim() || null,
         });
 
         await this.repo.save(enrollment);
@@ -256,6 +260,8 @@ export class EnrollmentsService {
 
     return {
       message: 'Importación completada',
+      paymentMethod,
+      isReserved,
       ...results,
     };
   }
@@ -271,12 +277,15 @@ export class EnrollmentsService {
       docNumber?: string;
       category: string;
       modality?: string;
+      seeding?: number;
+      paymentMethod?: string;
+      adminNotes?: string;
     },
   ) {
     const userRepo = this.repo.manager.getRepository('users');
-    const bcrypt = require('bcrypt');
+    const bcrypt   = require('bcrypt');
 
-    // Buscar si ya existe
+    // 1. Buscar usuario existente
     let user: any = null;
     if (data.docNumber) {
       user = await userRepo.findOne({ where: { docNumber: data.docNumber } });
@@ -285,26 +294,20 @@ export class EnrollmentsService {
       user = await userRepo.findOne({ where: { email: data.email } });
     }
 
-    // Crear usuario si no existe
+    // 2. Crear usuario si no existe
     if (!user) {
-      const tempPassword = `${data.apellidos.slice(0, 4).toLowerCase()}${(data.docNumber || '0000').slice(-4)}`;
-      const hashed = await bcrypt.hash(tempPassword, 10);
-
-      user = userRepo.create({
-        nombres:            data.nombres,
-        apellidos:          data.apellidos,
-        email:              data.email,
-        telefono:           data.telefono || '',
-        docNumber:          data.docNumber || null,
-        password:           hashed,
-        mustChangePassword: true,
-        role:               'player',
-        isActive:           true,
-      });
-      await userRepo.save(user);
+      const tempPass = `${data.apellidos.slice(0, 4).toLowerCase()}${(data.docNumber || '0000').slice(-4)}`;
+      const hashed   = await bcrypt.hash(tempPass, 10);
+      user = await userRepo.save(userRepo.create({
+        nombres: data.nombres, apellidos: data.apellidos,
+        email: data.email, telefono: data.telefono || '',
+        docNumber: data.docNumber || null,
+        password: hashed, mustChangePassword: true,
+        role: 'player', isActive: true,
+      }));
     }
 
-    // Verificar inscripción duplicada
+    // 3. Verificar duplicado
     const existing = await this.repo.findOne({
       where: { tournamentId, playerId: user.id, category: data.category },
     });
@@ -312,25 +315,81 @@ export class EnrollmentsService {
       throw new Error(`${data.nombres} ${data.apellidos} ya está inscrito en esta categoría`);
     }
 
-    // Crear inscripción
+    // 4. Determinar status según paymentMethod
+    const pm         = (data.paymentMethod || 'manual') as string;
+    const isReserved = pm === 'reserved';
+
     const enrollment = this.repo.create({
       tournamentId,
-      playerId:  user.id,
-      category:  data.category,
-      modality:  (data.modality || 'singles') as any,
-      status:    EnrollmentStatus.APPROVED,
-      paymentId: 'MANUAL',
+      playerId:      user.id,
+      category:      data.category,
+      modality:      (data.modality || 'singles') as any,
+      seeding:       data.seeding || null,
+      status:        (isReserved ? EnrollmentStatus.RESERVED : EnrollmentStatus.APPROVED) as any,
+      paymentMethod: pm as any,
+      paymentId:     isReserved ? 'RESERVED' : pm.toUpperCase(),
+      adminNotes:    data.adminNotes || null,
     });
-
     await this.repo.save(enrollment);
 
     return {
-      success: true,
-      userId:  user.id,
-      playerName: `${user.nombres} ${user.apellidos}`,
-      category: data.category,
-      message: 'Jugador inscrito exitosamente',
+      success:       true,
+      userId:        user.id,
+      playerName:    `${user.nombres} ${user.apellidos}`,
+      category:      data.category,
+      status:        enrollment.status,
+      paymentMethod: pm,
+      message:       isReserved
+        ? 'Jugador guardado como RESERVADO. Pago pendiente de confirmación.'
+        : 'Jugador inscrito exitosamente.',
     };
+  }
+
+  // ── CAMBIAR FORMA DE PAGO / CONFIRMAR PAGO ───────
+  async updatePaymentMethod(
+    enrollmentId: string,
+    paymentMethod: string,
+    adminNotes?: string,
+  ) {
+    const enrollment = await this.repo.findOne({ where: { id: enrollmentId } });
+    if (!enrollment) throw new Error('Inscripción no encontrada');
+
+    const isReserved = paymentMethod === 'reserved';
+
+    enrollment.paymentMethod = paymentMethod as any;
+    enrollment.paymentId     = isReserved ? 'RESERVED' : paymentMethod.toUpperCase();
+    enrollment.status        = isReserved
+      ? EnrollmentStatus.RESERVED
+      : EnrollmentStatus.APPROVED;
+
+    if (adminNotes !== undefined) enrollment.adminNotes = adminNotes;
+
+    await this.repo.save(enrollment);
+    return { success: true, enrollment };
+  }
+
+  // ── INSCRIPCIONES PENDIENTES DE UN JUGADOR ───────
+  async findPendingByPlayer(playerId: string) {
+    const enrollments = await this.repo.find({
+      where: [
+        { playerId, status: EnrollmentStatus.RESERVED },
+        { playerId, status: EnrollmentStatus.PENDING  },
+      ],
+      order: { enrolledAt: 'DESC' },
+    });
+
+    const tournamentRepo = this.repo.manager.getRepository('tournaments');
+    const result = [];
+    for (const e of enrollments) {
+      const tournament = await tournamentRepo.findOne({ where: { id: e.tournamentId } });
+      result.push({
+        ...e,
+        tournamentName:   tournament?.name || '—',
+        tournamentStart:  tournament?.eventStart || null,
+        inscriptionValue: tournament?.inscriptionValue || 0,
+      });
+    }
+    return result;
   }
 
   // ── ELIMINAR INSCRIPCIÓN ─────────────────────────
