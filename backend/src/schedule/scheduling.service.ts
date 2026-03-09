@@ -6,24 +6,53 @@ import { Court } from '../courts/court.entity';
 import { CourtSchedule } from '../courts/court-schedule.entity';
 import { User } from '../users/user.entity';
 
-interface CourtBlock { start: string; end: string; }
-interface CourtAvailability { courtId: string; blocks: CourtBlock[]; }
+interface CourtBlock {
+  start: string;
+  end: string;
+}
+interface CourtAvailability {
+  courtId: string;
+  blocks: CourtBlock[];
+}
 interface RoundDurations {
-  R64?: number; R32?: number; R16?: number; QF?: number;
-  SF?: number; F?: number; RR?: number; RR_A?: number;
-  RR_B?: number; SF_M?: number; F_M?: number;
+  R64?: number;
+  R32?: number;
+  R16?: number;
+  QF?: number;
+  SF?: number;
+  F?: number;
+  RR?: number;
+  RR_A?: number;
+  RR_B?: number;
+  SF_M?: number;
+  F_M?: number;
 }
 
 interface Slot {
-  courtId: string; courtName: string; sede: string;
-  time: string; endTime: string; duration: number;
+  courtId: string;
+  courtName: string;
+  sede: string;
+  time: string;
+  endTime: string;
+  duration: number;
 }
 
 // Orden de partidos RR según reglas LAT
 // Grupo de 3: 2v3, 1v3, 1v2
 // Grupo de 4: 3v4, 2v4, 2v3, 1v4, 1v3, 1v2
-const RR_ORDER_3 = [[1,2],[0,2],[0,1]]; // índices base 0
-const RR_ORDER_4 = [[2,3],[1,3],[1,2],[0,3],[0,2],[0,1]];
+const RR_ORDER_3 = [
+  [1, 2],
+  [0, 2],
+  [0, 1],
+]; // índices base 0
+const RR_ORDER_4 = [
+  [2, 3],
+  [1, 3],
+  [1, 2],
+  [0, 3],
+  [0, 2],
+  [0, 1],
+];
 
 @Injectable()
 export class SchedulingService {
@@ -71,7 +100,7 @@ export class SchedulingService {
 
     // Filtrar por ronda si se especificó
     if (roundFilter && roundFilter.length > 0) {
-      matches = matches.filter(m => roundFilter.includes(m.round));
+      matches = matches.filter((m) => roundFilter.includes(m.round));
     }
 
     if (matches.length === 0) {
@@ -82,9 +111,9 @@ export class SchedulingService {
     matches = this.sortMatchesByRROrder(matches);
 
     // 3. Obtener canchas
-    const courtIds = courtsAvailability.map(c => c.courtId);
-    const courts   = await this.courtRepo.find({ where: { id: In(courtIds) } });
-    const courtMap = new Map(courts.map(c => [c.id, c]));
+    const courtIds = courtsAvailability.map((c) => c.courtId);
+    const courts = await this.courtRepo.find({ where: { id: In(courtIds) } });
+    const courtMap = new Map(courts.map((c) => [c.id, c]));
 
     // 4. Construir slots
     const slots = this.buildSlotsFromBlocks(courtsAvailability, courtMap, date, roundDurations);
@@ -96,14 +125,14 @@ export class SchedulingService {
     const existingScheduled = await this.matchRepo
       .createQueryBuilder('m')
       .where('m.tournamentId = :tid', { tid: tournamentId })
-      .andWhere("DATE(m.scheduledAt) = :date", { date })
+      .andWhere('DATE(m.scheduledAt) = :date', { date })
       .andWhere('m.status != :s', { s: MatchStatus.PENDING })
       .getMany();
 
     // 6. Obtener parejas de dobles para validar conflictos singles+dobles
-    const doublesTeams = await this.matchRepo.manager
+    const doublesTeams = (await this.matchRepo.manager
       .getRepository('doubles_teams')
-      .find({ where: { tournamentId } }) as any[];
+      .find({ where: { tournamentId } })) as any[];
 
     // Mapa: playerId → [teamId, teamId...] (para saber si juega dobles)
     const playerDoublesMap = new Map<string, string[]>();
@@ -122,18 +151,18 @@ export class SchedulingService {
     this.validateSameSedeSinglesDoubles(matches, courtsAvailability, courtMap, date, tournamentId);
 
     // 8. Asignar partidos a slots con todas las validaciones
-    const assignments        = [];
-    const playerMatchCount   = new Map<string, number>(); // playerId → count ese día
-    const playerScheduled    = new Map<string, { start: number; end: number }[]>(); // playerId → slots ocupados
-    const usedSlotsByCourt   = new Map<string, Set<number>>(); // courtId → slots usados
+    const assignments = [];
+    const playerMatchCount = new Map<string, number>(); // playerId → count ese día
+    const playerScheduled = new Map<string, { start: number; end: number }[]>(); // playerId → slots ocupados
+    const usedSlotsByCourt = new Map<string, Set<number>>(); // courtId → slots usados
 
     // Inicializar contadores con partidos ya existentes
-    existingScheduled.forEach(m => {
+    existingScheduled.forEach((m) => {
       if (m.scheduledAt) {
         const timeStr = m.scheduledAt.toTimeString().slice(0, 5);
-        const start   = this.timeToMinutes(timeStr);
-        const end     = start + (m.estimatedDuration || 90);
-        [m.player1Id, m.player2Id].filter(Boolean).forEach(pid => {
+        const start = this.timeToMinutes(timeStr);
+        const end = start + (m.estimatedDuration || 90);
+        [m.player1Id, m.player2Id].filter(Boolean).forEach((pid) => {
           const cnt = playerMatchCount.get(pid) || 0;
           playerMatchCount.set(pid, cnt + 1);
           if (!playerScheduled.has(pid)) playerScheduled.set(pid, []);
@@ -143,9 +172,9 @@ export class SchedulingService {
     });
 
     for (const match of matches) {
-      const duration  = roundDurations[match.round] || 90;
-      const p1        = match.player1Id;
-      const p2        = match.player2Id;
+      const duration = roundDurations[match.round] || 90;
+      const p1 = match.player1Id;
+      const p2 = match.player2Id;
 
       // Buscar slot válido
       let assigned = false;
@@ -156,7 +185,7 @@ export class SchedulingService {
         if (slot.duration < duration) continue;
 
         const slotStart = this.timeToMinutes(slot.time);
-        const slotEnd   = slotStart + duration;
+        const slotEnd = slotStart + duration;
 
         // ── VALIDACIÓN 1: máx partidos por jugador ──
         if (p1 && (playerMatchCount.get(p1) || 0) >= maxMatchesPerPlayer) continue;
@@ -167,8 +196,10 @@ export class SchedulingService {
         if (p2 && this.hasTimeConflict(playerScheduled.get(p2) || [], slotStart, slotEnd)) continue;
 
         // ── VALIDACIÓN 3: no singles y dobles al mismo tiempo ──
-        if (p1 && this.hasDoublesConflict(p1, slotStart, slotEnd, playerScheduled, playerDoublesMap, match)) continue;
-        if (p2 && this.hasDoublesConflict(p2, slotStart, slotEnd, playerScheduled, playerDoublesMap, match)) continue;
+        if (p1 && this.hasDoublesConflict(p1, slotStart, slotEnd, playerScheduled, playerDoublesMap, match))
+          continue;
+        if (p2 && this.hasDoublesConflict(p2, slotStart, slotEnd, playerScheduled, playerDoublesMap, match))
+          continue;
 
         // ── VALIDACIÓN 4: singles y dobles misma categoría → misma sede ──
         const court = courtMap.get(slot.courtId);
@@ -177,7 +208,7 @@ export class SchedulingService {
         // ✅ Slot válido — asignar (save se hace en batch al final)
 
         // Actualizar contadores
-        [p1, p2].filter(Boolean).forEach(pid => {
+        [p1, p2].filter(Boolean).forEach((pid) => {
           playerMatchCount.set(pid!, (playerMatchCount.get(pid!) || 0) + 1);
           if (!playerScheduled.has(pid!)) playerScheduled.set(pid!, []);
           playerScheduled.get(pid!)!.push({ start: slotStart, end: slotEnd });
@@ -193,18 +224,18 @@ export class SchedulingService {
         ]);
 
         assignments.push({
-          matchId:    match.id,
-          courtId:    slot.courtId,
-          sede:       slot.sede,
-          court:      slot.courtName,
+          matchId: match.id,
+          courtId: slot.courtId,
+          sede: slot.sede,
+          court: slot.courtName,
           date,
-          time:       slot.time,
-          duration:   `${duration} min`,
-          round:      match.round,
-          category:   match.category,
+          time: slot.time,
+          duration: `${duration} min`,
+          round: match.round,
+          category: match.category,
           groupLabel: (match as any).groupLabel || null,
-          player1:    player1 ? `${player1.nombres} ${player1.apellidos}` : 'BYE',
-          player2:    player2 ? `${player2.nombres} ${player2.apellidos}` : 'BYE',
+          player1: player1 ? `${player1.nombres} ${player1.apellidos}` : 'BYE',
+          player2: player2 ? `${player2.nombres} ${player2.apellidos}` : 'BYE',
         });
 
         assigned = true;
@@ -213,57 +244,57 @@ export class SchedulingService {
 
       if (!assigned) {
         assignments.push({
-          matchId:  match.id,
-          sede:     '—',
-          court:    '—',
+          matchId: match.id,
+          sede: '—',
+          court: '—',
           date,
-          time:     '—',
+          time: '—',
           duration: `${duration} min`,
-          round:    match.round,
+          round: match.round,
           category: match.category,
-          player1:  '—',
-          player2:  '—',
-          warning:  'No se pudo programar: conflicto de horario o límite de partidos alcanzado',
+          player1: '—',
+          player2: '—',
+          warning: 'No se pudo programar: conflicto de horario o límite de partidos alcanzado',
         });
       }
     }
 
-    const scheduled = assignments.filter(a => a.time !== '—');
-    const skipped   = assignments.filter(a => a.time === '—');
+    const scheduled = assignments.filter((a) => a.time !== '—');
+    const skipped = assignments.filter((a) => a.time === '—');
 
     // Solo persistir en BD si save = true (confirm, no preview)
     if (save) {
       for (const a of scheduled) {
         await this.matchRepo.update(a.matchId, {
-          scheduledAt:       new Date(`${date}T${a.time}:00`),
-          courtId:           a.courtId,
+          scheduledAt: new Date(`${date}T${a.time}:00`),
+          courtId: a.courtId,
           estimatedDuration: parseInt(a.duration),
-          status:            MatchStatus.PENDING,
+          status: MatchStatus.PENDING,
         });
       }
     }
 
     return {
       date,
-      isPreview:        !save,
-      courtsUsed:       courts.length,
+      isPreview: !save,
+      courtsUsed: courts.length,
       matchesScheduled: scheduled.length,
-      matchesPending:   skipped.length,
-      skippedReasons:   skipped.map(a => `${a.category} ${a.round}: ${a.warning}`),
-      schedule:         scheduled,
+      matchesPending: skipped.length,
+      skippedReasons: skipped.map((a) => `${a.category} ${a.round}: ${a.warning}`),
+      schedule: scheduled,
     };
   }
 
   // ── ORDENAR PARTIDOS RR SEGÚN ORDEN LAT ─────────
   private sortMatchesByRROrder(matches: Match[]): Match[] {
-    const rrMatches    = matches.filter(m => ['RR','RR_A','RR_B'].includes(m.round));
-    const otherMatches = matches.filter(m => !['RR','RR_A','RR_B'].includes(m.round));
+    const rrMatches = matches.filter((m) => ['RR', 'RR_A', 'RR_B'].includes(m.round));
+    const otherMatches = matches.filter((m) => !['RR', 'RR_A', 'RR_B'].includes(m.round));
 
     if (rrMatches.length === 0) return matches;
 
     // Agrupar por grupo (groupLabel + category)
     const byGroup = new Map<string, Match[]>();
-    rrMatches.forEach(m => {
+    rrMatches.forEach((m) => {
       const key = `${m.category}_${(m as any).groupLabel || 'A'}`;
       if (!byGroup.has(key)) byGroup.set(key, []);
       byGroup.get(key)!.push(m);
@@ -275,21 +306,22 @@ export class SchedulingService {
       const n = this.getGroupSize(groupMatches);
 
       if (n === 3) {
-        // Obtener los 3 jugadores únicos
         const players = this.getUniquePlayers(groupMatches);
         RR_ORDER_3.forEach(([i, j]) => {
-          const m = groupMatches.find(m =>
-            (m.player1Id === players[i] && m.player2Id === players[j]) ||
-            (m.player1Id === players[j] && m.player2Id === players[i])
+          const m = groupMatches.find(
+            (m) =>
+              (m.player1Id === players[i] && m.player2Id === players[j]) ||
+              (m.player1Id === players[j] && m.player2Id === players[i]),
           );
           if (m) ordered.push(m);
         });
       } else if (n === 4) {
         const players = this.getUniquePlayers(groupMatches);
         RR_ORDER_4.forEach(([i, j]) => {
-          const m = groupMatches.find(m =>
-            (m.player1Id === players[i] && m.player2Id === players[j]) ||
-            (m.player1Id === players[j] && m.player2Id === players[i])
+          const m = groupMatches.find(
+            (m) =>
+              (m.player1Id === players[i] && m.player2Id === players[j]) ||
+              (m.player1Id === players[j] && m.player2Id === players[i]),
           );
           if (m) ordered.push(m);
         });
@@ -308,7 +340,7 @@ export class SchedulingService {
 
   private getUniquePlayers(matches: Match[]): string[] {
     const set = new Set<string>();
-    matches.forEach(m => {
+    matches.forEach((m) => {
       if (m.player1Id) set.add(m.player1Id);
       if (m.player2Id) set.add(m.player2Id);
     });
@@ -321,7 +353,7 @@ export class SchedulingService {
     newStart: number,
     newEnd: number,
   ): boolean {
-    return existing.some(e => newStart < e.end && newEnd > e.start);
+    return existing.some((e) => newStart < e.end && newEnd > e.start);
   }
 
   // ── VALIDAR CONFLICTO SINGLES + DOBLES ──────────
@@ -333,33 +365,25 @@ export class SchedulingService {
     playerDoublesMap: Map<string, string[]>,
     currentMatch: Match,
   ): boolean {
-    // Si el partido actual es de dobles (categoría termina en _DOBLES)
     const isDoubles = currentMatch.category.endsWith('_DOBLES');
-    const teamIds   = playerDoublesMap.get(playerId) || [];
+    const teamIds = playerDoublesMap.get(playerId) || [];
     if (teamIds.length === 0) return false;
 
-    // Verificar si el jugador tiene singles programado en ese horario
     const scheduled = playerScheduled.get(playerId) || [];
-    return scheduled.some(s => slotStart < s.end && slotEnd > s.start);
+    return scheduled.some((s) => slotStart < s.end && slotEnd > s.start);
   }
 
   // ── VALIDAR SEDE ÚNICA SINGLES+DOBLES ───────────
-  private validateCategorySede(
-    match: Match,
-    court: Court,
-    assignments: any[],
-  ): boolean {
+  private validateCategorySede(match: Match, court: Court, assignments: any[]): boolean {
     const baseCategory = match.category.replace('_DOBLES', '');
-    const isDoubles    = match.category.endsWith('_DOBLES');
 
-    // Buscar partidos ya asignados de la misma categoría base
-    const sameCategory = assignments.filter(a =>
-      a.category === baseCategory || a.category === `${baseCategory}_DOBLES`
+    const sameCategory = assignments.filter(
+      (a) =>
+        a.category === baseCategory || a.category === `${baseCategory}_DOBLES`,
     );
 
     if (sameCategory.length === 0) return true;
 
-    // Todos deben estar en la misma sede
     const existingSede = sameCategory[0].sede;
     return court.sede === existingSede || !existingSede || existingSede === '—';
   }
@@ -372,7 +396,6 @@ export class SchedulingService {
     tournamentId: string,
   ) {
     // Esta validación se hace en tiempo real durante la asignación
-    // No lanzar error aquí, solo advertir
   }
 
   // ── CONSTRUIR SLOTS DESDE BLOQUES ───────────────
@@ -383,9 +406,8 @@ export class SchedulingService {
     roundDurations: RoundDurations,
   ): Slot[] {
     const slots: Slot[] = [];
-    const minDuration   = Math.min(
-      ...(Object.values(roundDurations).filter(Boolean) as number[])
-    ) || 75;
+    const minDuration =
+      Math.min(...(Object.values(roundDurations).filter(Boolean) as number[])) || 75;
 
     for (const courtAvail of courtsAvailability) {
       const court = courtMap.get(courtAvail.courtId);
@@ -393,27 +415,25 @@ export class SchedulingService {
 
       for (const block of courtAvail.blocks) {
         const startMinutes = this.timeToMinutes(block.start);
-        const endMinutes   = this.timeToMinutes(block.end);
-        let current        = startMinutes;
+        const endMinutes = this.timeToMinutes(block.end);
+        let current = startMinutes;
 
         while (current + minDuration <= endMinutes) {
           const remaining = endMinutes - current;
           slots.push({
-            courtId:   court.id,
+            courtId: court.id,
             courtName: court.name,
-            sede:      court.sede || 'Principal',
-            time:      this.minutesToTime(current),
-            endTime:   this.minutesToTime(current + minDuration),
-            duration:  remaining,
+            sede: court.sede || 'Principal',
+            time: this.minutesToTime(current),
+            endTime: this.minutesToTime(current + minDuration),
+            duration: remaining,
           });
           current += minDuration;
         }
       }
     }
 
-    return slots.sort((a, b) =>
-      this.timeToMinutes(a.time) - this.timeToMinutes(b.time)
-    );
+    return slots.sort((a, b) => this.timeToMinutes(a.time) - this.timeToMinutes(b.time));
   }
 
   private timeToMinutes(time: string): number {
@@ -434,31 +454,32 @@ export class SchedulingService {
       order: { scheduledAt: 'ASC' },
     });
 
-    const playerIds = [...new Set([
-      ...matches.map(m => m.player1Id),
-      ...matches.map(m => m.player2Id),
-    ].filter(Boolean))];
+    const playerIds = [
+      ...new Set(
+        [...matches.map((m) => m.player1Id), ...matches.map((m) => m.player2Id)].filter(Boolean),
+      ),
+    ];
 
-    const players = playerIds.length > 0
-      ? await this.userRepo.find({ where: { id: In(playerIds) } })
-      : [];
-    const playerMap = new Map(
-      players.map(p => [p.id, `${p.nombres} ${p.apellidos}`])
-    );
+    const players =
+      playerIds.length > 0
+        ? await this.userRepo.find({ where: { id: In(playerIds) } })
+        : [];
+    const playerMap = new Map(players.map((p) => [p.id, `${p.nombres} ${p.apellidos}`]));
 
-    const courtIds = [...new Set(matches.map(m => m.courtId).filter(Boolean))];
-    const courts   = courtIds.length > 0
-      ? await this.courtRepo.find({ where: { id: In(courtIds) } })
-      : [];
-    const courtMap = new Map(courts.map(c => [c.id, c]));
+    const courtIds = [...new Set(matches.map((m) => m.courtId).filter(Boolean))];
+    const courts =
+      courtIds.length > 0
+        ? await this.courtRepo.find({ where: { id: In(courtIds) } })
+        : [];
+    const courtMap = new Map(courts.map((c) => [c.id, c]));
 
     const grouped: any = {};
     for (const match of matches) {
       if (!match.scheduledAt) continue;
 
-      const date      = match.scheduledAt.toISOString().split('T')[0];
-      const court     = courtMap.get(match.courtId);
-      const sede      = court?.sede || 'Principal';
+      const date = match.scheduledAt.toISOString().split('T')[0];
+      const court = courtMap.get(match.courtId);
+      const sede = court?.sede || 'Principal';
       const courtName = court?.name || match.courtId;
 
       if (!grouped[date]) grouped[date] = {};
@@ -466,15 +487,15 @@ export class SchedulingService {
       if (!grouped[date][sede][courtName]) grouped[date][sede][courtName] = [];
 
       grouped[date][sede][courtName].push({
-        matchId:    match.id,
-        time:       match.scheduledAt.toTimeString().slice(0, 5),
-        round:      match.round,
-        category:   match.category,
+        matchId: match.id,
+        time: match.scheduledAt.toTimeString().slice(0, 5),
+        round: match.round,
+        category: match.category,
         groupLabel: (match as any).groupLabel || null,
-        player1:    playerMap.get(match.player1Id) || 'BYE',
-        player2:    playerMap.get(match.player2Id) || 'BYE',
-        status:     match.status,
-        duration:   `${match.estimatedDuration} min`,
+        player1: playerMap.get(match.player1Id) || 'BYE',
+        player2: playerMap.get(match.player2Id) || 'BYE',
+        status: match.status,
+        duration: `${match.estimatedDuration} min`,
       });
     }
 
