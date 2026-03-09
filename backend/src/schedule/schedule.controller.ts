@@ -93,6 +93,31 @@ export class ScheduleController {
     );
   }
 
+  // POST /tournaments/:tournamentId/schedule/save
+  // Guarda directamente una programación editada por el usuario
+  @Post('schedule/save')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  saveSchedule(
+    @Param('tournamentId') tournamentId: string,
+    @Body()
+    body: {
+      schedule: {
+        matchId: string;
+        time: string;
+        date: string;
+        courtId: string;
+        duration: string;
+      }[];
+      date: string;
+    },
+  ) {
+    return this.schedulingService.saveScheduleDirectly(
+      tournamentId,
+      body.schedule,
+      body.date,
+    );
+  }
+
   // GET /tournaments/:tournamentId/schedule
   @Get('schedule')
   getSchedule(@Param('tournamentId') tournamentId: string) {

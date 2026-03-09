@@ -88,6 +88,13 @@ export class MatchesController {
     return this.matchesService.getRRGroupStatus(id, category);
   }
 
+  // PATCH /matches/:id/unschedule — quitar de la programación
+  @Patch(':id/unschedule')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  unscheduleMatch(@Param('id') id: string) {
+    return this.matchesService.unscheduleMatch(id);
+  }
+
   // PATCH /matches/:id/reschedule — reprogramar partido (admin/árbitro)
   @Patch(':id/reschedule')
   @UseGuards(JwtAuthGuard, RolesGuard)

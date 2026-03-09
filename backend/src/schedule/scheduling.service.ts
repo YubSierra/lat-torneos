@@ -91,10 +91,6 @@ export class SchedulingService {
       .createQueryBuilder('match')
       .where('match.tournamentId = :tournamentId', { tournamentId })
       .andWhere('match.status IN (:...statuses)', { statuses: statusFilter })
-      .andWhere(
-        '(match.scheduledAt IS NULL OR match.status = :suspended)',
-        { suspended: MatchStatus.SUSPENDED },
-      )
       .orderBy('match.createdAt', 'ASC')
       .getMany();
 
@@ -187,9 +183,14 @@ export class SchedulingService {
         const slotStart = this.timeToMinutes(slot.time);
         const slotEnd = slotStart + duration;
 
-        // ── VALIDACIÓN 1: máx partidos por jugador ──
-        if (p1 && (playerMatchCount.get(p1) || 0) >= maxMatchesPerPlayer) continue;
-        if (p2 && (playerMatchCount.get(p2) || 0) >= maxMatchesPerPlayer) continue;
+        // ── VALIDACIÓN 1: máx partidos por jugador (RR no aplica — juega todos) ──
+        const isRR = ['RR', 'RR_A', 'RR_B'].includes(match.round);
+        if (!isRR) {
+          if (p1 && (playerMatchCount.get(p1) || 0) >= maxMatchesPerPlayer)
+            continue;
+          if (p2 && (playerMatchCount.get(p2) || 0) >= maxMatchesPerPlayer)
+            continue;
+        }
 
         // ── VALIDACIÓN 2: no mismo horario en dos canchas ──
         if (p1 && this.hasTimeConflict(playerScheduled.get(p1) || [], slotStart, slotEnd)) continue;
@@ -385,7 +386,8 @@ export class SchedulingService {
     if (sameCategory.length === 0) return true;
 
     const existingSede = sameCategory[0].sede;
-    return court.sede === existingSede || !existingSede || existingSede === '—';
+    const thisSede = court.sede || 'Principal'; // normalizar igual que slot.sede
+    return thisSede === existingSede || !existingSede || existingSede === '—';
   }
 
   private validateSameSedeSinglesDoubles(
@@ -500,5 +502,50 @@ export class SchedulingService {
     }
 
     return grouped;
+  }
+
+  async saveScheduleDirectly(
+    tournamentId: string,
+    schedule: {
+      matchId: string;
+      time: string;
+      date: string;
+      courtId?: string;
+      duration: string;
+    }[],
+    date: string,
+  ) {
+    await this.matchRepo
+      .createQueryBuilder()
+      .update()
+      .set({ scheduledAt: null, courtId: null, estimatedDuration: 90 })
+      .where('tournamentId = :tournamentId', { tournamentId })
+      .andWhere('status = :status', { status: MatchStatus.PENDING })
+      .execute();
+
+    let saved = 0;
+    for (const item of schedule) {
+      const dateStr = item.date || date;
+      const dt = new Date(`${dateStr}T${item.time}:00`);
+      const duration = parseInt(item.duration) || 90;
+      await this.matchRepo.update(item.matchId, {
+        scheduledAt: dt,
+        courtId: item.courtId || null,
+        estimatedDuration: duration,
+        status: MatchStatus.PENDING,
+      });
+      saved++;
+    }
+
+    return {
+      date,
+      matchesScheduled: saved,
+      matchesPending: 0,
+      courtsUsed: [
+        ...new Set(schedule.map((s) => s.courtId).filter(Boolean)),
+      ].length,
+      schedule,
+      message: `${saved} partidos guardados correctamente`,
+    };
   }
 }
