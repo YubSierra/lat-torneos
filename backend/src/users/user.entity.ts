@@ -57,6 +57,9 @@ export class User {
   @Column({ default: false })
   mustChangePassword: boolean;
 
+  @Column({ nullable: true })
+  photoUrl: string;
+
   @CreateDateColumn()
   createdAt: Date;
 

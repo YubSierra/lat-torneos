@@ -27,7 +27,7 @@ export default function Sidebar() {
     { to: '/schedule',    icon: Calendar,         label: 'Programación', show: isAdmin || isReferee },
     { to: '/doubles',     icon: Users,            label: 'Dobles',       show: isAdmin || isReferee },
     { to: '/courts',      icon: MapPin,           label: 'Canchas',      show: isAdmin               },
-    { to: '/players',     icon: UserCheck,        label: 'Jugadores',    show: isAdmin               },
+    { to: '/players',     icon: UserCheck,        label: 'Jugadores',    show: isAdmin || isReferee },
     { to: '/users',       icon: Users,            label: 'Usuarios',     show: isAdmin               },
   ].filter(item => item.show);
 

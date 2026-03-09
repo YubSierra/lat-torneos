@@ -1,14 +1,17 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { Tournament, TournamentType } from './tournament.entity';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
+import { RefereeAssignment } from '../users/referee-assignment.entity';
 
 @Injectable()
 export class TournamentsService {
   constructor(
     @InjectRepository(Tournament)
     private repo: Repository<Tournament>,
+    @InjectRepository(RefereeAssignment)
+    private assignmentRepo: Repository<RefereeAssignment>,
   ) {}
 
   // ── CREAR TORNEO ────────────────────────────────
@@ -181,5 +184,19 @@ export class TournamentsService {
       default:
         return { type };
     }
+  }
+
+  // ── ASIGNACIONES DE ÁRBITRO ──────────────────────
+  async getAssignmentsByReferee(refereeId: string) {
+    return this.assignmentRepo.find({ where: { refereeId } });
+  }
+
+  async findByIds(ids: string[]) {
+    if (!ids.length) return [];
+    return this.repo
+      .createQueryBuilder('t')
+      .where('t.id IN (:...ids)', { ids })
+      .orderBy('t.startDate', 'DESC')
+      .getMany();
   }
 }

@@ -1,13 +1,13 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Tournament } from './tournament.entity';
+import { RefereeAssignment } from '../users/referee-assignment.entity';
 import { TournamentsService } from './tournaments.service';
 import { TournamentsController } from './tournaments.controller';
 
 @Module({
   imports: [
-    // Registrar la entidad Tournament para poder usarla en el servicio
-    TypeOrmModule.forFeature([Tournament]),
+    TypeOrmModule.forFeature([Tournament, RefereeAssignment]),
   ],
   controllers: [TournamentsController],
   providers: [TournamentsService],

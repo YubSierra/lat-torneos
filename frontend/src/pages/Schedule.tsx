@@ -205,7 +205,12 @@ export default function Schedule() {
       setEditError('');
     },
     onError: (err: any) => {
-      setEditError(err?.response?.data?.message || 'Error al reprogramar el partido');
+      const msg =
+        err?.response?.data?.message ||
+        err?.response?.data?.error   ||
+        err?.message                 ||
+        'Error al reprogramar el partido';
+      setEditError(Array.isArray(msg) ? msg.join(', ') : msg);
     },
   });
 

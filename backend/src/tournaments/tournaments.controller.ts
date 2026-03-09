@@ -42,6 +42,17 @@ export class TournamentsController {
     return this.tournamentsService.remove(id);
   }
 
+  // GET /tournaments/referee/:refereeId — torneos asignados a árbitro
+  @Get('referee/:refereeId')
+  @UseGuards(JwtAuthGuard)
+  async getTournamentsByReferee(@Param('refereeId') refereeId: string) {
+    const assignments =
+      await this.tournamentsService.getAssignmentsByReferee(refereeId);
+    if (!assignments.length) return [];
+    const tournamentIds = assignments.map((a: any) => a.tournamentId);
+    return this.tournamentsService.findByIds(tournamentIds);
+  }
+
   // GET /tournaments/:id/config — ver configuración de juego
   @Get(':id/config')
   async getConfig(@Param('id') id: string) {

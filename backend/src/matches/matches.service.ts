@@ -35,21 +35,27 @@ export class MatchesService {
 
     const users = await this.userRepo.find({
       where: { id: In(playerIds) },
-      select: ['id', 'nombres', 'apellidos', 'email'],
+      select: ['id', 'nombres', 'apellidos', 'email', 'photoUrl'],
     });
 
     const userMap = new Map(
       users.map((u) => [
         u.id,
-        `${u.nombres || ''} ${u.apellidos || ''}`.trim() || u.email,
+        {
+          name:
+            `${u.nombres || ''} ${u.apellidos || ''}`.trim() || u.email,
+          photoUrl: (u as any).photoUrl || null,
+        },
       ]),
     );
 
     return matches.map((m) => ({
       ...m,
-      player1Name: userMap.get(m.player1Id) || 'BYE',
-      player2Name: userMap.get(m.player2Id) || 'BYE',
-      winnerName: userMap.get(m.winnerId) || null,
+      player1Name: userMap.get(m.player1Id)?.name || 'BYE',
+      player2Name: userMap.get(m.player2Id)?.name || 'BYE',
+      winnerName: userMap.get(m.winnerId)?.name || null,
+      player1PhotoUrl: userMap.get(m.player1Id)?.photoUrl || null,
+      player2PhotoUrl: userMap.get(m.player2Id)?.photoUrl || null,
     }));
   }
 
@@ -532,14 +538,20 @@ export class MatchesService {
     const userMap = new Map(
       users.map((u) => [
         u.id,
-        `${u.nombres || ''} ${u.apellidos || ''}`.trim() || u.email,
+        {
+          name:
+            `${u.nombres || ''} ${u.apellidos || ''}`.trim() || u.email,
+          photoUrl: (u as any).photoUrl || null,
+        },
       ]),
     );
 
     return {
       ...match,
-      player1Name: userMap.get(match.player1Id) || 'Jugador 1',
-      player2Name: userMap.get(match.player2Id) || 'Jugador 2',
+      player1Name: userMap.get(match.player1Id)?.name || 'Jugador 1',
+      player2Name: userMap.get(match.player2Id)?.name || 'Jugador 2',
+      player1PhotoUrl: userMap.get(match.player1Id)?.photoUrl || null,
+      player2PhotoUrl: userMap.get(match.player2Id)?.photoUrl || null,
       setsHistory: (match as any).setsHistory
         ? JSON.parse((match as any).setsHistory)
         : [],
@@ -569,30 +581,23 @@ export class MatchesService {
   // ── REPROGRAMAR PARTIDO ─────────────────────────
   async rescheduleMatch(
     id: string,
-    data: {
-      scheduledAt: string;
-      courtId?: string;
-      estimatedDuration?: number;
-      notes?: string;
-    },
+    data: { scheduledAt: string; courtId?: string; estimatedDuration?: number },
   ) {
     const match = await this.findOne(id);
 
-    if (
-      match.status === MatchStatus.COMPLETED ||
-      match.status === MatchStatus.WO
-    ) {
+    if (match.status === MatchStatus.COMPLETED || match.status === MatchStatus.WO) {
       throw new HttpException(
         'No se puede reprogramar un partido ya terminado',
         HttpStatus.BAD_REQUEST,
       );
     }
 
-    const newDate = new Date(data.scheduledAt);
-    const duration = data.estimatedDuration || match.estimatedDuration || 90;
-    const dateStr = newDate.toISOString().split('T')[0];
-    const newStart = this.timeToMinutes(newDate.toTimeString().slice(0, 5));
-    const newEnd = newStart + duration;
+    // Validar conflicto de horario
+    const newDate   = new Date(data.scheduledAt);
+    const duration  = data.estimatedDuration || match.estimatedDuration || 90;
+    const dateStr   = newDate.toISOString().split('T')[0];
+    const newStart  = this.timeToMinutes(newDate.toTimeString().slice(0, 5));
+    const newEnd    = newStart + duration;
 
     const sameDayMatches = await this.repo
       .createQueryBuilder('m')
@@ -606,18 +611,17 @@ export class MatchesService {
     for (const other of sameDayMatches) {
       if (!other.scheduledAt) continue;
       const otherStart = this.timeToMinutes(
-        new Date(other.scheduledAt).toTimeString().slice(0, 5),
+        new Date(other.scheduledAt).toTimeString().slice(0, 5)
       );
       const otherEnd = otherStart + (other.estimatedDuration || 90);
 
       const sharesPlayer =
-        (match.player1Id &&
-          [other.player1Id, other.player2Id].includes(match.player1Id)) ||
-        (match.player2Id &&
-          [other.player1Id, other.player2Id].includes(match.player2Id));
+        (match.player1Id && [other.player1Id, other.player2Id].includes(match.player1Id)) ||
+        (match.player2Id && [other.player1Id, other.player2Id].includes(match.player2Id));
 
       if (sharesPlayer && newStart < otherEnd && newEnd > otherStart) {
-        const hora = new Date(other.scheduledAt).toTimeString().slice(0, 5);
+        const hora = new Date(other.scheduledAt)
+          .toTimeString().slice(0, 5);
         throw new HttpException(
           `⚠️ Conflicto de horario: un jugador de este partido ya tiene otro partido programado a las ${hora}. Elige un horario diferente.`,
           HttpStatus.CONFLICT,
@@ -626,13 +630,10 @@ export class MatchesService {
     }
 
     match.scheduledAt = newDate;
-    if (data.courtId) match.courtId = data.courtId;
+    if (data.courtId)           match.courtId           = data.courtId;
     if (data.estimatedDuration) match.estimatedDuration = data.estimatedDuration;
-
     await this.repo.save(match);
-
-    const enriched = await this.enrichWithNames([match]);
-    return enriched[0];
+    return match;
   }
 
   // ── SUSPENDER PARTIDO INDIVIDUAL ────────────────
