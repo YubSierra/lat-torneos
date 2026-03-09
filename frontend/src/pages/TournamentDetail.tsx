@@ -216,21 +216,50 @@ export default function TournamentDetail() {
               <p className="text-gray-500 text-sm">{tournament.location} · {tournament.eventStart}</p>
             </div>
             {isAdmin && (
-              <div style={{ display: 'flex', gap: '8px' }}>
-                {['registration', 'active', 'completed'].map(s => (
-                  <button
-                    key={s}
-                    onClick={() => updateStatusMutation.mutate(s)}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <label style={{ fontSize: '12px', fontWeight: '600', color: '#6B7280' }}>
+                  Estado:
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <select
+                    value={tournament.status}
+                    onChange={e => updateStatusMutation.mutate(e.target.value)}
+                    disabled={updateStatusMutation.isPending}
                     style={{
-                      padding: '7px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: '600',
-                      border: 'none', cursor: 'pointer',
-                      backgroundColor: tournament.status === s ? '#2D6A2D' : '#F3F4F6',
-                      color: tournament.status === s ? 'white' : '#374151',
+                      appearance: 'none',
+                      WebkitAppearance: 'none',
+                      padding: '8px 36px 8px 12px',
+                      borderRadius: '8px',
+                      fontSize: '13px',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      border: '2px solid',
+                      outline: 'none',
+                      ...(tournament.status === 'draft'     ? { backgroundColor: '#F3F4F6', color: '#6B7280', borderColor: '#D1D5DB' } :
+                          tournament.status === 'open'      ? { backgroundColor: '#EFF6FF', color: '#1D4ED8', borderColor: '#BFDBFE' } :
+                          tournament.status === 'closed'    ? { backgroundColor: '#FEF3C7', color: '#92400E', borderColor: '#FDE68A' } :
+                          tournament.status === 'active'    ? { backgroundColor: '#F0FDF4', color: '#15803D', borderColor: '#86EFAC' } :
+                          tournament.status === 'completed' ? { backgroundColor: '#F3F4F6', color: '#374151', borderColor: '#D1D5DB' } :
+                                                             { backgroundColor: '#F3F4F6', color: '#6B7280', borderColor: '#D1D5DB' }),
                     }}
                   >
-                    {s === 'registration' ? '📋 Inscripciones' : s === 'active' ? '🎾 En curso' : '🏆 Finalizado'}
-                  </button>
-                ))}
+                    <option value="draft">     📝 Borrador        </option>
+                    <option value="open">      📋 Inscripciones   </option>
+                    <option value="closed">    🔒 Inscripciones cerradas </option>
+                    <option value="active">    🎾 En curso         </option>
+                    <option value="completed"> 🏆 Finalizado       </option>
+                  </select>
+                  <span style={{
+                    position: 'absolute', right: '10px', top: '50%',
+                    transform: 'translateY(-50%)',
+                    pointerEvents: 'none', fontSize: '10px', color: '#6B7280',
+                  }}>
+                    ▼
+                  </span>
+                </div>
+                {updateStatusMutation.isPending && (
+                  <span style={{ fontSize: '11px', color: '#9CA3AF' }}>Guardando...</span>
+                )}
               </div>
             )}
           </div>
@@ -614,21 +643,32 @@ export default function TournamentDetail() {
                   const roundConfig: { key: string; label: string }[] =
                     drawType === 'round_robin'
                       ? [
-                          { key: 'RR',   label: 'Round Robin (Grupo A y B)' },
-                          { key: 'SF',   label: 'Semifinal (Main Draw)'     },
-                          { key: 'F',    label: 'Final (Main Draw)'         },
+                          { key: 'RR',  label: 'Round Robin (Grupos)'   },
+                          { key: 'R64', label: '64avos (Main Draw)'     },
+                          { key: 'R32', label: '32avos (Main Draw)'     },
+                          { key: 'R16', label: '16avos (Main Draw)'     },
+                          { key: 'QF',  label: 'Cuartos (Main Draw)'    },
+                          { key: 'SF',  label: 'Semifinal (Main Draw)'  },
+                          { key: 'F',   label: 'Final (Main Draw)'      },
                         ]
                       : drawType === 'master'
                       ? [
-                          { key: 'RR_A', label: 'Grupo A'       },
-                          { key: 'RR_B', label: 'Grupo B'       },
-                          { key: 'SF_M', label: 'Semifinal Máster' },
-                          { key: 'F_M',  label: 'Final Máster'  },
+                          { key: 'RR_A', label: 'Grupo A'              },
+                          { key: 'RR_B', label: 'Grupo B'              },
+                          { key: 'R64',  label: '64avos (Main Draw)'   },
+                          { key: 'R32',  label: '32avos (Main Draw)'   },
+                          { key: 'R16',  label: '16avos (Main Draw)'   },
+                          { key: 'QF',   label: 'Cuartos (Main Draw)'  },
+                          { key: 'SF_M', label: 'Semifinal Máster'     },
+                          { key: 'F_M',  label: 'Final Máster'         },
                         ]
                       : [
-                          { key: 'QF', label: 'Cuartos de Final' },
-                          { key: 'SF', label: 'Semifinal'        },
-                          { key: 'F',  label: 'Final'            },
+                          { key: 'R64', label: '64avos de Final'  },
+                          { key: 'R32', label: '32avos de Final'  },
+                          { key: 'R16', label: '16avos de Final'  },
+                          { key: 'QF',  label: 'Cuartos de Final' },
+                          { key: 'SF',  label: 'Semifinal'        },
+                          { key: 'F',   label: 'Final'            },
                         ];
 
                   return roundConfig.map(({ key: round, label }) => {
