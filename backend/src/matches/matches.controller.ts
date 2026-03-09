@@ -88,6 +88,75 @@ export class MatchesController {
     return this.matchesService.getRRGroupStatus(id, category);
   }
 
+  // PATCH /matches/:id/reschedule — reprogramar partido (admin/árbitro)
+  @Patch(':id/reschedule')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  rescheduleMatch(
+    @Param('id') id: string,
+    @Body() body: {
+      scheduledAt: string;
+      courtId?: string;
+      estimatedDuration?: number;
+      notes?: string;
+    },
+  ) {
+    return this.matchesService.rescheduleMatch(id, body);
+  }
+
+  // PATCH /matches/:id/suspend — suspender partido individual
+  @Patch(':id/suspend')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  suspendMatch(
+    @Param('id') id: string,
+    @Body() body: { reason: string; resumeScheduledAt?: string },
+  ) {
+    return this.matchesService.suspendMatch(id, body.reason, body.resumeScheduledAt);
+  }
+
+  // PATCH /matches/:id/resume — reanudar partido suspendido
+  @Patch(':id/resume')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  resumeMatch(
+    @Param('id') id: string,
+    @Body() body: { newScheduledAt?: string },
+  ) {
+    return this.matchesService.resumeMatch(id, body.newScheduledAt);
+  }
+
+  // PATCH /matches/tournament/:id/suspend-day — suspender toda una jornada
+  @Patch('tournament/:id/suspend-day')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  suspendDay(
+    @Param('id') tournamentId: string,
+    @Body() body: { date: string; reason: string; resumeScheduledAt?: string },
+  ) {
+    return this.matchesService.suspendTournamentDay(
+      tournamentId, body.date, body.reason, body.resumeScheduledAt,
+    );
+  }
+
+  // PATCH /matches/tournament/:id/resume-day — reanudar toda una jornada
+  @Patch('tournament/:id/resume-day')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  resumeDay(
+    @Param('id') tournamentId: string,
+    @Body() body: { date: string },
+  ) {
+    return this.matchesService.resumeTournamentDay(tournamentId, body.date);
+  }
+
+  // GET /matches/tournament/:id/suspended — listar suspendidos
+  @Get('tournament/:id/suspended')
+  getSuspended(@Param('id') id: string) {
+    return this.matchesService.getSuspendedMatches(id);
+  }
+
+  // GET /matches/tournament/:id/pending-rounds — rondas pendientes
+  @Get('tournament/:id/pending-rounds')
+  getPendingRounds(@Param('id') id: string) {
+    return this.matchesService.getPendingRounds(id);
+  }
+
   // POST /matches/tournament/:id/generate-main-draw — generar Main Draw desde RR
   @Post('tournament/:id/generate-main-draw')
   @UseGuards(JwtAuthGuard, RolesGuard)

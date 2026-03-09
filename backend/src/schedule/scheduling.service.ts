@@ -45,16 +45,34 @@ export class SchedulingService {
     courtsAvailability: CourtAvailability[],
     roundDurations: RoundDurations,
     maxMatchesPerPlayer: number = 2,
+    roundFilter?: string[],
+    includeSuspended: boolean = true,
+    preview: boolean = false,
   ) {
     if (!courtsAvailability?.length) {
       throw new Error('Debes seleccionar al menos una cancha con horario disponible');
     }
 
-    // 1. Obtener partidos pendientes
-    let matches = await this.matchRepo.find({
-      where: { tournamentId, status: MatchStatus.PENDING },
-      order: { createdAt: 'ASC' },
-    });
+    // 1. Obtener partidos pendientes (y suspendidos si aplica)
+    const statusFilter = includeSuspended
+      ? [MatchStatus.PENDING, MatchStatus.SUSPENDED]
+      : [MatchStatus.PENDING];
+
+    let matches = await this.matchRepo
+      .createQueryBuilder('match')
+      .where('match.tournamentId = :tournamentId', { tournamentId })
+      .andWhere('match.status IN (:...statuses)', { statuses: statusFilter })
+      .andWhere(
+        '(match.scheduledAt IS NULL OR match.status = :suspended)',
+        { suspended: MatchStatus.SUSPENDED },
+      )
+      .orderBy('match.createdAt', 'ASC')
+      .getMany();
+
+    // Filtrar por ronda si se especificó
+    if (roundFilter && roundFilter.length > 0) {
+      matches = matches.filter(m => roundFilter.includes(m.round));
+    }
 
     if (matches.length === 0) {
       throw new Error('No hay partidos pendientes para programar');
@@ -157,10 +175,12 @@ export class SchedulingService {
         if (court && !this.validateCategorySede(match, court, assignments)) continue;
 
         // ✅ Slot válido — asignar
-        match.courtId           = slot.courtId;
-        match.scheduledAt       = new Date(`${date}T${slot.time}:00`);
-        match.estimatedDuration = duration;
-        await this.matchRepo.save(match);
+        if (!preview) {
+          match.courtId           = slot.courtId;
+          match.scheduledAt       = new Date(`${date}T${slot.time}:00`);
+          match.estimatedDuration = duration;
+          await this.matchRepo.save(match);
+        }
 
         // Actualizar contadores
         [p1, p2].filter(Boolean).forEach(pid => {
@@ -218,6 +238,7 @@ export class SchedulingService {
 
     return {
       date,
+      isPreview:        preview,
       courtsUsed:       courts.length,
       matchesScheduled: scheduled.length,
       matchesPending:   skipped.length,

@@ -113,6 +113,14 @@ export class Tournament {
     finalSetPoints: number;
   }>;
 
+  // ── CATEGORÍAS DEL TORNEO ────────────────────────
+  @Column({ type: 'jsonb', nullable: true })
+  categories: {
+    name: string;
+    description?: string;
+    isDefault: boolean;
+  }[];
+
   @CreateDateColumn()
   createdAt: Date;
 }

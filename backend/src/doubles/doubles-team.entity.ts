@@ -1,9 +1,9 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm';
 
 export enum DoublesTeamStatus {
-  PENDING  = 'pending',   // Esperando compañero o pago
-  APPROVED = 'approved',  // Pareja confirmada y pago OK
-  REJECTED = 'rejected',  // Rechazada
+  PENDING  = 'pending',
+  APPROVED = 'approved',
+  REJECTED = 'rejected',
 }
 
 @Entity('doubles_teams')
@@ -15,35 +15,47 @@ export class DoublesTeam {
   @Column()
   tournamentId: string;
 
-  // Categoría resultante = la más alta entre los dos jugadores
   @Column()
   category: string;
 
-  // Jugador 1 (quien crea la pareja)
   @Column()
   player1Id: string;
 
-  // Jugador 2 (compañero)
   @Column({ nullable: true })
   player2Id: string;
 
-  // ¿Ambos juegan singles en este torneo?
   @Column({ default: false })
   player1HasSingles: boolean;
 
   @Column({ default: false })
   player2HasSingles: boolean;
 
-  // Estado del pago
+  // ── COBRO INDIVIDUAL POR JUGADOR ─────────────────
+  // Cada jugador paga SU parte independientemente
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  player1AmountCharged: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  player2AmountCharged: number;
+
+  // Total pareja = player1AmountCharged + player2AmountCharged
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  amountCharged: number;
+
+  // ── ESTADO DE PAGO INDIVIDUAL ─────────────────────
+  // pending | approved | manual
   @Column({ default: 'pending' })
-  paymentStatus: string; // pending | approved | manual
+  player1PaymentStatus: string;
+
+  @Column({ default: 'pending' })
+  player2PaymentStatus: string;
+
+  // Estado general de pago de la pareja
+  @Column({ default: 'pending' })
+  paymentStatus: string;
 
   @Column({ nullable: true })
   paymentId: string;
-
-  // Monto cobrado por dobles
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
-  amountCharged: number;
 
   @Column({
     type: 'enum',
@@ -52,11 +64,9 @@ export class DoublesTeam {
   })
   status: DoublesTeamStatus;
 
-  // Nombre de la pareja (opcional)
   @Column({ nullable: true })
   teamName: string;
 
-  // Siembra de la pareja
   @Column({ nullable: true })
   seeding: number;
 

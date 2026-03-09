@@ -472,6 +472,170 @@ export class MatchesService {
     };
   }
 
+  // ── REPROGRAMAR PARTIDO ─────────────────────────
+  async rescheduleMatch(
+    id: string,
+    data: {
+      scheduledAt: string;
+      courtId?: string;
+      estimatedDuration?: number;
+      notes?: string;
+    },
+  ) {
+    const match = await this.findOne(id);
+    const newDate = new Date(data.scheduledAt);
+
+    if (match.status === MatchStatus.COMPLETED || match.status === MatchStatus.WO) {
+      throw new Error('No se puede reprogramar un partido ya terminado');
+    }
+
+    const dateStr = newDate.toISOString().split('T')[0];
+    const duration = data.estimatedDuration || match.estimatedDuration || 90;
+    const newStart = this.timeToMinutes(newDate.toTimeString().slice(0, 5));
+    const newEnd   = newStart + duration;
+
+    const sameDayMatches = await this.repo
+      .createQueryBuilder('m')
+      .where('DATE(m.scheduledAt) = :date', { date: dateStr })
+      .andWhere('m.id != :id', { id })
+      .andWhere('m.status != :s1 AND m.status != :s2', {
+        s1: MatchStatus.COMPLETED,
+        s2: MatchStatus.WO,
+      })
+      .getMany();
+
+    for (const other of sameDayMatches) {
+      if (!other.scheduledAt) continue;
+      const otherStart = this.timeToMinutes(other.scheduledAt.toTimeString().slice(0, 5));
+      const otherEnd   = otherStart + (other.estimatedDuration || 90);
+
+      const sharesPlayer =
+        (match.player1Id && (other.player1Id === match.player1Id || other.player2Id === match.player1Id)) ||
+        (match.player2Id && (other.player1Id === match.player2Id || other.player2Id === match.player2Id));
+
+      if (sharesPlayer && newStart < otherEnd && newEnd > otherStart) {
+        const otherTime = other.scheduledAt.toTimeString().slice(0, 5);
+        throw new Error(
+          `Conflicto de horario: un jugador de este partido ya tiene otro partido a las ${otherTime}`
+        );
+      }
+    }
+
+    match.scheduledAt = newDate;
+    if (data.courtId)           match.courtId           = data.courtId;
+    if (data.estimatedDuration) match.estimatedDuration = data.estimatedDuration;
+
+    await this.repo.save(match);
+
+    const enriched = await this.enrichWithNames([match]);
+    return enriched[0];
+  }
+
+  // ── SUSPENDER PARTIDO INDIVIDUAL ────────────────
+  async suspendMatch(id: string, reason: string, resumeScheduledAt?: string) {
+    const match = await this.findOne(id);
+    if (match.status === MatchStatus.COMPLETED || match.status === MatchStatus.WO) {
+      throw new Error('No se puede suspender un partido ya terminado');
+    }
+    match.status = MatchStatus.SUSPENDED;
+    (match as any).suspensionReason = reason;
+    if (resumeScheduledAt) match.scheduledAt = new Date(resumeScheduledAt);
+    return this.repo.save(match);
+  }
+
+  // ── REANUDAR PARTIDO SUSPENDIDO ──────────────────
+  async resumeMatch(id: string, newScheduledAt?: string) {
+    const match = await this.findOne(id);
+    if (match.status !== MatchStatus.SUSPENDED) {
+      throw new Error('El partido no está suspendido');
+    }
+    match.status = MatchStatus.PENDING;
+    if (newScheduledAt) {
+      match.scheduledAt = new Date(newScheduledAt);
+    } else {
+      match.scheduledAt = null;
+    }
+    return this.repo.save(match);
+  }
+
+  // ── SUSPENDER TODA UNA JORNADA ───────────────────
+  async suspendTournamentDay(
+    tournamentId: string,
+    date: string,
+    reason: string,
+    resumeScheduledAt?: string,
+  ) {
+    const matches = await this.repo
+      .createQueryBuilder('m')
+      .where('m.tournamentId = :tournamentId', { tournamentId })
+      .andWhere('DATE(m.scheduledAt) = :date', { date })
+      .andWhere('m.status NOT IN (:...done)', { done: [MatchStatus.COMPLETED, MatchStatus.WO] })
+      .getMany();
+
+    if (matches.length === 0) {
+      throw new Error(`No hay partidos programados para el ${date}`);
+    }
+
+    for (const m of matches) {
+      m.status = MatchStatus.SUSPENDED;
+      (m as any).suspensionReason = reason;
+      if (resumeScheduledAt) m.scheduledAt = new Date(resumeScheduledAt);
+    }
+
+    await this.repo.save(matches);
+    return { suspended: matches.length, date, reason };
+  }
+
+  // ── REANUDAR TODA UNA JORNADA ────────────────────
+  async resumeTournamentDay(tournamentId: string, date: string) {
+    const matches = await this.repo
+      .createQueryBuilder('m')
+      .where('m.tournamentId = :tournamentId', { tournamentId })
+      .andWhere('m.status = :status', { status: MatchStatus.SUSPENDED })
+      .andWhere('DATE(m.scheduledAt) = :date', { date })
+      .getMany();
+
+    if (matches.length === 0) {
+      throw new Error(`No hay partidos suspendidos para el ${date}`);
+    }
+
+    for (const m of matches) {
+      m.status = MatchStatus.PENDING;
+      m.scheduledAt = null;
+    }
+
+    await this.repo.save(matches);
+    return { resumed: matches.length, date };
+  }
+
+  // ── LISTAR PARTIDOS SUSPENDIDOS ──────────────────
+  async getSuspendedMatches(tournamentId: string) {
+    const matches = await this.repo.find({
+      where: { tournamentId, status: MatchStatus.SUSPENDED },
+      order: { scheduledAt: 'ASC' },
+    });
+    return this.enrichWithNames(matches);
+  }
+
+  // ── RONDAS PENDIENTES ────────────────────────────
+  async getPendingRounds(tournamentId: string) {
+    const matches = await this.repo
+      .createQueryBuilder('m')
+      .select('DISTINCT m.round', 'round')
+      .where('m.tournamentId = :tournamentId', { tournamentId })
+      .andWhere('m.status IN (:...statuses)', {
+        statuses: [MatchStatus.PENDING, MatchStatus.SUSPENDED],
+      })
+      .getRawMany();
+
+    return matches.map(r => r.round);
+  }
+
+  private timeToMinutes(time: string): number {
+    const [h, m] = time.split(':').map(Number);
+    return h * 60 + m;
+  }
+
   private nextPowerOfTwo(n: number): number {
     let p = 1;
     while (p < n) p *= 2;

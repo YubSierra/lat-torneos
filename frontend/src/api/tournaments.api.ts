@@ -26,6 +26,11 @@ export const tournamentsApi = {
     return res.data;
   },
 
+  getCategories: async (tournamentId: string) => {
+    const res = await api.get(`/tournaments/${tournamentId}`);
+    return res.data?.categories || [];
+  },
+
   generateDraw: async (
     id: string,
     category: string,

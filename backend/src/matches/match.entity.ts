@@ -1,11 +1,12 @@
-import { Entity, PrimaryGeneratedColumn, Column,
-         CreateDateColumn } from 'typeorm';
+// backend/src/matches/match.entity.ts  ← REEMPLAZA COMPLETO
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm';
 
 export enum MatchStatus {
   PENDING   = 'pending',
   LIVE      = 'live',
   COMPLETED = 'completed',
   WO        = 'wo',
+  SUSPENDED = 'suspended',   // ← NUEVO: partido o jornada suspendida
 }
 
 export enum MatchRound {
@@ -85,16 +86,15 @@ export class Match {
   seeding2: number;
 
   // ── SISTEMA DE JUEGO ─────────────────────────────
-  // Guardado como JSON para flexibilidad total
   @Column({ type: 'jsonb', nullable: true })
   gameFormat: {
-    sets: number; // 1, 2, 3, 5
-    gamesPerSet: number; // 4, 6, 8
-    withAd: boolean; // Con o sin Ad
-    tiebreakAtDeuce: boolean; // Tiebreak al empate en games
-    tiebreakPoints: number; // 7, 10, 12
-    finalSetTiebreak: boolean; // Match tiebreak al empate en sets
-    finalSetPoints: number; // 7, 10, 12
+    sets: number;
+    gamesPerSet: number;
+    withAd: boolean;
+    tiebreakAtDeuce: boolean;
+    tiebreakPoints: number;
+    finalSetTiebreak: boolean;
+    finalSetPoints: number;
   };
 
   // ── MARCADOR EN VIVO ─────────────────────────────
@@ -107,6 +107,40 @@ export class Match {
   // ── GRUPO DEL ROUND ROBIN ────────────────────────
   @Column({ nullable: true })
   groupLabel: string;
+
+  // ── SUSPENSIÓN ───────────────────────────────────
+  // Fecha y hora en que se suspendió
+  @Column({ type: 'timestamp', nullable: true })
+  suspendedAt: Date;
+
+  // Motivo de la suspensión (Lluvia, Oscuridad, Lesión, Fuerza mayor, etc.)
+  @Column({ nullable: true })
+  suspensionReason: string;
+
+  // Resultado parcial al momento de la suspensión
+  // Se muestra en el cuadro hasta que el partido se reanude y finalice
+  @Column({ type: 'jsonb', nullable: true })
+  partialResult: {
+    sets1: number;
+    sets2: number;
+    games1: number;
+    games2: number;
+    setsHistory: { games1: number; games2: number; tiebreak1?: number; tiebreak2?: number }[];
+    note?: string;  // ej: "Suspendido por lluvia en el 2° set"
+  };
+
+  // Fecha reprogramada (para mostrar al público)
+  @Column({ type: 'timestamp', nullable: true })
+  resumeScheduledAt: Date;
+
+  // ── ETIQUETA PARA RONDAS PENDIENTES ─────────────
+  // Ej: "Ganador Grupo A", "Ganador QF1", "Ganador SF"
+  // Se llena al generar el cuadro cuando aún no hay jugadores
+  @Column({ nullable: true })
+  player1Label: string;
+
+  @Column({ nullable: true })
+  player2Label: string;
 
   @CreateDateColumn()
   createdAt: Date;

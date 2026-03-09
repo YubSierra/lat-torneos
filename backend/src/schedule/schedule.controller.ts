@@ -44,6 +44,8 @@ export class ScheduleController {
       courts: { courtId: string; blocks: { start: string; end: string }[] }[];
       roundDurations: Record<string, number>;
       maxMatchesPerPlayer?: number;
+      roundFilter?: string[];
+      includeSuspended?: boolean;
     },
   ) {
     return this.schedulingService.generateSchedule(
@@ -52,6 +54,33 @@ export class ScheduleController {
       body.courts,
       body.roundDurations,
       body.maxMatchesPerPlayer || 2,
+      body.roundFilter,
+      body.includeSuspended ?? true,
+    );
+  }
+
+  @Post('schedule/preview')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  previewSchedule(
+    @Param('tournamentId') tournamentId: string,
+    @Body() body: {
+      date: string;
+      courts: { courtId: string; blocks: { start: string; end: string }[] }[];
+      roundDurations: Record<string, number>;
+      maxMatchesPerPlayer?: number;
+      roundFilter?: string[];
+      includeSuspended?: boolean;
+    },
+  ) {
+    return this.schedulingService.generateSchedule(
+      tournamentId,
+      body.date,
+      body.courts,
+      body.roundDurations,
+      body.maxMatchesPerPlayer || 2,
+      body.roundFilter,
+      body.includeSuspended ?? true,
+      true,
     );
   }
 

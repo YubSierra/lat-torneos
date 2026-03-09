@@ -81,4 +81,11 @@ export class CreateTournamentDto {
     finalSetTiebreak: boolean;
     finalSetPoints: number;
   }>;
+
+  @IsOptional()
+  categories?: {
+    name: string;
+    description?: string;
+    isDefault: boolean;
+  }[];
 }
