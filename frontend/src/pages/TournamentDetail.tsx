@@ -1,5 +1,5 @@
 // frontend/src/pages/TournamentDetail.tsx  ← REEMPLAZA COMPLETO
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Users, Trophy, Calendar, Settings } from 'lucide-react';
@@ -38,7 +38,7 @@ export default function TournamentDetail() {
   const [activeTab, setActiveTab] = useState<'info' | 'enrollments' | 'matches' | 'draw' | 'bracket'>('info');
 
   // ── Draw config ───────────────────────────────────────────────────────
-  const [selectedCategory,  setSelectedCategory]  = useState('TERCERA');
+  const [selectedCategory,  setSelectedCategory]  = useState('');
   const [drawType,          setDrawType]          = useState('elimination');
   const [drawModality,      setDrawModality]      = useState<'singles' | 'doubles'>('singles');
   const [advancingPerGroup, setAdvancingPerGroup] = useState(1);
@@ -77,6 +77,16 @@ export default function TournamentDetail() {
     queryKey: ['tournament', id],
     queryFn: () => tournamentsApi.getOne(id!),
   });
+
+  // Auto-seleccionar primera categoría real del torneo cuando cargue
+  useEffect(() => {
+    if (tournament && !selectedCategory) {
+      const cats = normalizeCategories(
+        tournament.categories?.length > 0 ? tournament.categories : CATEGORIES
+      );
+      if (cats.length > 0) setSelectedCategory(cats[0]);
+    }
+  }, [tournament]);
 
   const { data: enrollments = [] } = useQuery({
     queryKey: ['enrollments', id],
@@ -668,12 +678,27 @@ export default function TournamentDetail() {
 
               {/* Categoría */}
               <div>
-                <label style={lbl}>Categoría</label>
-                <select value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)} style={sel}>
+                <label style={lbl}>
+                  Categoría
+                  {selectedCategory && (
+                    <span style={{ fontWeight: '400', color: '#9CA3AF', marginLeft: '8px', fontSize: '11px' }}>
+                      seleccionada: <strong style={{ color: '#1D4ED8' }}>{selectedCategory}</strong>
+                    </span>
+                  )}
+                </label>
+                <select
+                  value={selectedCategory}
+                  onChange={e => setSelectedCategory(e.target.value)}
+                  style={{ ...sel, borderColor: selectedCategory ? '#6EE7B7' : '#F87171' }}
+                >
+                  <option value="">-- Selecciona una categoría --</option>
                   {(normalizeCategories(tournament.categories?.length > 0 ? tournament.categories : CATEGORIES)).map((cat: string) => (
                     <option key={cat} value={cat}>{cat}</option>
                   ))}
                 </select>
+                {!selectedCategory && (
+                  <p style={{ fontSize: '11px', color: '#EF4444', marginTop: '4px' }}>⚠️ Debes seleccionar una categoría</p>
+                )}
               </div>
 
               {/* Sistema de juego */}
@@ -848,10 +873,15 @@ export default function TournamentDetail() {
               {/* Botón generar */}
               <button
                 onClick={() => drawMutation.mutate()}
-                disabled={drawMutation.isPending}
-                style={{ width: '100%', backgroundColor: '#2D6A2D', color: 'white', padding: '13px', borderRadius: '10px', border: 'none', cursor: 'pointer', fontSize: '14px', fontWeight: '700', opacity: drawMutation.isPending ? 0.7 : 1 }}
+                disabled={drawMutation.isPending || !selectedCategory}
+                style={{ width: '100%', backgroundColor: !selectedCategory ? '#D1FAE5' : '#2D6A2D', color: !selectedCategory ? '#9CA3AF' : 'white', padding: '13px', borderRadius: '10px', border: 'none', cursor: !selectedCategory ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '700', opacity: drawMutation.isPending ? 0.7 : 1 }}
               >
-                {drawMutation.isPending ? 'Generando...' : `🎾 Generar Draw${includeReserved ? ' (con Reservados)' : ''}`}
+                {drawMutation.isPending
+                  ? 'Generando...'
+                  : !selectedCategory
+                    ? '⚠️ Selecciona una categoría primero'
+                    : `🎾 Generar Draw${includeReserved ? ' (con Reservados)' : ''} — ${selectedCategory}`
+                }
               </button>
 
               {drawMutation.isSuccess && (

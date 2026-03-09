@@ -47,7 +47,7 @@ export class SchedulingService {
     maxMatchesPerPlayer: number = 2,
     roundFilter?: string[],
     includeSuspended: boolean = true,
-    preview: boolean = false,
+    save: boolean = true,
   ) {
     if (!courtsAvailability?.length) {
       throw new Error('Debes seleccionar al menos una cancha con horario disponible');
@@ -174,13 +174,7 @@ export class SchedulingService {
         const court = courtMap.get(slot.courtId);
         if (court && !this.validateCategorySede(match, court, assignments)) continue;
 
-        // ✅ Slot válido — asignar
-        if (!preview) {
-          match.courtId           = slot.courtId;
-          match.scheduledAt       = new Date(`${date}T${slot.time}:00`);
-          match.estimatedDuration = duration;
-          await this.matchRepo.save(match);
-        }
+        // ✅ Slot válido — asignar (save se hace en batch al final)
 
         // Actualizar contadores
         [p1, p2].filter(Boolean).forEach(pid => {
@@ -199,17 +193,18 @@ export class SchedulingService {
         ]);
 
         assignments.push({
-          matchId:   match.id,
-          sede:      slot.sede,
-          court:     slot.courtName,
+          matchId:    match.id,
+          courtId:    slot.courtId,
+          sede:       slot.sede,
+          court:      slot.courtName,
           date,
-          time:      slot.time,
-          duration:  `${duration} min`,
-          round:     match.round,
-          category:  match.category,
+          time:       slot.time,
+          duration:   `${duration} min`,
+          round:      match.round,
+          category:   match.category,
           groupLabel: (match as any).groupLabel || null,
-          player1:   player1 ? `${player1.nombres} ${player1.apellidos}` : 'BYE',
-          player2:   player2 ? `${player2.nombres} ${player2.apellidos}` : 'BYE',
+          player1:    player1 ? `${player1.nombres} ${player1.apellidos}` : 'BYE',
+          player2:    player2 ? `${player2.nombres} ${player2.apellidos}` : 'BYE',
         });
 
         assigned = true;
@@ -236,9 +231,21 @@ export class SchedulingService {
     const scheduled = assignments.filter(a => a.time !== '—');
     const skipped   = assignments.filter(a => a.time === '—');
 
+    // Solo persistir en BD si save = true (confirm, no preview)
+    if (save) {
+      for (const a of scheduled) {
+        await this.matchRepo.update(a.matchId, {
+          scheduledAt:       new Date(`${date}T${a.time}:00`),
+          courtId:           a.courtId,
+          estimatedDuration: parseInt(a.duration),
+          status:            MatchStatus.PENDING,
+        });
+      }
+    }
+
     return {
       date,
-      isPreview:        preview,
+      isPreview:        !save,
       courtsUsed:       courts.length,
       matchesScheduled: scheduled.length,
       matchesPending:   skipped.length,

@@ -22,13 +22,17 @@ export class DrawService {
     advancingPerGroup: number = 1, // 1 o 2 jugadores por grupo pasan al MD
     modality: string = 'singles',
     roundGameFormats: Record<string, any> = {},
+    includeReserved: boolean = false,
   ) {
     if (modality === 'doubles') {
       return this.generateDoublesDraw(tournamentId, category, type, advancingPerGroup);
     }
 
+    const validStatuses: any[] = [EnrollmentStatus.APPROVED];
+    if (includeReserved) validStatuses.push('reserved');
+
     const enrollments = await this.enrollmentRepo.find({
-      where: { tournamentId, category, status: EnrollmentStatus.APPROVED },
+      where: validStatuses.map(status => ({ tournamentId, category, status })),
       order: { seeding: 'ASC' },
     });
 
@@ -411,7 +415,7 @@ export class DrawService {
 
     // Convertir parejas a "jugadores" para reutilizar la lógica
     // player1Id = id de la pareja (DoublesTeam.id)
-    const fakeEnrollments = teams.map((t: any, idx: number) => ({
+    const fakeEnrollments = teams.map((t: any) => ({
       playerId: t.id,   // usamos el ID de la pareja
       category,
       seeding: t.seeding || null,

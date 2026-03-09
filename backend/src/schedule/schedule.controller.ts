@@ -1,11 +1,11 @@
 // backend/src/schedule/schedule.controller.ts  ← REEMPLAZA COMPLETO
 import { Controller, Post, Get, Body,
          Param, UseGuards } from '@nestjs/common';
-import { DrawService }       from './draw.service';
+import { DrawService } from './draw.service';
 import { SchedulingService } from './scheduling.service';
-import { JwtAuthGuard }      from '../auth/jwt.guard';
-import { RolesGuard }        from '../auth/roles.guard';
-import { TournamentType }    from '../tournaments/tournament.entity';
+import { JwtAuthGuard } from '../auth/jwt.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { TournamentType } from '../tournaments/tournament.entity';
 
 @Controller('tournaments/:tournamentId')
 export class ScheduleController {
@@ -39,10 +39,11 @@ export class ScheduleController {
     );
   }
 
-  // POST /tournaments/:tournamentId/schedule
-  @Post('schedule')
+  // POST /tournaments/:tournamentId/schedule/preview
+  // Vista previa — calcula pero NO guarda en BD
+  @Post('schedule/preview')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  generateSchedule(
+  previewSchedule(
     @Param('tournamentId') tournamentId: string,
     @Body() body: {
       date: string;
@@ -61,6 +62,34 @@ export class ScheduleController {
       body.maxMatchesPerPlayer || 2,
       body.roundFilter,
       body.includeSuspended ?? true,
+      false, // save = false → no guarda
+    );
+  }
+
+  // POST /tournaments/:tournamentId/schedule/confirm
+  // Confirma y guarda la programación en BD
+  @Post('schedule/confirm')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  confirmSchedule(
+    @Param('tournamentId') tournamentId: string,
+    @Body() body: {
+      date: string;
+      courts: { courtId: string; blocks: { start: string; end: string }[] }[];
+      roundDurations: Record<string, number>;
+      maxMatchesPerPlayer?: number;
+      roundFilter?: string[];
+      includeSuspended?: boolean;
+    },
+  ) {
+    return this.schedulingService.generateSchedule(
+      tournamentId,
+      body.date,
+      body.courts,
+      body.roundDurations,
+      body.maxMatchesPerPlayer || 2,
+      body.roundFilter,
+      body.includeSuspended ?? true,
+      true, // save = true → guarda en BD
     );
   }
 
