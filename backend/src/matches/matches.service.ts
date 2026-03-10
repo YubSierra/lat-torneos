@@ -763,4 +763,250 @@ export class MatchesService {
     };
     return r[drawSize] || 'R16';
   }
+
+  // ── LISTAR BYEs DEL CUADRO ─────────────────────────────────────────
+  async getByesForCategory(tournamentId: string, category: string) {
+    const byeMatches = await this.repo
+      .createQueryBuilder('m')
+      .where('m.tournamentId = :tid', { tid: tournamentId })
+      .andWhere('m.category = :cat', { cat: category })
+      .andWhere('m.round != :rr1 AND m.round != :rr2 AND m.round != :rr3', {
+        rr1: 'RR',
+        rr2: 'RR_A',
+        rr3: 'RR_B',
+      })
+      .andWhere('(m.player1Id IS NULL OR m.player2Id IS NULL)')
+      .andWhere('m.scheduledAt IS NULL')
+      .getMany();
+
+    return this.enrichWithNames(byeMatches);
+  }
+
+  // ── LISTAR PARTIDOS PENDIENTES DE UN JUGADOR ────────────────────────
+  async getPendingMatchesForPlayer(
+    tournamentId: string,
+    category: string,
+    playerId: string,
+  ) {
+    const matches = await this.repo.find({
+      where: [
+        {
+          tournamentId,
+          category,
+          player1Id: playerId,
+          status: MatchStatus.PENDING,
+        },
+        {
+          tournamentId,
+          category,
+          player2Id: playerId,
+          status: MatchStatus.PENDING,
+        },
+      ],
+    });
+    return this.enrichWithNames(matches);
+  }
+
+  // ── ASIGNAR ALTERNO A BYE ───────────────────────────────────────────
+  async assignAlternateToBye(dto: {
+    matchId: string;
+    alternatePlayerId: string;
+    tournamentId: string;
+    category: string;
+  }) {
+    const match = await this.findOne(dto.matchId);
+
+    if (match.player1Id !== null && match.player2Id !== null) {
+      throw new Error('Este partido no tiene un slot de BYE disponible');
+    }
+    if (match.scheduledAt) {
+      throw new Error('El partido ya está programado. No se puede asignar alterno.');
+    }
+
+    const alreadyIn = await this.repo.findOne({
+      where: [
+        {
+          tournamentId: dto.tournamentId,
+          category: dto.category,
+          player1Id: dto.alternatePlayerId,
+          status: MatchStatus.PENDING,
+        },
+        {
+          tournamentId: dto.tournamentId,
+          category: dto.category,
+          player2Id: dto.alternatePlayerId,
+          status: MatchStatus.PENDING,
+        },
+      ],
+    });
+    if (alreadyIn) {
+      throw new Error('Este jugador ya tiene partidos asignados en esta categoría');
+    }
+
+    if (match.player1Id === null) {
+      match.player1Id = dto.alternatePlayerId;
+    } else {
+      match.player2Id = dto.alternatePlayerId;
+    }
+
+    match.status = MatchStatus.PENDING;
+    match.winnerId = null;
+
+    await this.ensureAlternateEnrollment(
+      dto.tournamentId,
+      dto.category,
+      dto.alternatePlayerId,
+      'bye_replacement',
+    );
+
+    const saved = await this.repo.save(match);
+    return this.enrichWithNames([saved]).then((r) => r[0]);
+  }
+
+  // ── REEMPLAZAR JUGADOR RETIRADO ─────────────────────────────────────
+  async replaceRetiredPlayer(dto: {
+    tournamentId: string;
+    category: string;
+    retiredPlayerId: string;
+    alternatePlayerId: string;
+  }) {
+    const pendingMatches = await this.repo.find({
+      where: [
+        {
+          tournamentId: dto.tournamentId,
+          category: dto.category,
+          player1Id: dto.retiredPlayerId,
+          status: MatchStatus.PENDING,
+        },
+        {
+          tournamentId: dto.tournamentId,
+          category: dto.category,
+          player2Id: dto.retiredPlayerId,
+          status: MatchStatus.PENDING,
+        },
+      ],
+    });
+
+    if (pendingMatches.length === 0) {
+      throw new Error(
+        'Este jugador no tiene partidos pendientes. ' +
+          'Si ya jugó algún partido, no es posible reemplazarlo.',
+      );
+    }
+
+    const liveOrScheduled = await this.repo.findOne({
+      where: [
+        {
+          tournamentId: dto.tournamentId,
+          category: dto.category,
+          player1Id: dto.retiredPlayerId,
+          status: MatchStatus.LIVE,
+        },
+        {
+          tournamentId: dto.tournamentId,
+          category: dto.category,
+          player2Id: dto.retiredPlayerId,
+          status: MatchStatus.LIVE,
+        },
+      ],
+    });
+    if (liveOrScheduled) {
+      throw new Error('El jugador tiene un partido en vivo. No se puede reemplazar.');
+    }
+
+    const alternateHasMatches = await this.repo.findOne({
+      where: [
+        {
+          tournamentId: dto.tournamentId,
+          category: dto.category,
+          player1Id: dto.alternatePlayerId,
+          status: MatchStatus.PENDING,
+        },
+        {
+          tournamentId: dto.tournamentId,
+          category: dto.category,
+          player2Id: dto.alternatePlayerId,
+          status: MatchStatus.PENDING,
+        },
+      ],
+    });
+    if (alternateHasMatches) {
+      throw new Error('El jugador alterno ya tiene partidos en esta categoría');
+    }
+
+    for (const match of pendingMatches) {
+      if (match.player1Id === dto.retiredPlayerId) {
+        match.player1Id = dto.alternatePlayerId;
+      } else {
+        match.player2Id = dto.alternatePlayerId;
+      }
+    }
+
+    await this.repo.save(pendingMatches);
+
+    await this.markPlayerRetired(
+      dto.tournamentId,
+      dto.category,
+      dto.retiredPlayerId,
+    );
+    await this.ensureAlternateEnrollment(
+      dto.tournamentId,
+      dto.category,
+      dto.alternatePlayerId,
+      'retirement_replacement',
+    );
+
+    return {
+      message: `Jugador reemplazado en ${pendingMatches.length} partido(s)`,
+      matchesUpdated: pendingMatches.length,
+    };
+  }
+
+  // ── HELPERS PRIVADOS ───────────────────────────────────────────────
+
+  private async ensureAlternateEnrollment(
+    tournamentId: string,
+    category: string,
+    playerId: string,
+    reason: string,
+  ) {
+    const enrollmentRepo = this.repo.manager.getRepository('enrollments');
+    const existing = await enrollmentRepo.findOne({
+      where: { tournamentId, playerId, category },
+    });
+
+    if (existing) {
+      if (existing.status === 'alternate') {
+        existing.status = 'approved';
+        await enrollmentRepo.save(existing);
+      }
+      return existing;
+    }
+
+    return enrollmentRepo.save(
+      enrollmentRepo.create({
+        tournamentId,
+        playerId,
+        category,
+        modality: 'singles',
+        status: 'approved',
+        paymentId: `ALTERNO_${reason.toUpperCase()}`,
+      }),
+    );
+  }
+
+  private async markPlayerRetired(
+    tournamentId: string,
+    category: string,
+    playerId: string,
+  ) {
+    const enrollmentRepo = this.repo.manager.getRepository('enrollments');
+    const enrollment = await enrollmentRepo.findOne({
+      where: { tournamentId, playerId, category },
+    });
+    if (enrollment) {
+      enrollment.status = 'alternate';
+      await enrollmentRepo.save(enrollment);
+    }
+  }
 }

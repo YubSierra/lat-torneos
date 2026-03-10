@@ -180,4 +180,67 @@ export class MatchesController {
       body.advancingPerGroup || 1,
     );
   }
+
+  // GET /matches/tournament/:id/byes/:category
+  @Get('tournament/:id/byes/:category')
+  @UseGuards(JwtAuthGuard)
+  getByesForCategory(
+    @Param('id') tournamentId: string,
+    @Param('category') category: string,
+  ) {
+    return this.matchesService.getByesForCategory(tournamentId, category);
+  }
+
+  // GET /matches/tournament/:id/pending-player/:playerId/:category
+  @Get('tournament/:id/pending-player/:playerId/:category')
+  @UseGuards(JwtAuthGuard)
+  getPendingMatchesForPlayer(
+    @Param('id') tournamentId: string,
+    @Param('playerId') playerId: string,
+    @Param('category') category: string,
+  ) {
+    return this.matchesService.getPendingMatchesForPlayer(
+      tournamentId,
+      category,
+      playerId,
+    );
+  }
+
+  // POST /matches/tournament/:id/assign-alternate-bye
+  @Post('tournament/:id/assign-alternate-bye')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  assignAlternateToBye(
+    @Param('id') tournamentId: string,
+    @Body() body: {
+      matchId: string;
+      alternatePlayerId: string;
+      category: string;
+    },
+  ) {
+    return this.matchesService.assignAlternateToBye({
+      matchId: body.matchId,
+      alternatePlayerId: body.alternatePlayerId,
+      tournamentId,
+      category: body.category,
+    });
+  }
+
+  // POST /matches/tournament/:id/replace-retired
+  @Post('tournament/:id/replace-retired')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  replaceRetiredPlayer(
+    @Param('id') tournamentId: string,
+    @Body() body: {
+      retiredPlayerId: string;
+      alternatePlayerId: string;
+      category: string;
+    },
+  ) {
+    return this.matchesService.replaceRetiredPlayer({
+      tournamentId,
+      category: body.category,
+      retiredPlayerId: body.retiredPlayerId,
+      alternatePlayerId: body.alternatePlayerId,
+    });
+  }
 }

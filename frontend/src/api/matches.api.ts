@@ -96,4 +96,48 @@ export const matchesApi = {
     );
     return res.data;
   },
+
+  // ── ALTERNOS ──────────────────────────────────────
+
+  /** BYEs disponibles en el cuadro (slots vacíos sin programar) */
+  getByesForCategory: async (tournamentId: string, category: string) => {
+    const res = await api.get(`/matches/tournament/${tournamentId}/byes/${encodeURIComponent(category)}`);
+    return res.data;
+  },
+
+  /** Partidos pendientes de un jugador (para verificar retiro) */
+  getPendingMatchesForPlayer: async (tournamentId: string, playerId: string, category: string) => {
+    const res = await api.get(
+      `/matches/tournament/${tournamentId}/pending-player/${playerId}/${encodeURIComponent(category)}`
+    );
+    return res.data;
+  },
+
+  /** Asignar alterno a un BYE del cuadro */
+  assignAlternateToBye: async (
+    tournamentId: string,
+    matchId: string,
+    alternatePlayerId: string,
+    category: string,
+  ) => {
+    const res = await api.post(
+      `/matches/tournament/${tournamentId}/assign-alternate-bye`,
+      { matchId, alternatePlayerId, category },
+    );
+    return res.data;
+  },
+
+  /** Reemplazar jugador retirado por un alterno */
+  replaceRetiredPlayer: async (
+    tournamentId: string,
+    retiredPlayerId: string,
+    alternatePlayerId: string,
+    category: string,
+  ) => {
+    const res = await api.post(
+      `/matches/tournament/${tournamentId}/replace-retired`,
+      { retiredPlayerId, alternatePlayerId, category },
+    );
+    return res.data;
+  },
 };

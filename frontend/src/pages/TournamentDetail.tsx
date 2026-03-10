@@ -2,7 +2,8 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Users, Trophy, Calendar, Settings } from 'lucide-react';
+import { Users, Trophy, Calendar, Settings, UserPlus } from 'lucide-react';
+import AlternateManager from '../components/AlternateManager';
 import { tournamentsApi } from '../api/tournaments.api';
 import { enrollmentsApi } from '../api/enrollments.api';
 import { matchesApi } from '../api/matches.api';
@@ -35,7 +36,7 @@ export default function TournamentDetail() {
   const queryClient  = useQueryClient();
 
   // ── Tabs ──────────────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState<'info' | 'enrollments' | 'matches' | 'draw' | 'bracket'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'enrollments' | 'matches' | 'draw' | 'bracket' | 'alternos'>('info');
 
   // ── Draw config ───────────────────────────────────────────────────────
   const [selectedCategory,  setSelectedCategory]  = useState('');
@@ -382,6 +383,7 @@ export default function TournamentDetail() {
             { key: 'matches',     icon: Trophy,   label: 'Partidos'     },
             { key: 'draw',        icon: Calendar, label: 'Generar Draw' },
             { key: 'bracket',     icon: Trophy,   label: 'Cuadro'       },
+            { key: 'alternos',    icon: UserPlus, label: 'Alternos'     },
           ].map(({ key, icon: Icon, label }) => (
             <button
               key={key}
@@ -1137,6 +1139,16 @@ export default function TournamentDetail() {
       {/* ══════════════════════════════════════════════════════════════════ */}
       {/* MODAL: Admin cambia forma de pago de una inscripción              */}
       {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* Tab: Alternos */}
+      {activeTab === 'alternos' && (
+        <div className="bg-white rounded-xl shadow-sm p-6">
+          <AlternateManager
+            tournamentId={id!}
+            isAdmin={isAdmin}
+          />
+        </div>
+      )}
+
       <CambiarPagoModal
         isOpen={cambiarPagoModal.open}
         enrollment={cambiarPagoModal.enrollment}

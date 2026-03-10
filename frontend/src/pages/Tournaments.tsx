@@ -112,7 +112,7 @@ export default function Tournaments() {
           {isAdmin && (
             <button
               onClick={() => setShowModal(true)}
-              className="flex items-center gap-2 bg-lat-green hover:bg-lat-dark text-white px-4 py-2 rounded-lg transition-colors"
+              className="flex items-center gap-2 bg-lat-green hover:bg-lat-dark text-gren px-4 py-2 rounded-lg transition-colors"
             >
               <Plus size={18} />
               Nuevo Torneo
@@ -248,7 +248,7 @@ export default function Tournaments() {
               background: 'linear-gradient(135deg, #1B3A1B, #2D6A2D)',
               padding: '22px 28px', borderRadius: '18px 18px 0 0',
             }}>
-              <h2 style={{ color: 'white', fontSize: '18px', fontWeight: '700', margin: 0 }}>
+              <h2 style={{ color: 'g', fontSize: '18px', fontWeight: '700', margin: 0 }}>
                 🎾 Crear Nuevo Torneo
               </h2>
               <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '13px', margin: '4px 0 0' }}>
