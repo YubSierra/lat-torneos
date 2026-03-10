@@ -57,6 +57,10 @@ export default function Matches() {
   const [suspendModal,  setSuspendModal]  = useState<{ isOpen: boolean; match: any | null }>({ isOpen: false, match: null });
   const [showSuspended, setShowSuspended] = useState(false);
 
+  // ── Filtros de búsqueda ───────────────────────────────────────────────────
+  const [filterName, setFilterName] = useState('');
+  const [filterDate, setFilterDate] = useState('');
+
   // Panel lateral jugador
   const [playerPanel, setPlayerPanel] = useState<{
     id: string; name: string; photoUrl?: string; tournamentId: string;
@@ -143,9 +147,33 @@ export default function Matches() {
 
   // ── Filtros ───────────────────────────────────────────────────────────────
   const liveMatches     = (matches as any[]).filter(m => m.status === 'live');
-  const pendingMatches  = (matches as any[]).filter(m => m.status === 'pending');
-  const doneMatches     = (matches as any[]).filter(m => m.status === 'completed' || m.status === 'wo');
   const suspendedInList = (matches as any[]).filter(m => m.status === 'suspended');
+
+  // Función de filtrado compartida por pendientes y terminados
+  const applyFilters = (list: any[]) => {
+    let result = list;
+    if (filterName.trim()) {
+      const q = filterName.trim().toLowerCase();
+      result = result.filter(m =>
+        (m.player1Name || '').toLowerCase().includes(q) ||
+        (m.player2Name || '').toLowerCase().includes(q)
+      );
+    }
+    if (filterDate) {
+      result = result.filter(m => {
+        if (!m.scheduledAt) return false;
+        // Comparamos solo la parte de fecha YYYY-MM-DD
+        return m.scheduledAt.slice(0, 10) === filterDate;
+      });
+    }
+    return result;
+  };
+
+  const pendingMatches  = applyFilters((matches as any[]).filter(m => m.status === 'pending'));
+  const doneMatches     = applyFilters((matches as any[]).filter(m => m.status === 'completed' || m.status === 'wo'));
+
+  // ¿Hay algún filtro activo?
+  const hasFilters = filterName.trim() !== '' || filterDate !== '';
 
   // Partidos del jugador seleccionado en el torneo actual
   const playerMatches = (matches as any[]).filter(
@@ -231,6 +259,66 @@ export default function Matches() {
             <p style={{ color: '#9CA3AF', fontSize: '15px' }}>Selecciona un torneo para ver los partidos</p>
           </div>
         ) : (
+          <>
+          {/* ── Barra de filtros ────────────────────────────────────────────── */}
+          <div className="bg-white rounded-xl shadow-sm" style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            {/* Icono */}
+            <span style={{ fontSize: '13px', color: '#6B7280', fontWeight: '600', whiteSpace: 'nowrap' }}>🔍 Filtrar:</span>
+
+            {/* Nombre */}
+            <div style={{ position: 'relative', flex: '1', minWidth: '180px', maxWidth: '280px' }}>
+              <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF', fontSize: '13px', pointerEvents: 'none' }}>👤</span>
+              <input
+                type="text"
+                placeholder="Buscar jugador..."
+                value={filterName}
+                onChange={e => setFilterName(e.target.value)}
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  border: '1.5px solid #E5E7EB', borderRadius: '8px',
+                  padding: '7px 10px 7px 30px', fontSize: '13px',
+                  color: '#1B3A1B', outline: 'none',
+                  backgroundColor: filterName ? '#F0FDF4' : 'white',
+                  borderColor: filterName ? '#86EFAC' : '#E5E7EB',
+                }}
+              />
+            </div>
+
+            {/* Fecha */}
+            <div style={{ position: 'relative' }}>
+              <input
+                type="date"
+                value={filterDate}
+                onChange={e => setFilterDate(e.target.value)}
+                style={{
+                  border: '1.5px solid #E5E7EB', borderRadius: '8px',
+                  padding: '7px 12px', fontSize: '13px',
+                  color: filterDate ? '#1B3A1B' : '#9CA3AF',
+                  outline: 'none', cursor: 'pointer',
+                  backgroundColor: filterDate ? '#F0FDF4' : 'white',
+                  borderColor: filterDate ? '#86EFAC' : '#E5E7EB',
+                }}
+              />
+            </div>
+
+            {/* Limpiar */}
+            {hasFilters && (
+              <button
+                onClick={() => { setFilterName(''); setFilterDate(''); }}
+                style={{ padding: '7px 12px', borderRadius: '8px', border: '1.5px solid #FECACA', backgroundColor: '#FFF5F5', color: '#DC2626', fontSize: '12px', fontWeight: '600', cursor: 'pointer', whiteSpace: 'nowrap' }}
+              >
+                ✕ Limpiar
+              </button>
+            )}
+
+            {/* Contador de resultados */}
+            {hasFilters && (
+              <span style={{ fontSize: '12px', color: '#6B7280', marginLeft: 'auto' }}>
+                {pendingMatches.length + doneMatches.length} resultado{pendingMatches.length + doneMatches.length !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+
           <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
 
             {/* ── Columna principal ────────────────────────────────────────── */}
@@ -266,7 +354,13 @@ export default function Matches() {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                       {liveMatches.map((m: any) => {
                         const ls   = scores[m.id];
-                        const sets: any[] = ls?.sets || m.setsHistory || [];
+                        // setsHistory puede llegar como string JSON desde el backend → parsearlo
+                        const rawSets = ls?.sets || m.setsHistory;
+                        const sets: any[] = Array.isArray(rawSets)
+                          ? rawSets
+                          : typeof rawSets === 'string'
+                            ? (() => { try { return JSON.parse(rawSets); } catch { return []; } })()
+                            : [];
                         return (
                           <LiveMatchCard
                             key={m.id}
@@ -356,7 +450,7 @@ export default function Matches() {
                     <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}>
                       <thead>
                         <tr style={{ backgroundColor: '#F9FAFB' }}>
-                          {['Ronda', 'Categoría', 'Jugador 1', 'Jugador 2', 'Hora', ...(canAct ? ['Acciones'] : [])].map(h => (
+                          {['Ronda', 'Categoría', 'Jugador 1', 'Jugador 2', 'Fecha', 'Hora', ...(canAct ? ['Acciones'] : [])].map(h => (
                             <th key={h} style={{ textAlign: 'left', padding: '9px 14px', color: '#6B7280', fontWeight: '600', fontSize: '11px' }}>{h}</th>
                           ))}
                         </tr>
@@ -380,7 +474,18 @@ export default function Matches() {
                             <td style={{ padding: '9px 14px' }}>
                               <PlayerNameCell name={m.player2Name} photoUrl={m.player2PhotoUrl} playerId={m.player2Id} onClick={openPlayer} />
                             </td>
-                            <td style={{ padding: '9px 14px', color: '#9CA3AF', fontSize: '12px' }}>
+                            {/* Fecha */}
+                            <td style={{ padding: '9px 14px', whiteSpace: 'nowrap' }}>
+                              {m.scheduledAt ? (
+                                <span style={{ fontSize: '12px', color: '#374151', fontWeight: '500' }}>
+                                  📅 {new Date(m.scheduledAt).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: '12px', color: '#D1D5DB' }}>—</span>
+                              )}
+                            </td>
+                            {/* Hora */}
+                            <td style={{ padding: '9px 14px', color: '#6B7280', fontSize: '12px', whiteSpace: 'nowrap' }}>
                               {m.scheduledAt
                                 ? new Date(m.scheduledAt).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
                                 : '—'}
@@ -419,7 +524,7 @@ export default function Matches() {
                     <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}>
                       <thead>
                         <tr style={{ backgroundColor: '#F9FAFB' }}>
-                          {['Ronda', 'Cat.', 'Jugador 1', 'Jugador 2', 'Resultado', 'Ganador'].map(h => (
+                          {['Ronda', 'Cat.', 'Jugador 1', 'Jugador 2', 'Fecha', 'Resultado', 'Ganador'].map(h => (
                             <th key={h} style={{ textAlign: 'left', padding: '9px 14px', color: '#6B7280', fontWeight: '600', fontSize: '11px' }}>{h}</th>
                           ))}
                         </tr>
@@ -453,6 +558,16 @@ export default function Matches() {
                                   playerId={m.player2Id} onClick={openPlayer}
                                   dim={p1Won} winner={!p1Won}
                                 />
+                              </td>
+                              {/* Fecha */}
+                              <td style={{ padding: '9px 14px', whiteSpace: 'nowrap' }}>
+                                {m.scheduledAt ? (
+                                  <span style={{ fontSize: '12px', color: '#374151', fontWeight: '500' }}>
+                                    📅 {new Date(m.scheduledAt).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                  </span>
+                                ) : (
+                                  <span style={{ fontSize: '12px', color: '#D1D5DB' }}>—</span>
+                                )}
                               </td>
                               <td style={{ padding: '9px 14px', fontWeight: '800', fontSize: '15px', color: '#1B3A1B', fontFamily: 'monospace' }}>
                                 {m.status === 'wo'
@@ -489,7 +604,8 @@ export default function Matches() {
               />
             )}
 
-          </div>
+          </div>{/* /flex principal */}
+          </>
         )}
       </main>
 
@@ -524,7 +640,18 @@ function LiveMatchCard({ m, ls, sets, canAct, isAdmin, onNavigate, onSuspend, on
   const p1Winning = p1Sets > p2Sets || (p1Sets === p2Sets && p1Games > p2Games);
   const p2Winning = p2Sets > p1Sets || (p1Sets === p2Sets && p2Games > p1Games);
 
-  const setsHistory: any[] = sets || [];
+  // Parsear setsHistory de forma defensiva — el backend puede devolver
+  // un string JSON, un array ya parseado, o null/undefined
+  const parseSets = (raw: any): any[] => {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'string') {
+      try { return JSON.parse(raw); } catch { return []; }
+    }
+    return [];
+  };
+
+  const setsHistory: any[] = parseSets(sets || m.setsHistory);
 
   return (
     <div style={{ borderRadius: '16px', overflow: 'hidden', boxShadow: '0 4px 24px rgba(239,68,68,0.12)', border: '1.5px solid #FECACA' }}>

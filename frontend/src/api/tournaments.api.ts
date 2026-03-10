@@ -2,8 +2,15 @@
 import api from './axios';
 
 export const tournamentsApi = {
+  // Admin: trae TODOS incluyendo borradores (requiere auth)
   getAll: async () => {
     const res = await api.get('/tournaments');
+    return res.data;
+  },
+
+  // Público: filtra borradores — sin auth
+  getPublic: async () => {
+    const res = await api.get('/tournaments/public');
     return res.data;
   },
 
@@ -34,15 +41,10 @@ export const tournamentsApi = {
     advancingPerGroup = 1,
     modality = 'singles',
     roundGameFormats = {},
-    includeReserved = false,  // ← NUEVO: incluir jugadores con pago reservado
+    includeReserved = false,
   ) => {
     const res = await api.post(`/tournaments/${id}/draw`, {
-      category,
-      type,
-      advancingPerGroup,
-      modality,
-      roundGameFormats,
-      includeReserved,
+      category, type, advancingPerGroup, modality, roundGameFormats, includeReserved,
     });
     return res.data;
   },

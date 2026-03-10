@@ -122,6 +122,12 @@ export default function TournamentDetail() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tournament', id] }),
   });
 
+  const updateDoublesMutation = useMutation({
+    mutationFn: (open: boolean) =>
+      tournamentsApi.update(id!, { doublesOpenForRegistration: open } as any),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tournament', id] }),
+  });
+
   const generateMainDrawMutation = useMutation({
     mutationFn: async () => {
       const res = await api.post(`/matches/tournament/${id}/generate-main-draw`, {
@@ -300,6 +306,58 @@ export default function TournamentDetail() {
               </div>
             )}
           </div>
+
+          {/* ── Toggle dobles — solo si el torneo tiene dobles ─────────── */}
+          {isAdmin && tournament?.hasDoubles && (
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              backgroundColor: tournament.doublesOpenForRegistration ? '#F0FDF4' : '#F9FAFB',
+              border: `1.5px solid ${tournament.doublesOpenForRegistration ? '#86EFAC' : '#E5E7EB'}`,
+              borderRadius: '10px', padding: '10px 14px', gap: '12px',
+              marginTop: '12px',
+              transition: 'all 0.2s ease',
+            }}>
+              <div>
+                <p style={{
+                  margin: 0, fontSize: '13px', fontWeight: '700',
+                  color: tournament.doublesOpenForRegistration ? '#15803D' : '#6B7280',
+                }}>
+                  🤝 Inscripciones de dobles
+                </p>
+                <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#9CA3AF', lineHeight: '1.4' }}>
+                  {tournament.doublesOpenForRegistration
+                    ? 'Abiertas · Los jugadores pueden inscribirse en dobles'
+                    : 'Cerradas · Cierra esto antes de programar el cuadro de dobles'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => updateDoublesMutation.mutate(!tournament.doublesOpenForRegistration)}
+                disabled={updateDoublesMutation.isPending}
+                style={{
+                  position: 'relative', flexShrink: 0,
+                  width: '44px', height: '24px', borderRadius: '12px',
+                  border: 'none', cursor: updateDoublesMutation.isPending ? 'not-allowed' : 'pointer',
+                  backgroundColor: tournament.doublesOpenForRegistration ? '#22C55E' : '#D1D5DB',
+                  transition: 'background-color 0.2s ease',
+                  padding: 0,
+                }}
+                title={tournament.doublesOpenForRegistration
+                  ? 'Clic para cerrar inscripciones de dobles'
+                  : 'Clic para abrir inscripciones de dobles'}
+              >
+                <span style={{
+                  position: 'absolute', top: '3px',
+                  left: tournament.doublesOpenForRegistration ? '23px' : '3px',
+                  width: '18px', height: '18px', borderRadius: '50%',
+                  backgroundColor: 'white',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  transition: 'left 0.2s ease',
+                  display: 'block',
+                }} />
+              </button>
+            </div>
+          )}
 
           {/* Stats rápidos */}
           <div style={{ display: 'flex', gap: '12px', marginTop: '16px', flexWrap: 'wrap' }}>

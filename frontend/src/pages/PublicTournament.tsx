@@ -124,10 +124,30 @@ export default function PublicTournament() {
   });
 
   // ── Helpers ───────────────────────────────────────────────────────────────
-  const tournament    = (tournaments as any[]).find((t: any) => t.id === selectedId);
-  const liveMatches   = (matches as any[]).filter((m: any) => m.status === 'live');
-  const pendingMatches= (matches as any[]).filter((m: any) => m.status === 'pending');
-  const doneMatches   = (matches as any[]).filter((m: any) => m.status === 'completed' || m.status === 'wo');
+  const tournament  = (tournaments as any[]).find((t: any) => t.id === selectedId);
+  const liveMatches = (matches as any[]).filter((m: any) => m.status === 'live');
+
+  const [filterName, setFilterName] = useState('');
+  const [filterDate, setFilterDate] = useState('');
+
+  const applyFilters = (list: any[]) => {
+    let r = list;
+    if (filterName.trim()) {
+      const q = filterName.trim().toLowerCase();
+      r = r.filter((m: any) =>
+        (m.player1Name || '').toLowerCase().includes(q) ||
+        (m.player2Name || '').toLowerCase().includes(q)
+      );
+    }
+    if (filterDate) {
+      r = r.filter((m: any) => m.scheduledAt && m.scheduledAt.slice(0, 10) === filterDate);
+    }
+    return r;
+  };
+
+  const pendingMatches = applyFilters((matches as any[]).filter((m: any) => m.status === 'pending'));
+  const doneMatches    = applyFilters((matches as any[]).filter((m: any) => m.status === 'completed' || m.status === 'wo'));
+  const hasFilters     = filterName.trim() !== '' || filterDate !== '';
 
   const playerMatches = (matches as any[]).filter(
     (m: any) => m.player1Id === playerPanel?.id || m.player2Id === playerPanel?.id
@@ -213,6 +233,58 @@ export default function PublicTournament() {
             <p style={{ color: '#9CA3AF', fontSize: '14px' }}>Selecciona un torneo para ver los partidos en tiempo real</p>
           </div>
         ) : (
+          <>
+          {/* ── Barra de filtros ────────────────────────────────────────────── */}
+          <div style={{ backgroundColor: 'white', borderRadius: '14px', padding: '12px 16px', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '13px', color: '#6B7280', fontWeight: '600', whiteSpace: 'nowrap' }}>🔍 Filtrar:</span>
+
+            {/* Nombre */}
+            <div style={{ position: 'relative', flex: 1, minWidth: '180px', maxWidth: '280px' }}>
+              <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF', fontSize: '13px', pointerEvents: 'none' }}>👤</span>
+              <input
+                type="text"
+                placeholder="Buscar jugador..."
+                value={filterName}
+                onChange={e => setFilterName(e.target.value)}
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  border: `1.5px solid ${filterName ? '#86EFAC' : '#E5E7EB'}`,
+                  borderRadius: '8px', padding: '7px 10px 7px 30px', fontSize: '13px',
+                  color: '#1B3A1B', outline: 'none',
+                  backgroundColor: filterName ? '#F0FDF4' : 'white',
+                }}
+              />
+            </div>
+
+            {/* Fecha */}
+            <input
+              type="date"
+              value={filterDate}
+              onChange={e => setFilterDate(e.target.value)}
+              style={{
+                border: `1.5px solid ${filterDate ? '#86EFAC' : '#E5E7EB'}`,
+                borderRadius: '8px', padding: '7px 12px', fontSize: '13px',
+                color: filterDate ? '#1B3A1B' : '#9CA3AF', outline: 'none', cursor: 'pointer',
+                backgroundColor: filterDate ? '#F0FDF4' : 'white',
+              }}
+            />
+
+            {/* Limpiar */}
+            {hasFilters && (
+              <button
+                onClick={() => { setFilterName(''); setFilterDate(''); }}
+                style={{ padding: '7px 12px', borderRadius: '8px', border: '1.5px solid #FECACA', backgroundColor: '#FFF5F5', color: '#DC2626', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
+              >
+                ✕ Limpiar
+              </button>
+            )}
+            {hasFilters && (
+              <span style={{ fontSize: '12px', color: '#6B7280', marginLeft: 'auto' }}>
+                {pendingMatches.length + doneMatches.length} resultado{pendingMatches.length + doneMatches.length !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+
           <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
 
             {/* ── Columna principal ──────────────────────────────────────── */}
@@ -234,7 +306,12 @@ export default function PublicTournament() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                     {liveMatches.map((m: any) => {
                       const ls   = scores[m.id];
-                      const sets: any[] = ls?.sets || m.setsHistory || [];
+                      const rawSets = ls?.sets || m.setsHistory;
+                        const sets: any[] = Array.isArray(rawSets)
+                          ? rawSets
+                          : typeof rawSets === 'string'
+                            ? (() => { try { return JSON.parse(rawSets); } catch { return []; } })()
+                            : [];
                       return (
                         <PublicLiveCard
                           key={m.id} m={m} ls={ls} sets={sets}
@@ -295,6 +372,7 @@ export default function PublicTournament() {
             )}
 
           </div>
+          </>
         )}
 
         {/* Footer */}
@@ -338,7 +416,14 @@ function PublicLiveCard({ m, ls, sets, onPlayerClick }: any) {
   const p2Points = ls?.points2 ?? m.points2;
   const p1Win = p1Sets > p2Sets || (p1Sets === p2Sets && p1Games > p2Games);
   const p2Win = p2Sets > p1Sets || (p1Sets === p2Sets && p2Games > p1Games);
-  const setsHistory: any[] = sets || [];
+  // Parsear setsHistory defensivamente — puede llegar como string JSON
+  const parseSets = (raw: any): any[] => {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'string') { try { return JSON.parse(raw); } catch { return []; } }
+    return [];
+  };
+  const setsHistory: any[] = parseSets(sets || m.setsHistory);
 
   return (
     <div style={{ borderRadius: '16px', overflow: 'hidden', boxShadow: '0 4px 20px rgba(239,68,68,0.10)', border: '1.5px solid #FECACA' }}>
@@ -487,11 +572,16 @@ function PendingRow({ m, onPlayerClick }: any) {
         <ClickablePlayer name={m.player2Name} photoUrl={m.player2PhotoUrl} playerId={m.player2Id} onPlayerClick={onPlayerClick} />
       </div>
 
-      {/* Hora */}
+      {/* Fecha y hora */}
       {m.scheduledAt && (
-        <span style={{ fontSize: '12px', color: '#6B7280', flexShrink: 0 }}>
-          🕐 {new Date(m.scheduledAt).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
-        </span>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px', flexShrink: 0 }}>
+          <span style={{ fontSize: '12px', color: '#374151', fontWeight: '500' }}>
+            📅 {new Date(m.scheduledAt).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
+          </span>
+          <span style={{ fontSize: '11px', color: '#6B7280' }}>
+            🕐 {new Date(m.scheduledAt).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
+          </span>
+        </div>
       )}
       {m.courtName && (
         <span style={{ fontSize: '11px', color: '#9CA3AF', flexShrink: 0 }}>🎾 {m.courtName}</span>
@@ -519,15 +609,21 @@ function DoneRow({ m, onPlayerClick }: any) {
         </span>
       </div>
 
-      {/* Jugadores */}
+      {/* Jugadores + resultado */}
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', minWidth: '200px' }}>
         <ClickablePlayer name={m.player1Name} photoUrl={m.player1PhotoUrl} playerId={m.player1Id} onPlayerClick={onPlayerClick} winner={p1Won} dim={!p1Won} />
-        {/* Resultado */}
         <span style={{ fontSize: '15px', fontWeight: '900', fontFamily: 'monospace', color: '#1B3A1B', padding: '0 4px' }}>
           {m.status === 'wo' ? <span style={{ fontSize: '11px', color: '#92400E' }}>W.O.</span> : sets}
         </span>
         <ClickablePlayer name={m.player2Name} photoUrl={m.player2PhotoUrl} playerId={m.player2Id} onPlayerClick={onPlayerClick} winner={!p1Won} dim={p1Won} />
       </div>
+
+      {/* Fecha */}
+      {m.scheduledAt && (
+        <span style={{ fontSize: '12px', color: '#374151', fontWeight: '500', flexShrink: 0 }}>
+          📅 {new Date(m.scheduledAt).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
+        </span>
+      )}
 
       {/* Ganador */}
       <span style={{ fontSize: '12px', fontWeight: '700', color: '#15803D', display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
@@ -741,4 +837,133 @@ function PublicPlayerPanel({ player, tab, setTab, stats, history, tournamentMatc
       </div>
     </div>
   );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// BADGE de estado del torneo — colores semánticos
+// ═════════════════════════════════════════════════════════════════════════════
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, { label: string; bg: string; color: string; dot: string }> = {
+    open:      { label: 'Inscripciones abiertas', bg: '#DCFCE7', color: '#15803D', dot: '#22C55E' },
+    closed:    { label: 'Inscripciones cerradas', bg: '#FEF3C7', color: '#92400E', dot: '#F59E0B' },
+    active:    { label: 'En curso',               bg: '#DBEAFE', color: '#1D4ED8', dot: '#3B82F6' },
+    completed: { label: 'Finalizado',             bg: '#F3F4F6', color: '#6B7280', dot: '#9CA3AF' },
+  };
+  const cfg = map[status] || { label: status, bg: '#F3F4F6', color: '#6B7280', dot: '#9CA3AF' };
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: '700', backgroundColor: cfg.bg, color: cfg.color }}>
+      <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: cfg.dot, display: 'inline-block' }} />
+      {cfg.label}
+    </span>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// BANNER de inscripciones — informa al jugador qué puede hacer
+// ═════════════════════════════════════════════════════════════════════════════
+function EnrollmentBanner({ tournament }: { tournament: any }) {
+  if (!tournament) return null;
+
+  const { status, hasDoubles, doublesOpenForRegistration } = tournament;
+
+  // ── Torneo abierto para singles ──────────────────────────────────────
+  if (status === 'open') {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'flex-start', gap: '14px', flexWrap: 'wrap',
+        backgroundColor: '#F0FDF4', border: '1.5px solid #86EFAC',
+        borderRadius: '14px', padding: '16px 20px', marginBottom: '16px',
+      }}>
+        <span style={{ fontSize: '22px', flexShrink: 0 }}>✅</span>
+        <div style={{ flex: 1 }}>
+          <p style={{ margin: '0 0 4px', fontWeight: '800', color: '#15803D', fontSize: '14px' }}>
+            ¡Inscripciones abiertas!
+          </p>
+          <p style={{ margin: 0, color: '#166534', fontSize: '13px', lineHeight: '1.5' }}>
+            Puedes inscribirte en este torneo. Contacta al administrador de la LAT para completar tu inscripción.
+            {hasDoubles && doublesOpenForRegistration && (
+              <> También están abiertas las <strong>inscripciones de dobles</strong>.</>
+            )}
+          </p>
+        </div>
+        <a href="/login" style={{ flexShrink: 0, backgroundColor: '#15803D', color: 'white', padding: '9px 18px', borderRadius: '9px', fontWeight: '700', fontSize: '13px', textDecoration: 'none', whiteSpace: 'nowrap', boxShadow: '0 2px 8px rgba(21,128,61,0.3)' }}>
+          Inscribirme →
+        </a>
+      </div>
+    );
+  }
+
+  // ── Solo dobles abiertos (torneo closed/active pero doublesOpen) ─────
+  if (status !== 'open' && hasDoubles && doublesOpenForRegistration) {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'flex-start', gap: '14px', flexWrap: 'wrap',
+        backgroundColor: '#EFF6FF', border: '1.5px solid #93C5FD',
+        borderRadius: '14px', padding: '16px 20px', marginBottom: '16px',
+      }}>
+        <span style={{ fontSize: '22px', flexShrink: 0 }}>🤝</span>
+        <div style={{ flex: 1 }}>
+          <p style={{ margin: '0 0 4px', fontWeight: '800', color: '#1D4ED8', fontSize: '14px' }}>
+            Inscripciones de dobles abiertas
+          </p>
+          <p style={{ margin: 0, color: '#1E40AF', fontSize: '13px', lineHeight: '1.5' }}>
+            Las inscripciones de singles están cerradas, pero aún puedes inscribirte en la modalidad de <strong>dobles</strong>. Ingresa para registrar tu pareja antes de que el torneo sea programado.
+          </p>
+        </div>
+        <a href="/login" style={{ flexShrink: 0, backgroundColor: '#1D4ED8', color: 'white', padding: '9px 18px', borderRadius: '9px', fontWeight: '700', fontSize: '13px', textDecoration: 'none', whiteSpace: 'nowrap', boxShadow: '0 2px 8px rgba(29,78,216,0.25)' }}>
+          Inscribir pareja →
+        </a>
+      </div>
+    );
+  }
+
+  // ── Inscripciones cerradas ───────────────────────────────────────────
+  if (status === 'closed') {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: '12px',
+        backgroundColor: '#FFFBEB', border: '1.5px solid #FDE68A',
+        borderRadius: '14px', padding: '14px 20px', marginBottom: '16px',
+      }}>
+        <span style={{ fontSize: '20px' }}>🔒</span>
+        <p style={{ margin: 0, color: '#92400E', fontSize: '13px', fontWeight: '600' }}>
+          Las inscripciones están cerradas para este torneo.
+        </p>
+      </div>
+    );
+  }
+
+  // ── Torneo en curso ──────────────────────────────────────────────────
+  if (status === 'active') {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: '12px',
+        backgroundColor: '#EFF6FF', border: '1.5px solid #BFDBFE',
+        borderRadius: '14px', padding: '14px 20px', marginBottom: '16px',
+      }}>
+        <span style={{ fontSize: '20px' }}>🎾</span>
+        <p style={{ margin: 0, color: '#1D4ED8', fontSize: '13px', fontWeight: '600' }}>
+          Torneo en curso · Sigue los partidos en tiempo real.
+        </p>
+      </div>
+    );
+  }
+
+  // ── Torneo completado ────────────────────────────────────────────────
+  if (status === 'completed') {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: '12px',
+        backgroundColor: '#F3F4F6', border: '1.5px solid #D1D5DB',
+        borderRadius: '14px', padding: '14px 20px', marginBottom: '16px',
+      }}>
+        <span style={{ fontSize: '20px' }}>🏆</span>
+        <p style={{ margin: 0, color: '#6B7280', fontSize: '13px', fontWeight: '600' }}>
+          Este torneo ha finalizado. Consulta los resultados en el historial.
+        </p>
+      </div>
+    );
+  }
+
+  return null;
 }

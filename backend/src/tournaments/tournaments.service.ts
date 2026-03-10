@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, Not } from 'typeorm';
 import { Tournament, TournamentType } from './tournament.entity';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { RefereeAssignment } from '../users/referee-assignment.entity';
@@ -20,9 +20,15 @@ export class TournamentsService {
     return this.repo.save(tournament);
   }
 
-  // ── LISTAR TODOS ────────────────────────────────
+  // ── LISTAR TODOS (solo admins) ───────────────────
   async findAll() {
+    return this.repo.find({ order: { createdAt: 'DESC' } });
+  }
+
+  // ── LISTAR PÚBLICOS (sin autenticación) ──────────
+  async findPublic() {
     return this.repo.find({
+      where: { status: Not('draft') as any },
       order: { createdAt: 'DESC' },
     });
   }

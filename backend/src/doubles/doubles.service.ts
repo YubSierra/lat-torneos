@@ -63,6 +63,15 @@ export class DoublesService {
     if (!tournament) throw new BadRequestException('Torneo no encontrado');
     if (!tournament.hasDoubles) throw new BadRequestException('Este torneo no tiene modalidad de dobles');
 
+    // Las inscripciones de dobles solo están abiertas mientras el admin
+    // no haya cerrado el período (doublesOpenForRegistration = true)
+    if (!(tournament as any).doublesOpenForRegistration) {
+      throw new BadRequestException(
+        'Las inscripciones de dobles están cerradas. ' +
+          'El administrador debe habilitarlas desde la configuración del torneo.',
+      );
+    }
+
     const existing = await this.teamRepo.findOne({
       where: [
         { tournamentId, player1Id },

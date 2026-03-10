@@ -1,5 +1,13 @@
-import { Controller, Get, Post, Patch, Delete,
-         Body, Param, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Body,
+  Param,
+  UseGuards,
+} from '@nestjs/common';
 import { TournamentsService } from './tournaments.service';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { JwtAuthGuard } from '../auth/jwt.guard';
@@ -9,37 +17,18 @@ import { RolesGuard } from '../auth/roles.guard';
 export class TournamentsController {
   constructor(private tournamentsService: TournamentsService) {}
 
-  // GET /tournaments — público, cualquiera puede ver los torneos
+  // GET /tournaments/public — SIN auth, filtra borradores
+  // ⚠️ DEBE ir ANTES de /:id para que NestJS no lo interprete como un ID
+  @Get('public')
+  findPublic() {
+    return this.tournamentsService.findPublic();
+  }
+
+  // GET /tournaments — CON auth, muestra todos (incluyendo draft)
   @Get()
+  @UseGuards(JwtAuthGuard)
   findAll() {
     return this.tournamentsService.findAll();
-  }
-
-  // GET /tournaments/:id — ver un torneo específico
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.tournamentsService.findOne(id);
-  }
-
-  // POST /tournaments — solo admins pueden crear torneos
-  @Post()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  create(@Body() dto: CreateTournamentDto) {
-    return this.tournamentsService.create(dto);
-  }
-
-  // PATCH /tournaments/:id — solo admins pueden editar
-  @Patch(':id')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  update(@Param('id') id: string, @Body() dto: Partial<CreateTournamentDto>) {
-    return this.tournamentsService.update(id, dto);
-  }
-
-  // DELETE /tournaments/:id — solo admins pueden eliminar
-  @Delete(':id')
-  @UseGuards(JwtAuthGuard)
-  remove(@Param('id') id: string) {
-    return this.tournamentsService.remove(id);
   }
 
   // GET /tournaments/referee/:refereeId — torneos asignados a árbitro
@@ -53,7 +42,34 @@ export class TournamentsController {
     return this.tournamentsService.findByIds(tournamentIds);
   }
 
-  // GET /tournaments/:id/config — ver configuración de juego
+  // GET /tournaments/:id
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.tournamentsService.findOne(id);
+  }
+
+  // POST /tournaments
+  @Post()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  create(@Body() dto: CreateTournamentDto) {
+    return this.tournamentsService.create(dto);
+  }
+
+  // PATCH /tournaments/:id
+  @Patch(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  update(@Param('id') id: string, @Body() dto: Partial<CreateTournamentDto>) {
+    return this.tournamentsService.update(id, dto);
+  }
+
+  // DELETE /tournaments/:id
+  @Delete(':id')
+  @UseGuards(JwtAuthGuard)
+  remove(@Param('id') id: string) {
+    return this.tournamentsService.remove(id);
+  }
+
+  // GET /tournaments/:id/config
   @Get(':id/config')
   async getConfig(@Param('id') id: string) {
     const tournament = await this.tournamentsService.findOne(id);

@@ -85,6 +85,12 @@ export class Tournament {
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
   doublesAdditionalValue: number;
 
+  // ¿Las inscripciones de dobles están abiertas?
+  // true  = se puede inscribir aunque ya hayan jugado singles
+  // false = inscripciones de dobles cerradas (admin lo cierra antes de programar)
+  @Column({ default: false })
+  doublesOpenForRegistration: boolean;
+
   // ── SISTEMA DE JUEGO POR DEFECTO ─────────────────
   @Column({ default: true })
   withAd: boolean;
