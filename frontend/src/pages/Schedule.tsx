@@ -1,5 +1,5 @@
 // frontend/src/pages/Schedule.tsx
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, Play, Calendar, X, AlertTriangle, CheckCircle, Clock } from 'lucide-react';
 import { tournamentsApi } from '../api/tournaments.api';
@@ -41,56 +41,135 @@ const ROUND_COLOR: Record<string, { bg: string; color: string }> = {
 function AssignModal({
   tournamentId,
   courts,
-  selectedDate,
   onClose,
   onAssigned,
+  flatSchedule,
 }: {
-  tournamentId: string;
-  courts: any[];
-  selectedDate: string;
-  onClose: () => void;
-  onAssigned: () => void;
+  tournamentId : string;
+  courts       : any[];
+  onClose      : () => void;
+  onAssigned   : () => void;
+  flatSchedule : any[];   // programación ya cargada — para calcular slots ocupados
 }) {
   const [matchId,  setMatchId]  = useState('');
-  const [courtId,  setCourtId]  = useState('');
-  const [time,     setTime]     = useState('08:00');
-  const [duration, setDuration] = useState(90);
+  const [date,     setDate]     = useState('');
+  const [slotKey,  setSlotKey]  = useState('');   // "courtId|||HH:MM"
+  const [duration, setDuration] = useState<string>('90');
 
-  const { data: pending = [] } = useQuery({
+  // ── Partidos pendientes sin programar ─────────────────────────────────────
+  const { data: pending = [], isLoading: loadingPending } = useQuery<any[]>({
     queryKey: ['pending-unscheduled', tournamentId],
-    queryFn: async () => {
+    queryFn : async () => {
       const res = await api.get(`/matches/tournament/${tournamentId}/pending-unscheduled`);
       return res.data;
     },
   });
 
+  // ── Slots disponibles: se calculan a partir de la programación existente ──
+  // Lógica: para cada cancha que ya tiene partidos ese día, calculamos
+  // los huecos disponibles (gaps). También incluimos canchas sin partidos ese día.
+  const availableSlots = useMemo(() => {
+    if (!date) return [];
+
+    // Partidos de ese día en la programación ya cargada
+    const dayRows = flatSchedule.filter(r => {
+      const d = r.date || r.scheduledAt?.slice(0, 10);
+      return d === date;
+    });
+
+    // Horas ocupadas por cancha: { courtName → Set<"HH:MM"> }
+    const occupiedByCourt = new Map<string, Set<string>>();
+    dayRows.forEach((r: any) => {
+      const key = r.courtName || r.court || 'Sin cancha';
+      if (!occupiedByCourt.has(key)) occupiedByCourt.set(key, new Set());
+      const t = r.time || (r.scheduledAt ? new Date(r.scheduledAt).toTimeString().slice(0,5) : null);
+      if (t) occupiedByCourt.get(key)!.add(t);
+    });
+
+    const slots: { courtId: string; courtName: string; sede: string; time: string }[] = [];
+
+    // Para cada cancha, generar slots de 08:00 a 21:00 cada 30 min
+    // y marcar cuáles están libres
+    courts.forEach((c: any) => {
+      const occupied = occupiedByCourt.get(c.name) || new Set<string>();
+      // Slots de 07:00 a 22:00 cada 30 minutos
+      for (let h = 7; h < 22; h++) {
+        for (const min of [0, 30]) {
+          const t = `${String(h).padStart(2,'0')}:${String(min).padStart(2,'0')}`;
+          if (!occupied.has(t)) {
+            slots.push({
+              courtId  : c.id,
+              courtName: c.name,
+              sede     : c.sede || 'Principal',
+              time     : t,
+            });
+          }
+        }
+      }
+    });
+
+    // Ordenar por hora, luego por cancha
+    return slots.sort((a, b) =>
+      a.time.localeCompare(b.time) || a.courtName.localeCompare(b.courtName)
+    );
+  }, [date, flatSchedule, courts]);
+
+  // Agrupar slots por hora para el select agrupado
+  const slotsByHour = useMemo(() => {
+    const map = new Map<string, typeof availableSlots>();
+    availableSlots.forEach(s => {
+      const h = s.time.slice(0, 2) + ':00';
+      if (!map.has(h)) map.set(h, []);
+      map.get(h)!.push(s);
+    });
+    return map;
+  }, [availableSlots]);
+
+  const selectedSlot = availableSlots.find(s => `${s.courtId}|||${s.time}` === slotKey);
+
   const mutation = useMutation({
-    mutationFn: () =>
-      api.patch(`/matches/${matchId}/reschedule`, {
-        date: selectedDate, time, courtId, duration,
-      }),
+    mutationFn: () => {
+      if (!selectedSlot) throw new Error('Selecciona un slot');
+      return api.patch(`/matches/${matchId}/reschedule`, {
+        date,
+        time    : selectedSlot.time,
+        courtId : selectedSlot.courtId,
+        duration: Number(duration) || 90,
+      });
+    },
     onSuccess: () => { onAssigned(); onClose(); },
+    onError  : (e: any) => alert(`❌ ${e?.response?.data?.message ?? 'Error al asignar'}`),
   });
 
-  const canSubmit = matchId && courtId && time && selectedDate;
+  const canSubmit = matchId && date && slotKey && Number(duration) > 0;
 
   return (
     <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
-      zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem',
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
+      zIndex: 3000, display: 'flex', alignItems: 'center',
+      justifyContent: 'center', padding: '1rem',
     }}>
       <div style={{
-        background: '#fff', borderRadius: '12px', width: '100%', maxWidth: '480px',
-        boxShadow: '0 20px 50px rgba(0,0,0,0.25)', maxHeight: '90vh', display: 'flex', flexDirection: 'column',
+        background: '#fff', borderRadius: '14px', width: '100%', maxWidth: '520px',
+        boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
+        maxHeight: '92vh', display: 'flex', flexDirection: 'column',
       }}>
-        {/* Header */}
-        <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #E5E7EB', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+
+        {/* ── Header ── */}
+        <div style={{
+          padding: '1.25rem 1.5rem', borderBottom: '1px solid #E5E7EB',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
+        }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div style={{ background: '#DBEAFE', borderRadius: '8px', padding: '6px' }}><Plus size={18} color="#1D4ED8" /></div>
+            <div style={{ background: '#DBEAFE', borderRadius: '8px', padding: '6px' }}>
+              <Plus size={18} color="#1D4ED8" />
+            </div>
             <div>
-              <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#111827' }}>Asignar Partido Pendiente</h2>
+              <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#111827' }}>
+                Asignar Partido Pendiente
+              </h2>
               <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: '#6B7280' }}>
-                {pending.length} partido{pending.length !== 1 ? 's' : ''} sin programar
+                {loadingPending ? 'Cargando...' : `${pending.length} partido${pending.length !== 1 ? 's' : ''} sin programar`}
               </p>
             </div>
           </div>
@@ -99,117 +178,164 @@ function AssignModal({
           </button>
         </div>
 
-        {/* Body */}
-        <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          {pending.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '2rem', color: '#16A34A', background: '#F0FDF4', borderRadius: '8px', fontWeight: 600 }}>
-              ✅ No hay partidos pendientes por programar
+        {/* ── Body ── */}
+        <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+
+          {/* PASO 1 — Partido */}
+          <div>
+            <label style={labelStyle}>
+              <span style={stepBadge}>1</span> Partido *
+            </label>
+            {loadingPending ? (
+              <p style={{ color: '#6B7280', fontSize: '0.85rem' }}>Cargando partidos...</p>
+            ) : pending.length === 0 ? (
+              <div style={{ background: '#F0FDF4', border: '1px solid #86EFAC', borderRadius: '8px', padding: '12px', textAlign: 'center', color: '#16A34A', fontWeight: 600, fontSize: '0.85rem' }}>
+                ✅ No hay partidos pendientes por programar
+              </div>
+            ) : (
+              <select
+                value={matchId}
+                onChange={e => { setMatchId(e.target.value); setSlotKey(''); }}
+                style={selectStyle}
+              >
+                <option value="">— Selecciona el partido —</option>
+                {(pending as any[]).map((m: any) => (
+                  <option key={m.id} value={m.id}>
+                    [{m.category}] {ROUND_LABELS[m.round] ?? m.round} · {m.player1Name} vs {m.player2Name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {/* PASO 2 — Fecha (solo si hay partido seleccionado) */}
+          {matchId && (
+            <div>
+              <label style={labelStyle}>
+                <span style={stepBadge}>2</span> Fecha del partido *
+              </label>
+              <input
+                type="date"
+                value={date}
+                onChange={e => { setDate(e.target.value); setSlotKey(''); }}
+                style={{ ...selectStyle, cursor: 'pointer' }}
+              />
+              {date && availableSlots.length === 0 && (
+                <p style={{ fontSize: '12px', color: '#DC2626', marginTop: '6px' }}>
+                  ⚠ No hay slots disponibles para esa fecha. Todas las canchas están ocupadas.
+                </p>
+              )}
             </div>
-          ) : (
-            <>
-              {/* Partido */}
-              <div>
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>
-                  Partido *
-                </label>
-                <select
-                  value={matchId}
-                  onChange={e => setMatchId(e.target.value)}
-                  style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1.5px solid #D1D5DB', fontSize: '13px', background: '#fff' }}
-                >
-                  <option value="">— Selecciona partido —</option>
-                  {(pending as any[]).map((m: any) => (
-                    <option key={m.id} value={m.id}>
-                      [{m.category}] {ROUND_LABELS[m.round] ?? m.round} · {m.player1Name} vs {m.player2Name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+          )}
 
-              {/* Cancha */}
-              <div>
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>
-                  Cancha *
-                </label>
-                <select
-                  value={courtId}
-                  onChange={e => setCourtId(e.target.value)}
-                  style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1.5px solid #D1D5DB', fontSize: '13px', background: '#fff' }}
-                >
-                  <option value="">— Selecciona cancha —</option>
-                  {courts.map((c: any) => (
-                    <option key={c.id} value={c.id}>{c.name} — {c.sede || 'Principal'}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Fecha + Hora */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>Fecha *</label>
-                  <input
-                    type="date"
-                    value={selectedDate}
-                    disabled
-                    style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1.5px solid #E5E7EB', fontSize: '13px', background: '#F9FAFB', boxSizing: 'border-box' }}
-                  />
+          {/* PASO 3 — Slot disponible (solo si hay fecha) */}
+          {matchId && date && availableSlots.length > 0 && (
+            <div>
+              <label style={labelStyle}>
+                <span style={stepBadge}>3</span> Cancha y hora disponible *
+              </label>
+              <select
+                value={slotKey}
+                onChange={e => setSlotKey(e.target.value)}
+                style={selectStyle}
+                size={1}
+              >
+                <option value="">— Selecciona cancha y hora —</option>
+                {[...slotsByHour.entries()].map(([hour, slots]) => (
+                  <optgroup key={hour} label={`🕐 ${hour}`}>
+                    {slots.map(s => (
+                      <option key={`${s.courtId}|||${s.time}`} value={`${s.courtId}|||${s.time}`}>
+                        {s.time} — {s.courtName} ({s.sede})
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+              {selectedSlot && (
+                <div style={{ marginTop: '8px', background: '#F0FDF4', border: '1px solid #86EFAC', borderRadius: '7px', padding: '8px 12px', fontSize: '13px', color: '#15803D', display: 'flex', gap: '16px' }}>
+                  <span>🎾 <strong>{selectedSlot.courtName}</strong></span>
+                  <span>🕐 <strong>{selectedSlot.time}</strong></span>
+                  <span>🏟️ {selectedSlot.sede}</span>
                 </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>Hora *</label>
-                  <input
-                    type="time"
-                    value={time}
-                    onChange={e => setTime(e.target.value)}
-                    style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1.5px solid #D1D5DB', fontSize: '13px', boxSizing: 'border-box' }}
-                  />
-                </div>
-              </div>
+              )}
+            </div>
+          )}
 
-              {/* Duración */}
-              <div>
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>
-                  Duración estimada
-                </label>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  {[60, 75, 90, 120, 150].map(d => (
+          {/* PASO 4 — Duración manual */}
+          {matchId && date && slotKey && (
+            <div>
+              <label style={labelStyle}>
+                <span style={stepBadge}>4</span> Duración estimada (minutos) *
+              </label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <input
+                  type="number"
+                  min={15}
+                  max={300}
+                  step={5}
+                  value={duration}
+                  onChange={e => setDuration(e.target.value)}
+                  placeholder="Ej: 90"
+                  style={{
+                    width: '120px', padding: '9px 12px',
+                    borderRadius: '8px', border: '1.5px solid #D1D5DB',
+                    fontSize: '16px', fontWeight: 700,
+                    textAlign: 'center', color: '#111827',
+                  }}
+                />
+                <span style={{ fontSize: '13px', color: '#6B7280' }}>minutos</span>
+                {/* Sugerencias rápidas */}
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  {[60, 75, 90, 120].map(d => (
                     <button
                       key={d}
                       type="button"
-                      onClick={() => setDuration(d)}
+                      onClick={() => setDuration(String(d))}
                       style={{
-                        padding: '7px 12px', borderRadius: '7px', border: 'none',
-                        cursor: 'pointer', fontWeight: 600, fontSize: '12px',
-                        background: duration === d ? '#1B3A1B' : '#F3F4F6',
-                        color:      duration === d ? '#fff'    : '#374151',
+                        padding: '5px 9px', borderRadius: '6px', border: 'none',
+                        cursor: 'pointer', fontSize: '11px', fontWeight: 600,
+                        background: duration === String(d) ? '#1B3A1B' : '#F3F4F6',
+                        color:      duration === String(d) ? '#fff'    : '#6B7280',
                       }}
                     >
-                      {d}min
+                      {d}
                     </button>
                   ))}
                 </div>
               </div>
-            </>
+              <p style={{ fontSize: '11px', color: '#9CA3AF', marginTop: '4px' }}>
+                El referee define la duración según el sistema de juego del torneo
+              </p>
+            </div>
           )}
         </div>
 
-        {/* Footer */}
+        {/* ── Footer ── */}
         {pending.length > 0 && (
-          <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid #E5E7EB', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-            <button onClick={onClose} style={{ padding: '8px 18px', borderRadius: '7px', border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontWeight: 500 }}>
+          <div style={{
+            padding: '1rem 1.5rem', borderTop: '1px solid #E5E7EB',
+            display: 'flex', justifyContent: 'flex-end', gap: '10px', flexShrink: 0,
+          }}>
+            <button
+              onClick={onClose}
+              style={{ padding: '9px 20px', borderRadius: '8px', border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontWeight: 500 }}
+            >
               Cancelar
             </button>
             <button
               onClick={() => mutation.mutate()}
               disabled={!canSubmit || mutation.isPending}
               style={{
-                padding: '8px 20px', borderRadius: '7px', border: 'none',
+                padding: '9px 22px', borderRadius: '8px', border: 'none',
                 background: canSubmit ? '#1B3A1B' : '#D1D5DB',
-                color: '#fff', cursor: canSubmit ? 'pointer' : 'not-allowed',
-                fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px',
+                color: '#fff',
+                cursor: canSubmit ? 'pointer' : 'not-allowed',
+                fontWeight: 700, display: 'flex', alignItems: 'center', gap: '7px',
+                opacity: mutation.isPending ? 0.7 : 1,
               }}
             >
-              <CheckCircle size={14} />
-              {mutation.isPending ? 'Asignando...' : 'Asignar'}
+              <CheckCircle size={15} />
+              {mutation.isPending ? 'Asignando...' : 'Confirmar asignación'}
             </button>
           </div>
         )}
@@ -217,6 +343,26 @@ function AssignModal({
     </div>
   );
 }
+
+// ── Estilos reutilizables ────────────────────────────────────────────────────
+const labelStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: '8px',
+  fontSize: '13px', fontWeight: 700, color: '#374151', marginBottom: '8px',
+};
+
+const stepBadge: React.CSSProperties = {
+  background: '#1B3A1B', color: '#fff',
+  borderRadius: '50%', width: '20px', height: '20px',
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  fontSize: '11px', fontWeight: 800, flexShrink: 0,
+};
+
+const selectStyle: React.CSSProperties = {
+  width: '100%', padding: '9px 12px',
+  borderRadius: '8px', border: '1.5px solid #D1D5DB',
+  fontSize: '13px', background: '#fff', color: '#111827',
+  boxSizing: 'border-box',
+};
 
 // ── Componente principal ──────────────────────────────────────────────────────
 export default function Schedule() {
@@ -300,6 +446,7 @@ export default function Schedule() {
     mutationFn: (matchId: string) => api.patch(`/matches/${matchId}/unschedule`),
     onSuccess: () => { refetchAll(); queryClient.invalidateQueries({ queryKey: ['pending-unscheduled', selectedTournament] }); },
   });
+  
   // ── Eliminar programación de una fecha completa ───────────────────────────
   const clearScheduleMutation = useMutation({
     mutationFn: (date: string) =>
@@ -456,6 +603,48 @@ export default function Schedule() {
                 <h2 style={{ fontSize: '16px', fontWeight: 600, color: '#1B3A1B', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
                   <Calendar size={18} /> Programación del torneo
                 </h2>
+
+                {/* Botón exportar PDF */}
+                {filteredSchedule.length > 0 && (
+                  <button
+                    onClick={() => {
+                      const tournament = (tournaments as any[]).find((t: any) => t.id === selectedTournament);
+                      
+                      const scheduleForPdf = filteredSchedule.map((r: any) => ({
+                        time    : r.time || (r.scheduledAt ? new Date(r.scheduledAt).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', hour12: false }) : ''),
+                        court   : r.court || r.courtName || '',
+                        sede    : r.sede || 'Principal',
+                        round   : r.round || '',
+                        category: r.category || '',
+                        player1 : r.player1Name || r.player1 || '',
+                        player2 : r.player2Name || r.player2 || '',
+                        duration: r.duration || (r.estimatedDuration ? `${r.estimatedDuration} min` : '90 min'),
+                      }));
+
+                      const dateToExport = filterDate || (scheduledDates[0] || new Date().toISOString().split('T')[0]);
+
+                      exportSchedulePdf({
+                        tournamentName: tournament?.name || 'Torneo',
+                        date          : dateToExport,
+                        city          : 'Medellín',
+                        referee,
+                        director,
+                        observations,
+                        schedule      : scheduleForPdf,
+                      });
+                    }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '6px',
+                      background: '#1D4ED8', border: 'none',
+                      color: 'white', borderRadius: '8px',
+                      padding: '7px 14px', cursor: 'pointer',
+                      fontSize: '13px', fontWeight: 700,
+                    }}
+                  >
+                    📄 Exportar PDF
+                  </button>
+                )}
+
                 {isAdmin && flatSchedule.length > 0 && (
                   <button
                     onClick={() => {
@@ -517,7 +706,7 @@ export default function Schedule() {
                     <button
                       title={`Eliminar programación del ${d}`}
                       onClick={() => {
-                        if (confirm(`¿Eliminar toda la programación del ${d}?\nLos partidos quedarán pendientes sin horario.`)) {
+                        if (confirm(`¿Eliminar la programación del día ${d}?`)) {
                           clearScheduleMutation.mutate(d);
                         }
                       }}
@@ -645,7 +834,7 @@ export default function Schedule() {
                                             title="Liberar slot (dejar pendiente)"
                                             onClick={() => {
                                               if (confirm('¿Liberar este partido? Quedará pendiente sin horario asignado.')) {
-                                                unscheduleMutation.mutate(row.id);
+                                                unscheduleMutation.mutate(row.matchId || row.id);
                                               }
                                             }}
                                             disabled={unscheduleMutation.isPending}
@@ -898,9 +1087,9 @@ export default function Schedule() {
         <AssignModal
           tournamentId={selectedTournament}
           courts={courts as any[]}
-          selectedDate={selectedDate}
           onClose={() => setShowAssignModal(false)}
           onAssigned={() => { refetchAll(); queryClient.invalidateQueries({ queryKey: ['pending-unscheduled', selectedTournament] }); }}
+          flatSchedule={flatSchedule}
         />
       )}
     </div>
