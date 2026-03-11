@@ -1106,59 +1106,6 @@ export class MatchesService {
     }));
   }
 
-  // ── RESUMEN DE DRAW EXISTENTE ──────────────────────────────────────────────
-  async getDrawSummary(tournamentId: string, category: string) {
-    const RR_ROUNDS = ['RR', 'RR_A', 'RR_B'];
-    const MAIN_DRAW_ROUNDS = ['R64', 'R32', 'R16', 'QF', 'SF', 'F', 'SF_M', 'F_M'];
-
-    const all = await this.repo.find({ where: { tournamentId, category } });
-
-    const rr = all.filter((m) => RR_ROUNDS.includes(m.round));
-    const main = all.filter((m) => MAIN_DRAW_ROUNDS.includes(m.round));
-
-    return {
-      hasRR: rr.length > 0,
-      hasMainDraw: main.length > 0,
-      rrCount: rr.length,
-      mainCount: main.length,
-      rrCompleted: rr.filter((m) => m.status === 'completed' || m.status === 'wo').length,
-      mainCompleted: main.filter((m) => m.status === 'completed' || m.status === 'wo').length,
-    };
-  }
-
-  // ── ELIMINAR DRAW POR TIPO ─────────────────────────────────────────────────
-  async deleteDraw(tournamentId: string, category: string, drawType: 'rr' | 'maindraw' | 'all') {
-    const RR_ROUNDS = ['RR', 'RR_A', 'RR_B'];
-    const MAIN_DRAW_ROUNDS = ['R64', 'R32', 'R16', 'QF', 'SF', 'F', 'SF_M', 'F_M'];
-
-    let rounds: string[] = [];
-    if (drawType === 'rr') rounds = RR_ROUNDS;
-    if (drawType === 'maindraw') rounds = MAIN_DRAW_ROUNDS;
-    if (drawType === 'all') rounds = [...RR_ROUNDS, ...MAIN_DRAW_ROUNDS];
-
-    const toDelete = await this.repo.find({ where: { tournamentId, category } });
-    const filtered = toDelete.filter((m) => rounds.includes(m.round));
-
-    if (filtered.length === 0) {
-      throw new NotFoundException('No hay partidos para eliminar con esos parámetros');
-    }
-
-    await this.repo.remove(filtered);
-
-    return {
-      deleted: filtered.length,
-      drawType,
-      category,
-      message: `Se eliminaron ${filtered.length} partidos del ${
-        drawType === 'rr'
-          ? 'Round Robin'
-          : drawType === 'maindraw'
-            ? 'Main Draw'
-            : 'cuadro completo'
-      } (${category})`,
-    };
-  }
-
   // ── CATEGORÍAS ACTIVAS DEL TORNEO ─────────────────────────────────────────
   async getCategoriesByTournament(tournamentId: string): Promise<string[]> {
     const result = await this.repo
@@ -1212,17 +1159,6 @@ export class MatchesService {
       player1Name: m.player1Id ? (userMap.get(m.player1Id) || 'Jugador') : 'BYE',
       player2Name: m.player2Id ? (userMap.get(m.player2Id) || 'Jugador') : 'BYE',
     }));
-  }
-
-  // ── CATEGORÍAS ACTIVAS DEL TORNEO ────────────────────────────────────────
-  async getCategoriesByTournament(tournamentId: string): Promise<string[]> {
-    const result = await this.repo
-      .createQueryBuilder('m')
-      .select('DISTINCT m.category', 'category')
-      .where('m.tournamentId = :tournamentId', { tournamentId })
-      .orderBy('m.category', 'ASC')
-      .getRawMany();
-    return result.map((r) => r.category);
   }
 
   // ── RESUMEN DEL CUADRO POR CATEGORÍA ─────────────────────────────────────

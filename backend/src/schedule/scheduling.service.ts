@@ -74,11 +74,10 @@ export class SchedulingService {
     courtsAvailability: CourtAvailability[],
     roundDurations: RoundDurations,
     maxMatchesPerPlayer: number = 2,
+    categories?: string[],
     roundFilter?: string[],
-    previewOnly: boolean = false,
     includeSuspended: boolean = true,
     save: boolean = true,
-    categories?: string[],
   ) {
     if (!courtsAvailability?.length) {
       throw new Error('Debes seleccionar al menos una cancha con horario disponible');
@@ -101,9 +100,14 @@ export class SchedulingService {
       matches = matches.filter((m) => roundFilter.includes(m.round));
     }
 
-    // Filtrar por categorías seleccionadas
+    // 1b. Filtrar por categorías seleccionadas
     if (categories && categories.length > 0) {
       matches = matches.filter((m) => categories.includes(m.category));
+      if (matches.length === 0) {
+        throw new Error(
+          `No hay partidos pendientes para las categorias: ${categories.join(', ')}`,
+        );
+      }
     }
 
     if (matches.length === 0) {

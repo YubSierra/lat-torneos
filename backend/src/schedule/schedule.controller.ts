@@ -56,8 +56,10 @@ export class ScheduleController {
       body.courts,
       body.roundDurations,
       body.maxMatchesPerPlayer ?? 2,
-      undefined, // roundFilter — sin filtro de rondas
-      true, // previewOnly ✅
+      undefined, // categories
+      undefined, // roundFilter
+      undefined, // includeSuspended (usa default)
+      false,     // save=false → previewOnly
     );
   }
 
@@ -79,11 +81,7 @@ export class ScheduleController {
       body.date,
       body.courts,
       body.roundDurations,
-      body.maxMatchesPerPlayer ?? 2,
-      undefined, // roundFilter
-      false, // previewOnly
-      undefined, // includeSuspended (usa default)
-      undefined, // save (usa default)
+      body.maxMatchesPerPlayer || 2,
       body.categories,
     );
   }
