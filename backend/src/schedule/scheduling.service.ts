@@ -78,6 +78,7 @@ export class SchedulingService {
     previewOnly: boolean = false,
     includeSuspended: boolean = true,
     save: boolean = true,
+    categories?: string[],
   ) {
     if (!courtsAvailability?.length) {
       throw new Error('Debes seleccionar al menos una cancha con horario disponible');
@@ -98,6 +99,11 @@ export class SchedulingService {
     // Filtrar por ronda si se especificó
     if (roundFilter && roundFilter.length > 0) {
       matches = matches.filter((m) => roundFilter.includes(m.round));
+    }
+
+    // Filtrar por categorías seleccionadas
+    if (categories && categories.length > 0) {
+      matches = matches.filter((m) => categories.includes(m.category));
     }
 
     if (matches.length === 0) {

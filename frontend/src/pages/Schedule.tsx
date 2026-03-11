@@ -380,6 +380,7 @@ export default function Schedule() {
   const [maxMatchesPerPlayer,  setMaxMatchesPerPlayer]  = useState(2);
   const [showAssignModal,      setShowAssignModal]      = useState(false);
   const [filterDate,           setFilterDate]           = useState('');
+  const [selectedCategories,   setSelectedCategories]   = useState<string[]>([]);
 
   // ── Queries ────────────────────────────────────────────────────────────────
   const { data: tournaments = [] } = useQuery({
@@ -412,6 +413,16 @@ export default function Schedule() {
     enabled: !!selectedTournament,
   });
 
+  // Categorías disponibles en el torneo
+  const { data: tournamentCategories = [] } = useQuery<string[]>({
+    queryKey: ['tournament-categories', selectedTournament],
+    queryFn: async () => {
+      const res = await api.get(`/matches/tournament/${selectedTournament}/categories`);
+      return res.data;
+    },
+    enabled: !!selectedTournament,
+  });
+
   // Partidos pendientes sin programar
   const { data: pendingUnscheduled = [], refetch: refetchPending } = useQuery<any[]>({
     queryKey: ['pending-unscheduled', selectedTournament],
@@ -432,6 +443,7 @@ export default function Schedule() {
         courts: courtConfigs,
         roundDurations,
         maxMatchesPerPlayer,
+        categories: selectedCategories.length > 0 ? selectedCategories : undefined,
       });
       return res.data;
     },
@@ -1029,16 +1041,84 @@ export default function Schedule() {
               />
             </div>
 
+            {/* Selector de categorías */}
+            {tournamentCategories.length > 0 && (
+              <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
+                <h2 style={{ fontSize: '16px', fontWeight: 600, color: '#1B3A1B', marginBottom: '4px' }}>
+                  🏷️ Categorías a programar
+                </h2>
+                <p style={{ fontSize: '12px', color: '#6B7280', marginBottom: '14px' }}>
+                  Selecciona solo las categorías que quieres incluir en esta programación
+                </p>
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCategories([...tournamentCategories])}
+                    style={{ padding: '4px 12px', borderRadius: '6px', border: '1px solid #D1D5DB', background: '#F9FAFB', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
+                  >
+                    ✅ Todas
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCategories([])}
+                    style={{ padding: '4px 12px', borderRadius: '6px', border: '1px solid #D1D5DB', background: '#F9FAFB', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
+                  >
+                    ☐ Ninguna
+                  </button>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                  {tournamentCategories.map((cat: string) => {
+                    const checked = selectedCategories.includes(cat);
+                    return (
+                      <label
+                        key={cat}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: '7px',
+                          padding: '7px 14px', borderRadius: '8px', cursor: 'pointer',
+                          border: `2px solid ${checked ? '#2D6A2D' : '#E5E7EB'}`,
+                          background: checked ? '#F0FDF4' : '#F9FAFB',
+                          fontWeight: checked ? 700 : 500,
+                          fontSize: '13px',
+                          color: checked ? '#166534' : '#374151',
+                          userSelect: 'none',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => setSelectedCategories(prev =>
+                            checked ? prev.filter(c => c !== cat) : [...prev, cat]
+                          )}
+                          style={{ display: 'none' }}
+                        />
+                        {checked ? '✅' : '◻️'} {cat}
+                      </label>
+                    );
+                  })}
+                </div>
+                {selectedCategories.length === 0 && (
+                  <p style={{ fontSize: '12px', color: '#DC2626', marginTop: '10px', fontWeight: 600 }}>
+                    ⚠️ Debes seleccionar al menos una categoría
+                  </p>
+                )}
+                {selectedCategories.length > 0 && (
+                  <p style={{ fontSize: '12px', color: '#6B7280', marginTop: '10px' }}>
+                    {selectedCategories.length} de {tournamentCategories.length} categorías seleccionadas
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Botón generar */}
             <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
               <button
                 onClick={() => generateMutation.mutate()}
-                disabled={!selectedTournament || !selectedDate || courtConfigs.length === 0 || generateMutation.isPending}
+                disabled={!selectedTournament || !selectedDate || courtConfigs.length === 0 || selectedCategories.length === 0 || generateMutation.isPending}
                 style={{
                   width: '100%', background: '#2D6A2D', color: 'white',
                   padding: '14px', borderRadius: '10px', border: 'none',
-                  cursor: (!selectedTournament || !selectedDate || courtConfigs.length === 0) ? 'not-allowed' : 'pointer',
-                  fontSize: '16px', fontWeight: 600, opacity: (!selectedTournament || !selectedDate || courtConfigs.length === 0) ? 0.5 : 1,
+                  cursor: (!selectedTournament || !selectedDate || courtConfigs.length === 0 || selectedCategories.length === 0) ? 'not-allowed' : 'pointer',
+                  fontSize: '16px', fontWeight: 600, opacity: (!selectedTournament || !selectedDate || courtConfigs.length === 0 || selectedCategories.length === 0) ? 0.5 : 1,
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
                 }}
               >
