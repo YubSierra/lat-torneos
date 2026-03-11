@@ -584,11 +584,28 @@ export default function Schedule() {
     queryFn: courtsApi.getAll,
   });
 
+// DESPUÉS — aplana la respuesta sin importar si es array o objeto anidado:
   const { data: existingSchedule, refetch: refetchSchedule } = useQuery({
     queryKey: ['schedule', selectedTournament],
     queryFn: async () => {
       const res = await api.get(`/tournaments/${selectedTournament}/schedule`);
-      return res.data as ScheduleRow[];
+      const raw = res.data;
+
+      // Si ya es array plano, úsalo directo
+      if (Array.isArray(raw)) return raw as ScheduleRow[];
+
+      // Si es objeto anidado { fecha: { sede: { cancha: [rows] } } }, aplánalo
+      const flat: ScheduleRow[] = [];
+      Object.values(raw).forEach((byDate: any) => {
+        if (Array.isArray(byDate)) { flat.push(...byDate); return; }
+        Object.values(byDate).forEach((bySede: any) => {
+          if (Array.isArray(bySede)) { flat.push(...bySede); return; }
+          Object.values(bySede).forEach((rows: any) => {
+            if (Array.isArray(rows)) flat.push(...rows);
+          });
+        });
+      });
+      return flat;
     },
     enabled: !!selectedTournament,
   });

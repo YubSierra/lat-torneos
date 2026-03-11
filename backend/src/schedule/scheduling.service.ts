@@ -75,6 +75,7 @@ export class SchedulingService {
     roundDurations: RoundDurations,
     maxMatchesPerPlayer: number = 2,
     roundFilter?: string[],
+    previewOnly: boolean = false,
     includeSuspended: boolean = true,
     save: boolean = true,
   ) {

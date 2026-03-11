@@ -1,6 +1,4 @@
-// backend/src/schedule/schedule.controller.ts  ← REEMPLAZA COMPLETO
-import { Controller, Post, Get, Body,
-         Param, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, UseGuards } from '@nestjs/common';
 import { DrawService } from './draw.service';
 import { SchedulingService } from './scheduling.service';
 import { JwtAuthGuard } from '../auth/jwt.guard';
@@ -14,7 +12,7 @@ export class ScheduleController {
     private schedulingService: SchedulingService,
   ) {}
 
-  // POST /tournaments/:tournamentId/draw
+  // POST /tournaments/:id/draw
   @Post('draw')
   @UseGuards(JwtAuthGuard, RolesGuard)
   generateDraw(
@@ -24,23 +22,19 @@ export class ScheduleController {
       type: TournamentType;
       advancingPerGroup?: number;
       modality?: string;
-      roundGameFormats?: Record<string, any>;
-      includeReserved?: boolean; // ← NUEVO
     },
   ) {
     return this.drawService.generateDraw(
       tournamentId,
       body.category,
       body.type,
-      body.advancingPerGroup || 1,
-      body.modality || 'singles',
-      body.roundGameFormats || {},
-      body.includeReserved ?? false, // ← NUEVO
+      body.advancingPerGroup ?? 1,
+      body.modality ?? 'singles',
+      // ↑ 5 parámetros, coincide con la firma real del servicio
     );
   }
 
-  // POST /tournaments/:tournamentId/schedule/preview
-  // Vista previa — calcula pero NO guarda en BD
+  // POST /tournaments/:id/schedule/preview  ← simula, NO guarda
   @Post('schedule/preview')
   @UseGuards(JwtAuthGuard, RolesGuard)
   previewSchedule(
@@ -50,8 +44,6 @@ export class ScheduleController {
       courts: { courtId: string; blocks: { start: string; end: string }[] }[];
       roundDurations: Record<string, number>;
       maxMatchesPerPlayer?: number;
-      roundFilter?: string[];
-      includeSuspended?: boolean;
     },
   ) {
     return this.schedulingService.generateSchedule(
@@ -59,26 +51,22 @@ export class ScheduleController {
       body.date,
       body.courts,
       body.roundDurations,
-      body.maxMatchesPerPlayer || 2,
-      body.roundFilter,
-      body.includeSuspended ?? true,
-      false, // save = false → no guarda
+      body.maxMatchesPerPlayer ?? 2,
+      undefined, // roundFilter — sin filtro de rondas
+      true, // previewOnly ✅
     );
   }
 
-  // POST /tournaments/:tournamentId/schedule/confirm
-  // Confirma y guarda la programación en BD
-  @Post('schedule/confirm')
+  // POST /tournaments/:id/schedule  ← guarda en BD
+  @Post('schedule')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  confirmSchedule(
+  generateSchedule(
     @Param('tournamentId') tournamentId: string,
     @Body() body: {
       date: string;
       courts: { courtId: string; blocks: { start: string; end: string }[] }[];
       roundDurations: Record<string, number>;
       maxMatchesPerPlayer?: number;
-      roundFilter?: string[];
-      includeSuspended?: boolean;
     },
   ) {
     return this.schedulingService.generateSchedule(
@@ -86,39 +74,13 @@ export class ScheduleController {
       body.date,
       body.courts,
       body.roundDurations,
-      body.maxMatchesPerPlayer || 2,
-      body.roundFilter,
-      body.includeSuspended ?? true,
-      true, // save = true → guarda en BD
+      body.maxMatchesPerPlayer ?? 2,
+      undefined, // roundFilter
+      false, // previewOnly ✅
     );
   }
 
-  // POST /tournaments/:tournamentId/schedule/save
-  // Guarda directamente una programación editada por el usuario
-  @Post('schedule/save')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  saveSchedule(
-    @Param('tournamentId') tournamentId: string,
-    @Body()
-    body: {
-      schedule: {
-        matchId: string;
-        time: string;
-        date: string;
-        courtId: string;
-        duration: string;
-      }[];
-      date: string;
-    },
-  ) {
-    return this.schedulingService.saveScheduleDirectly(
-      tournamentId,
-      body.schedule,
-      body.date,
-    );
-  }
-
-  // GET /tournaments/:tournamentId/schedule
+  // GET /tournaments/:id/schedule
   @Get('schedule')
   getSchedule(@Param('tournamentId') tournamentId: string) {
     return this.schedulingService.getSchedule(tournamentId);

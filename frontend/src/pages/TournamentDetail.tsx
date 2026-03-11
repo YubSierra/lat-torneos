@@ -18,6 +18,8 @@ import BracketView from '../components/BracketView';
 import SuspendModal, { type SuspendMode } from '../components/SuspendModal';
 import InscribirJugadorModal from '../components/InscribirJugadorModal';
 import CambiarPagoModal      from '../components/CambiarPagoModal';
+import DeleteDrawButton from '../components/DeleteDrawButton';
+
 
 // ── Constantes ──────────────────────────────────────────────────────────────
 const CATEGORIES = ['INTERMEDIA', 'SEGUNDA', 'TERCERA', 'CUARTA', 'QUINTA'];
@@ -966,7 +968,16 @@ export default function TournamentDetail() {
 
             {/* ── Cabecera del cuadro ── */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
-              <h2 className="text-lg font-bold text-lat-dark">Cuadro de Llaves</h2>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                <h2 className="text-lg font-bold text-lat-dark" style={{ margin: 0 }}>Cuadro de Llaves</h2>
+                {isAdmin && (
+                  <DeleteDrawButton
+                    tournamentId={id!}
+                    category={selectedCategory}
+                    onDeleted={() => queryClient.invalidateQueries({ queryKey: ['matches', id] })}
+                  />
+                )}
+              </div>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 {/* Exportar PDF */}
                 <button
