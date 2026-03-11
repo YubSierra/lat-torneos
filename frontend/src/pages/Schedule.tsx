@@ -452,9 +452,38 @@ export default function Schedule() {
         {selectedTournament && flatSchedule.length > 0 && (
           <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
-              <h2 style={{ fontSize: '16px', fontWeight: 600, color: '#1B3A1B', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
-                <Calendar size={18} /> Programación del torneo
-              </h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                <h2 style={{ fontSize: '16px', fontWeight: 600, color: '#1B3A1B', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                  <Calendar size={18} /> Programación del torneo
+                </h2>
+                {isAdmin && flatSchedule.length > 0 && (
+                  <button
+                    onClick={() => {
+                      const dates = [...new Set(flatSchedule.map((r: any) => r.date || r.scheduledAt?.slice(0, 10)).filter(Boolean))];
+                      if (confirm(`⚠️ ¿Eliminar TODA la programación del torneo?\n\nLos ${flatSchedule.length} partidos quedarán pendientes sin horario.`)) {
+                        Promise.all(
+                          dates.map((d) => api.delete(`/matches/tournament/${selectedTournament}/schedule/${d}`)),
+                        )
+                          .then(() => {
+                            refetchAll();
+                            setFilterDate('');
+                            alert(`✅ Programación eliminada (${dates.length} fecha${dates.length !== 1 ? 's' : ''}).`);
+                          })
+                          .catch(() => alert('❌ Error al eliminar la programación'));
+                      }
+                    }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '6px',
+                      background: '#FEF2F2', border: '1.5px solid #FECACA',
+                      color: '#DC2626', borderRadius: '8px',
+                      padding: '6px 12px', cursor: 'pointer',
+                      fontSize: '12px', fontWeight: 700,
+                    }}
+                  >
+                    🗑️ Eliminar toda la programación
+                  </button>
+                )}
+              </div>
 
               {/* Filtro por fecha */}
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>

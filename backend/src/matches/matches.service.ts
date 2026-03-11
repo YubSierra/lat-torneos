@@ -597,23 +597,27 @@ export class MatchesService {
   // ── REPROGRAMAR PARTIDO ─────────────────────────
   async rescheduleMatch(
     id: string,
-    data: { scheduledAt: string; courtId?: string; estimatedDuration?: number },
+    date: string,
+    time: string,
+    courtId: string,
+    duration: number = 90,
   ) {
     const match = await this.findOne(id);
 
-    if (match.status === MatchStatus.COMPLETED || match.status === MatchStatus.WO) {
+    if (
+      match.status === MatchStatus.COMPLETED ||
+      match.status === MatchStatus.WO
+    ) {
       throw new HttpException(
         'No se puede reprogramar un partido ya terminado',
         HttpStatus.BAD_REQUEST,
       );
     }
 
-    // Validar conflicto de horario
-    const newDate   = new Date(data.scheduledAt);
-    const duration  = data.estimatedDuration || match.estimatedDuration || 90;
-    const dateStr   = newDate.toISOString().split('T')[0];
-    const newStart  = this.timeToMinutes(newDate.toTimeString().slice(0, 5));
-    const newEnd    = newStart + duration;
+    const newDate = new Date(`${date}T${time}:00`);
+    const dateStr = newDate.toISOString().split('T')[0];
+    const newStart = this.timeToMinutes(time);
+    const newEnd = newStart + duration;
 
     const sameDayMatches = await this.repo
       .createQueryBuilder('m')
@@ -627,7 +631,7 @@ export class MatchesService {
     for (const other of sameDayMatches) {
       if (!other.scheduledAt) continue;
       const otherStart = this.timeToMinutes(
-        new Date(other.scheduledAt).toTimeString().slice(0, 5)
+        new Date(other.scheduledAt).toTimeString().slice(0, 5),
       );
       const otherEnd = otherStart + (other.estimatedDuration || 90);
 
@@ -636,20 +640,19 @@ export class MatchesService {
         (match.player2Id && [other.player1Id, other.player2Id].includes(match.player2Id));
 
       if (sharesPlayer && newStart < otherEnd && newEnd > otherStart) {
-        const hora = new Date(other.scheduledAt)
-          .toTimeString().slice(0, 5);
+        const hora = new Date(other.scheduledAt).toTimeString().slice(0, 5);
         throw new HttpException(
-          `⚠️ Conflicto de horario: un jugador de este partido ya tiene otro partido programado a las ${hora}. Elige un horario diferente.`,
+          `⚠️ Conflicto de horario: un jugador ya tiene otro partido a las ${hora}. Elige un horario diferente.`,
           HttpStatus.CONFLICT,
         );
       }
     }
 
     match.scheduledAt = newDate;
-    if (data.courtId)           match.courtId           = data.courtId;
-    if (data.estimatedDuration) match.estimatedDuration = data.estimatedDuration;
+    match.courtId = courtId;
+    match.estimatedDuration = duration;
     await this.repo.save(match);
-    return match;
+    return { message: 'Partido reprogramado correctamente', match };
   }
 
   // ── SUSPENDER PARTIDO INDIVIDUAL ────────────────
@@ -1073,9 +1076,10 @@ export class MatchesService {
 
     const playerIds = [
       ...new Set(
-        [...unscheduled.map((m) => m.player1Id), ...unscheduled.map((m) => m.player2Id)].filter(
-          Boolean,
-        ),
+        [
+          ...unscheduled.map((m) => m.player1Id),
+          ...unscheduled.map((m) => m.player2Id),
+        ].filter(Boolean),
       ),
     ];
 
@@ -1166,41 +1170,6 @@ export class MatchesService {
     return result.map((r) => r.category);
   }
 
-// Agrega estos métodos al final de la clase MatchesService
-// en backend/src/matches/matches.service.ts
-
-  // ── DESPROGRAMAR PARTIDO ─────────────────────────────────────────────────
-  async unscheduleMatch(id: string) {
-    const match = await this.findOne(id);
-    if (match.status === MatchStatus.COMPLETED || match.status === MatchStatus.WO) {
-      throw new Error('No se puede desprogramar un partido ya terminado');
-    }
-    (match as any).scheduledAt       = null;
-    (match as any).courtId           = null;
-    (match as any).estimatedDuration = 90;
-    await this.repo.save(match);
-    return { message: 'Partido devuelto a pendiente sin horario' };
-  }
-
-  // ── REASIGNAR PARTIDO MANUALMENTE ────────────────────────────────────────
-  async rescheduleMatch(
-    id: string,
-    date: string,
-    time: string,
-    courtId: string,
-    duration: number,
-  ) {
-    const match = await this.findOne(id);
-    if (match.status === MatchStatus.COMPLETED || match.status === MatchStatus.WO) {
-      throw new Error('No se puede reprogramar un partido terminado');
-    }
-    (match as any).scheduledAt       = new Date(`${date}T${time}:00`);
-    (match as any).courtId           = courtId;
-    (match as any).estimatedDuration = duration || 90;
-    await this.repo.save(match);
-    return { message: 'Partido reprogramado correctamente', match };
-  }
-
   // ── PARTIDOS PENDIENTES SIN PROGRAMAR ────────────────────────────────────
   async getPendingUnscheduled(tournamentId: string) {
     // Traer todos los pendientes del torneo
@@ -1209,31 +1178,36 @@ export class MatchesService {
     });
 
     // Filtrar los que NO tienen scheduledAt
-    const unscheduled = all.filter(m => !(m as any).scheduledAt);
+    const unscheduled = all.filter((m) => !(m as any).scheduledAt);
 
     if (unscheduled.length === 0) return [];
 
     // Enriquecer con nombres de jugadores
-    const playerIds = [...new Set([
-      ...unscheduled.map(m => m.player1Id),
-      ...unscheduled.map(m => m.player2Id),
-    ].filter(Boolean))];
+    const playerIds = [
+      ...new Set(
+        [
+          ...unscheduled.map((m) => m.player1Id),
+          ...unscheduled.map((m) => m.player2Id),
+        ].filter(Boolean),
+      ),
+    ];
 
-    const users = playerIds.length > 0
-      ? await this.userRepo
-          .createQueryBuilder('u')
-          .where('u.id IN (:...ids)', { ids: playerIds })
-          .getMany()
-      : [];
+    const users =
+      playerIds.length > 0
+        ? await this.userRepo
+            .createQueryBuilder('u')
+            .where('u.id IN (:...ids)', { ids: playerIds })
+            .getMany()
+        : [];
 
     const userMap = new Map(
-      users.map(u => [
+      users.map((u) => [
         u.id,
         `${u.nombres || ''} ${u.apellidos || ''}`.trim() || u.email,
       ]),
     );
 
-    return unscheduled.map(m => ({
+    return unscheduled.map((m) => ({
       ...m,
       player1Name: m.player1Id ? (userMap.get(m.player1Id) || 'Jugador') : 'BYE',
       player2Name: m.player2Id ? (userMap.get(m.player2Id) || 'Jugador') : 'BYE',
@@ -1248,23 +1222,27 @@ export class MatchesService {
       .where('m.tournamentId = :tournamentId', { tournamentId })
       .orderBy('m.category', 'ASC')
       .getRawMany();
-    return result.map(r => r.category);
+    return result.map((r) => r.category);
   }
 
   // ── RESUMEN DEL CUADRO POR CATEGORÍA ─────────────────────────────────────
   async getDrawSummary(tournamentId: string, category: string) {
-    const all  = await this.repo.find({ where: { tournamentId, category } });
-    const RR   = ['RR', 'RR_A', 'RR_B'];
+    const all = await this.repo.find({ where: { tournamentId, category } });
+    const RR = ['RR', 'RR_A', 'RR_B'];
     const MAIN = ['R64', 'R32', 'R16', 'QF', 'SF', 'F', 'SF_M', 'F_M'];
-    const rr   = all.filter(m => RR.includes(m.round as string));
-    const main = all.filter(m => MAIN.includes(m.round as string));
+    const rr = all.filter((m) => RR.includes(m.round as string));
+    const main = all.filter((m) => MAIN.includes(m.round as string));
     return {
-      hasRR        : rr.length > 0,
-      hasMainDraw  : main.length > 0,
-      rrCount      : rr.length,
-      mainCount    : main.length,
-      rrCompleted  : rr.filter(m => [MatchStatus.COMPLETED, MatchStatus.WO].includes(m.status)).length,
-      mainCompleted: main.filter(m => [MatchStatus.COMPLETED, MatchStatus.WO].includes(m.status)).length,
+      hasRR: rr.length > 0,
+      hasMainDraw: main.length > 0,
+      rrCount: rr.length,
+      mainCount: main.length,
+      rrCompleted: rr.filter((m) =>
+        [MatchStatus.COMPLETED, MatchStatus.WO].includes(m.status),
+      ).length,
+      mainCompleted: main.filter((m) =>
+        [MatchStatus.COMPLETED, MatchStatus.WO].includes(m.status),
+      ).length,
     };
   }
 
@@ -1274,15 +1252,17 @@ export class MatchesService {
     category: string,
     drawType: 'rr' | 'maindraw' | 'all',
   ) {
-    const RR_ROUNDS   = ['RR', 'RR_A', 'RR_B'];
+    const RR_ROUNDS = ['RR', 'RR_A', 'RR_B'];
     const MAIN_ROUNDS = ['R64', 'R32', 'R16', 'QF', 'SF', 'F', 'SF_M', 'F_M'];
     const rounds =
-      drawType === 'rr'       ? RR_ROUNDS   :
-      drawType === 'maindraw' ? MAIN_ROUNDS :
-      [...RR_ROUNDS, ...MAIN_ROUNDS];
+      drawType === 'rr'
+        ? RR_ROUNDS
+        : drawType === 'maindraw'
+          ? MAIN_ROUNDS
+          : [...RR_ROUNDS, ...MAIN_ROUNDS];
 
-    const all      = await this.repo.find({ where: { tournamentId, category } });
-    const toDelete = all.filter(m => rounds.includes(m.round as string));
+    const all = await this.repo.find({ where: { tournamentId, category } });
+    const toDelete = all.filter((m) => rounds.includes(m.round as string));
 
     if (toDelete.length === 0) {
       throw new Error('No hay partidos para eliminar en esa selección');
