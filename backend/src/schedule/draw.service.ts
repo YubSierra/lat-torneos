@@ -110,17 +110,21 @@ export class DrawService {
     await this.matchRepo.save(matches);
 
     const totalAdvancing = groups.reduce((sum, g) => sum + Math.min(advancingPerGroup, g.length), 0);
+    const isSingleGroup = groups.length === 1;
 
     return {
-      type:                    'round_robin_groups',
+      type: 'round_robin_groups',
       totalPlayers,
-      totalGroups:             groups.length,
+      totalGroups: groups.length,
       minPlayersPerGroup,
       advancingPerGroup,
-      totalAdvancingToMainDraw: totalAdvancing,
-      totalMatches:            matches.length,
-      groups:                  groupSummary,
-      nextStep: `Al terminar los grupos, ${totalAdvancing} jugadores pasan al Main Draw de eliminación directa`,
+      isSingleGroup,
+      totalAdvancingToMainDraw: isSingleGroup ? 0 : totalAdvancing,
+      totalMatches: matches.length,
+      groups: groupSummary,
+      nextStep: isSingleGroup
+        ? `Torneo Round Robin completo. Con ${totalPlayers} jugadores se juega un grupo único — el líder del grupo es campeón directamente, sin Main Draw.`
+        : `Al terminar los grupos, ${totalAdvancing} jugadores pasan al Main Draw de eliminación directa.`,
     };
   }
 

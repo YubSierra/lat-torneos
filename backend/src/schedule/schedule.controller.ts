@@ -17,11 +17,14 @@ export class ScheduleController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   generateDraw(
     @Param('tournamentId') tournamentId: string,
-    @Body() body: {
+    @Body()
+    body: {
       category: string;
       type: TournamentType;
       advancingPerGroup?: number;
       modality?: string;
+      roundGameFormats?: Record<string, any>;
+      minPlayersPerGroup?: number;
     },
   ) {
     return this.drawService.generateDraw(
@@ -30,7 +33,8 @@ export class ScheduleController {
       body.type,
       body.advancingPerGroup ?? 1,
       body.modality ?? 'singles',
-      // ↑ 5 parámetros, coincide con la firma real del servicio
+      body.roundGameFormats ?? {},
+      body.minPlayersPerGroup ?? 3,
     );
   }
 

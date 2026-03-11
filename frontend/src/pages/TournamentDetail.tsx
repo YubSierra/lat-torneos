@@ -48,6 +48,7 @@ export default function TournamentDetail() {
   const [roundGameFormats,  setRoundGameFormats]  = useState<Record<string, GameFormat>>({ default: { ...DEFAULT_FORMAT } });
   const [expandedRound,     setExpandedRound]     = useState<string | null>(null);
   const [includeReserved,   setIncludeReserved]   = useState(false); // ← draw con reservados
+  const [minPlayersPerGroup, setMinPlayersPerGroup] = useState(3);
 
   // ── Import CSV ────────────────────────────────────────────────────────
   const [importing,         setImporting]         = useState(false);
@@ -112,7 +113,7 @@ export default function TournamentDetail() {
   // ── Mutations ─────────────────────────────────────────────────────────
   const drawMutation = useMutation({
     mutationFn: () =>
-      tournamentsApi.generateDraw(id!, selectedCategory, drawType, advancingPerGroup, drawModality, roundGameFormats, includeReserved),
+      tournamentsApi.generateDraw(id!, selectedCategory, drawType, advancingPerGroup, drawModality, roundGameFormats, includeReserved, minPlayersPerGroup),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['matches', id] });
       queryClient.invalidateQueries({ queryKey: ['bracket-matches', id] });
@@ -790,8 +791,68 @@ export default function TournamentDetail() {
                 </div>
               )}
 
-              {/* Avanzados por grupo (solo RR / Máster) */}
-              {(drawType === 'round_robin' || drawType === 'master') && (
+              {/* Opciones Round Robin */}
+              {drawType === 'round_robin' && (
+                <>
+                  {/* Tamaño mínimo de grupo */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '4px' }}>
+                      Jugadores por grupo (mínimo)
+                    </label>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      {[3, 4, 5, 6].map(n => (
+                        <button
+                          key={n}
+                          type="button"
+                          onClick={() => setMinPlayersPerGroup(n)}
+                          style={{
+                            padding: '8px 16px', borderRadius: '8px', border: 'none',
+                            cursor: 'pointer', fontWeight: '600', fontSize: '14px',
+                            backgroundColor: minPlayersPerGroup === n ? '#2D6A2D' : '#F3F4F6',
+                            color: minPlayersPerGroup === n ? 'white' : '#374151',
+                          }}
+                        >
+                          {n}
+                        </button>
+                      ))}
+                    </div>
+                    <p style={{ fontSize: '12px', color: '#6B7280', marginTop: '4px' }}>
+                      Con grupos de <strong>{minPlayersPerGroup}</strong> jugadores.{' '}
+                      Si hay <strong>≤ {minPlayersPerGroup}</strong> inscritos → <strong>grupo único sin Main Draw</strong>, el líder es campeón.
+                    </p>
+                  </div>
+
+                  {/* Jugadores que pasan al Main Draw */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '4px' }}>
+                      Jugadores que pasan al Main Draw por grupo
+                    </label>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      {[1, 2].map(n => (
+                        <button
+                          key={n}
+                          type="button"
+                          onClick={() => setAdvancingPerGroup(n)}
+                          style={{
+                            padding: '8px 20px', borderRadius: '8px', border: 'none',
+                            cursor: 'pointer', fontWeight: '600', fontSize: '14px',
+                            backgroundColor: advancingPerGroup === n ? '#2D6A2D' : '#F3F4F6',
+                            color: advancingPerGroup === n ? 'white' : '#374151',
+                          }}
+                        >
+                          {n} {n === 1 ? 'jugador' : 'jugadores'}
+                        </button>
+                      ))}
+                    </div>
+                    <p style={{ fontSize: '12px', color: '#6B7280', marginTop: '4px' }}>
+                      El ganador{advancingPerGroup === 2 ? ' y subcampeón' : ''} de cada grupo pasa al Main Draw
+                    </p>
+                  </div>
+                </>
+              )}
+
+              {/* Avanzados por grupo (solo Máster) */}
+              {drawType === 'master' && (
                 <div>
                   <label style={lbl}>Jugadores que avanzan por grupo</label>
                   <div style={{ display: 'flex', gap: '8px' }}>
@@ -968,12 +1029,13 @@ export default function TournamentDetail() {
 
             {/* ── Cabecera del cuadro ── */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-                <h2 className="text-lg font-bold text-lat-dark" style={{ margin: 0 }}>Cuadro de Llaves</h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                <h2 className="text-lg font-bold text-lat-dark" style={{ margin: 0 }}>
+                  Cuadro de Llaves
+                </h2>
                 {isAdmin && (
                   <DeleteDrawButton
                     tournamentId={id!}
-                    category={selectedCategory}
                     onDeleted={() => queryClient.invalidateQueries({ queryKey: ['matches', id] })}
                   />
                 )}

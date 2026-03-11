@@ -42,9 +42,16 @@ export const tournamentsApi = {
     modality = 'singles',
     roundGameFormats = {},
     includeReserved = false,
+    minPlayersPerGroup = 3,
   ) => {
     const res = await api.post(`/tournaments/${id}/draw`, {
-      category, type, advancingPerGroup, modality, roundGameFormats, includeReserved,
+      category,
+      type,
+      advancingPerGroup,
+      modality,
+      roundGameFormats,
+      includeReserved,
+      minPlayersPerGroup,
     });
     return res.data;
   },

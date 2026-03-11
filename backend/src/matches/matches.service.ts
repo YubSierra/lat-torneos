@@ -390,6 +390,21 @@ export class MatchesService {
   ) {
     const status = await this.getRRGroupStatus(tournamentId, category);
 
+    if (!status.allComplete) {
+      throw new HttpException(
+        'No todos los partidos del Round Robin están terminados',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    // Bloquear si es grupo único — el ganador del RR es campeón, no hay Main Draw
+    if (status.groups.length === 1) {
+      throw new HttpException(
+        'Este torneo tiene un solo grupo — el ganador del Round Robin es campeón directamente. No se genera Main Draw.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
     const qualifiers: string[] = [];
     status.groups.forEach((group) => {
       group.standings
@@ -1085,5 +1100,69 @@ export class MatchesService {
       player1Id: m.player1Id,
       player2Id: m.player2Id,
     }));
+  }
+
+  // ── RESUMEN DE DRAW EXISTENTE ──────────────────────────────────────────────
+  async getDrawSummary(tournamentId: string, category: string) {
+    const RR_ROUNDS = ['RR', 'RR_A', 'RR_B'];
+    const MAIN_DRAW_ROUNDS = ['R64', 'R32', 'R16', 'QF', 'SF', 'F', 'SF_M', 'F_M'];
+
+    const all = await this.repo.find({ where: { tournamentId, category } });
+
+    const rr = all.filter((m) => RR_ROUNDS.includes(m.round));
+    const main = all.filter((m) => MAIN_DRAW_ROUNDS.includes(m.round));
+
+    return {
+      hasRR: rr.length > 0,
+      hasMainDraw: main.length > 0,
+      rrCount: rr.length,
+      mainCount: main.length,
+      rrCompleted: rr.filter((m) => m.status === 'completed' || m.status === 'wo').length,
+      mainCompleted: main.filter((m) => m.status === 'completed' || m.status === 'wo').length,
+    };
+  }
+
+  // ── ELIMINAR DRAW POR TIPO ─────────────────────────────────────────────────
+  async deleteDraw(tournamentId: string, category: string, drawType: 'rr' | 'maindraw' | 'all') {
+    const RR_ROUNDS = ['RR', 'RR_A', 'RR_B'];
+    const MAIN_DRAW_ROUNDS = ['R64', 'R32', 'R16', 'QF', 'SF', 'F', 'SF_M', 'F_M'];
+
+    let rounds: string[] = [];
+    if (drawType === 'rr') rounds = RR_ROUNDS;
+    if (drawType === 'maindraw') rounds = MAIN_DRAW_ROUNDS;
+    if (drawType === 'all') rounds = [...RR_ROUNDS, ...MAIN_DRAW_ROUNDS];
+
+    const toDelete = await this.repo.find({ where: { tournamentId, category } });
+    const filtered = toDelete.filter((m) => rounds.includes(m.round));
+
+    if (filtered.length === 0) {
+      throw new NotFoundException('No hay partidos para eliminar con esos parámetros');
+    }
+
+    await this.repo.remove(filtered);
+
+    return {
+      deleted: filtered.length,
+      drawType,
+      category,
+      message: `Se eliminaron ${filtered.length} partidos del ${
+        drawType === 'rr'
+          ? 'Round Robin'
+          : drawType === 'maindraw'
+            ? 'Main Draw'
+            : 'cuadro completo'
+      } (${category})`,
+    };
+  }
+
+  // ── CATEGORÍAS ACTIVAS DEL TORNEO ─────────────────────────────────────────
+  async getCategoriesByTournament(tournamentId: string): Promise<string[]> {
+    const result = await this.repo
+      .createQueryBuilder('m')
+      .select('DISTINCT m.category', 'category')
+      .where('m.tournamentId = :tournamentId', { tournamentId })
+      .orderBy('m.category', 'ASC')
+      .getRawMany();
+    return result.map((r) => r.category);
   }
 }

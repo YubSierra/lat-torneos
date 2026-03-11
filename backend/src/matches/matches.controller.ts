@@ -1,5 +1,4 @@
-import { Controller, Get, Post, Patch, Delete,
-         Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { MatchesService } from './matches.service';
 import { UpdateScoreDto } from './dto/update-score.dto';
 import { JwtAuthGuard } from '../auth/jwt.guard';
@@ -265,5 +264,33 @@ export class MatchesController {
   @UseGuards(JwtAuthGuard)
   getUnscheduled(@Param('tournamentId') tournamentId: string) {
     return this.matchesService.getUnscheduled(tournamentId);
+  }
+
+  // GET /matches/tournament/:tournamentId/draw-summary?category=TERCERA
+  @Get('tournament/:tournamentId/draw-summary')
+  @UseGuards(JwtAuthGuard)
+  getDrawSummary(
+    @Param('tournamentId') tournamentId: string,
+    @Query('category') category: string,
+  ) {
+    return this.matchesService.getDrawSummary(tournamentId, category);
+  }
+
+  // DELETE /matches/tournament/:tournamentId/draw?category=TERCERA&drawType=rr
+  @Delete('tournament/:tournamentId/draw')
+  @UseGuards(JwtAuthGuard)
+  deleteDraw(
+    @Param('tournamentId') tournamentId: string,
+    @Query('category') category: string,
+    @Query('drawType') drawType: 'rr' | 'maindraw' | 'all',
+  ) {
+    return this.matchesService.deleteDraw(tournamentId, category, drawType);
+  }
+
+  // GET /matches/tournament/:id/categories
+  @Get('tournament/:id/categories')
+  @UseGuards(JwtAuthGuard)
+  getCategories(@Param('id') id: string) {
+    return this.matchesService.getCategoriesByTournament(id);
   }
 }
