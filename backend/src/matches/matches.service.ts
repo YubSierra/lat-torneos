@@ -1,6 +1,7 @@
 import {
   Injectable,
   NotFoundException,
+  BadRequestException,
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
@@ -1008,5 +1009,81 @@ export class MatchesService {
       enrollment.status = 'alternate';
       await enrollmentRepo.save(enrollment);
     }
+  }
+
+  // ── ASIGNAR PARTIDO A SLOT ──────────────────────────────────────────────────
+  async assignToSlot(
+    matchId: string,
+    slot: {
+      courtId: string;
+      scheduledDate: string;
+      scheduledTime: string;
+      estimatedDuration: number;
+    },
+  ) {
+    const match = await this.repo.findOne({ where: { id: matchId } });
+    if (!match) throw new NotFoundException('Partido no encontrado');
+
+    if (match.status !== MatchStatus.PENDING) {
+      throw new BadRequestException(
+        `Solo se pueden reasignar partidos en estado PENDING. Estado actual: ${match.status}`,
+      );
+    }
+
+    const scheduledAt = new Date(`${slot.scheduledDate}T${slot.scheduledTime}:00`);
+
+    match.courtId = slot.courtId;
+    match.scheduledAt = scheduledAt;
+    match.estimatedDuration = slot.estimatedDuration;
+
+    await this.repo.save(match);
+
+    return {
+      success: true,
+      matchId: match.id,
+      courtId: match.courtId,
+      scheduled: scheduledAt.toISOString(),
+      message: 'Partido asignado al slot correctamente',
+    };
+  }
+
+  // ── PARTIDOS PENDIENTES SIN PROGRAMAR ─────────────────────────────────────
+  async getUnscheduled(tournamentId: string) {
+    const matches = await this.repo.find({
+      where: { tournamentId, status: MatchStatus.PENDING },
+      order: { category: 'ASC', round: 'ASC' },
+    });
+
+    const unscheduled = matches.filter((m) => !m.courtId || !m.scheduledAt);
+
+    const playerIds = [
+      ...new Set(
+        [...unscheduled.map((m) => m.player1Id), ...unscheduled.map((m) => m.player2Id)].filter(
+          Boolean,
+        ),
+      ),
+    ];
+
+    const players =
+      playerIds.length > 0
+        ? await this.repo.manager.getRepository('users').find({
+            where: { id: In(playerIds) },
+          })
+        : [];
+
+    const playerMap = new Map(
+      players.map((p: any) => [p.id, `${p.nombres} ${p.apellidos}`]),
+    );
+
+    return unscheduled.map((m) => ({
+      id: m.id,
+      category: m.category,
+      round: m.round,
+      groupLabel: (m as any).groupLabel || null,
+      player1: m.player1Id ? playerMap.get(m.player1Id) || m.player1Id : 'BYE',
+      player2: m.player2Id ? playerMap.get(m.player2Id) || m.player2Id : 'BYE',
+      player1Id: m.player1Id,
+      player2Id: m.player2Id,
+    }));
   }
 }

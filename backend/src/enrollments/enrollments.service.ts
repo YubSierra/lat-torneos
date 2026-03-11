@@ -399,4 +399,85 @@ export class EnrollmentsService {
     await this.repo.remove(enrollment);
     return { message: 'Inscripción eliminada correctamente' };
   }
+  // ── REGISTRO PÚBLICO DESDE LANDING ─────────────
+  // Sin JWT — cualquier persona puede pre-registrarse
+  // Crea cuenta con contraseña temporal si no existe
+  // Deja la inscripción en PENDING hasta confirmar pago
+  async publicRegister(
+    tournamentId: string,
+    data: {
+      nombres: string;
+      apellidos: string;
+      email: string;
+      telefono?: string;
+      docNumber?: string;
+      category: string;
+    },
+  ) {
+    const userRepo = this.repo.manager.getRepository('users');
+    const bcrypt = require('bcrypt');
+
+    // 1. Verificar que el torneo existe y acepta inscripciones
+    const tournament = await this.repo.manager
+      .getRepository('tournaments')
+      .findOne({ where: { id: tournamentId } });
+
+    if (!tournament) {
+      throw new Error('Torneo no encontrado');
+    }
+    if (tournament.status !== 'open') {
+      throw new Error('Este torneo no está abierto para inscripciones');
+    }
+
+    // 2. Buscar o crear usuario
+    let user: any = null;
+    if (data.docNumber?.trim()) {
+      user = await userRepo.findOne({ where: { docNumber: data.docNumber.trim() } });
+    }
+    if (!user && data.email?.trim()) {
+      user = await userRepo.findOne({ where: { email: data.email.trim() } });
+    }
+
+    if (!user) {
+      const pass = `${(data.apellidos || 'lat').slice(0, 4).toLowerCase()}${(data.docNumber || '0000').slice(-4)}`;
+      const hashed = await bcrypt.hash(pass, 10);
+      user = await userRepo.save(userRepo.create({
+        nombres:            data.nombres,
+        apellidos:          data.apellidos,
+        email:              data.email,
+        telefono:           data.telefono || '',
+        docNumber:          data.docNumber || null,
+        password:           hashed,
+        mustChangePassword: true,
+        role:               'player',
+        isActive:           true,
+      }));
+    }
+
+    // 3. Verificar inscripción duplicada
+    const existing = await this.repo.findOne({
+      where: { tournamentId, playerId: user.id, category: data.category },
+    });
+    if (existing) {
+      throw new Error(`Ya existe una inscripción para ${data.email} en categoría ${data.category}`);
+    }
+
+    // 4. Crear inscripción PENDING (requiere confirmación de pago)
+    const enrollment = this.repo.create({
+      tournamentId,
+      playerId:  user.id,
+      category:  data.category,
+      modality:  'singles' as any,
+      status:    EnrollmentStatus.PENDING,
+    });
+    await this.repo.save(enrollment);
+
+    return {
+      success: true,
+      message: 'Pre-inscripción exitosa. Un administrador confirmará tu inscripción.',
+      playerName: `${user.nombres} ${user.apellidos}`,
+      category: data.category,
+      tempPassword: `Tu contraseña temporal es: ${(data.apellidos || 'lat').slice(0,4).toLowerCase()}${(data.docNumber || '0000').slice(-4)}`,
+    };
+  }
 }

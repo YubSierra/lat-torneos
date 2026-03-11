@@ -1,14 +1,55 @@
-import { Controller, Get, Post, Patch, Delete, Body,
+// backend/src/enrollments/enrollments.controller.ts  ← REEMPLAZA COMPLETO
+import { Controller, Get, Post, Delete, Body,
          Param, UseGuards, UploadedFile,
-         UseInterceptors, Request } from '@nestjs/common';
-import { FileInterceptor }          from '@nestjs/platform-express';
-import { InjectRepository }         from '@nestjs/typeorm';
-import { Repository }               from 'typeorm';
-import { EnrollmentsService }       from './enrollments.service';
-import { CreateEnrollmentDto }      from './dto/create-enrollment.dto';
-import { JwtAuthGuard }             from '../auth/jwt.guard';
-import { RolesGuard }               from '../auth/roles.guard';
-import { User }                     from '../users/user.entity';
+         UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { EnrollmentsService } from './enrollments.service';
+import { CreateEnrollmentDto } from './dto/create-enrollment.dto';
+import { JwtAuthGuard } from '../auth/jwt.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { User } from '../users/user.entity';
+
+// ── Parser CSV robusto (RFC 4180) ─────────────────────────────────────────────
+// Maneja campos entre comillas con comas y saltos de línea adentro
+function parseCSV(content: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = '';
+  let inQuotes = false;
+
+  const text = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else { inQuotes = false; }
+      } else {
+        field += ch;
+      }
+    } else {
+      if (ch === '"')  { inQuotes = true; }
+      else if (ch === ',') { row.push(field.trim()); field = ''; }
+      else if (ch === '\n') {
+        row.push(field.trim());
+        if (row.some(c => c !== '')) rows.push(row);
+        row = []; field = '';
+      } else {
+        field += ch;
+      }
+    }
+  }
+
+  if (field || row.length > 0) {
+    row.push(field.trim());
+    if (row.some(c => c !== '')) rows.push(row);
+  }
+
+  return rows;
+}
 
 @Controller('enrollments')
 export class EnrollmentsController {
@@ -18,11 +59,23 @@ export class EnrollmentsController {
     private userRepo: Repository<User>,
   ) {}
 
-  // POST /enrollments
+  // POST /enrollments — inscribir jugador (admin)
   @Post()
   @UseGuards(JwtAuthGuard)
   create(@Body() dto: CreateEnrollmentDto) {
     return this.enrollmentsService.create(dto);
+  }
+
+  // POST /enrollments/public/:tournamentId — sin auth (landing page)
+  @Post('public/:tournamentId')
+  async publicRegister(
+    @Param('tournamentId') tournamentId: string,
+    @Body() body: {
+      nombres: string; apellidos: string; email: string;
+      telefono?: string; docNumber?: string; category: string;
+    },
+  ) {
+    return this.enrollmentsService.publicRegister(tournamentId, body);
   }
 
   // POST /enrollments/import-csv/:tournamentId
@@ -32,21 +85,24 @@ export class EnrollmentsController {
   async importCsv(
     @Param('tournamentId') tournamentId: string,
     @UploadedFile() file: Express.Multer.File,
-    @Body('paymentMethod') paymentMethod: string,
   ) {
     if (!file) throw new Error('No se recibió archivo CSV');
+
     const content = file.buffer.toString('utf-8');
-    const lines   = content.split('\n').filter(l => l.trim());
-    const headers = lines[0].split(',').map(h => h.trim());
-    const rows    = lines.slice(1).map(line => {
-      const values = line.split(',').map(v => v.trim());
+    const allRows = parseCSV(content);
+    if (allRows.length < 2) throw new Error('CSV vacío o sin datos');
+
+    const headers = allRows[0].map(h =>
+      h.trim().toLowerCase().replace(/^\uFEFF/, '')
+    );
+
+    const rows = allRows.slice(1).map(values => {
       const row: any = {};
-      headers.forEach((h, idx) => { row[h] = values[idx] || ''; });
+      headers.forEach((h, idx) => { row[h] = values[idx]?.trim() || ''; });
       return row;
     });
-    return this.enrollmentsService.importFromCsv(
-      tournamentId, rows, this.userRepo, paymentMethod || 'manual',
-    );
+
+    return this.enrollmentsService.importFromCsv(tournamentId, rows, this.userRepo);
   }
 
   // POST /enrollments/enroll-single/:tournamentId
@@ -56,32 +112,10 @@ export class EnrollmentsController {
     @Param('tournamentId') tournamentId: string,
     @Body() body: {
       nombres: string; apellidos: string; email: string;
-      telefono?: string; docNumber?: string;
-      category: string; modality?: string; seeding?: number;
-      paymentMethod?: string;
-      adminNotes?: string;
+      telefono?: string; docNumber?: string; category: string; modality?: string;
     },
   ) {
     return this.enrollmentsService.enrollSinglePlayer(tournamentId, body);
-  }
-
-  // PATCH /enrollments/:id/payment-method
-  @Patch(':id/payment-method')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  updatePaymentMethod(
-    @Param('id') id: string,
-    @Body() body: { paymentMethod: string; adminNotes?: string },
-  ) {
-    return this.enrollmentsService.updatePaymentMethod(
-      id, body.paymentMethod, body.adminNotes,
-    );
-  }
-
-  // GET /enrollments/my/pending
-  @Get('my/pending')
-  @UseGuards(JwtAuthGuard)
-  getMyPending(@Request() req: any) {
-    return this.enrollmentsService.findPendingByPlayer(req.user.sub);
   }
 
   // GET /enrollments/tournament/:id

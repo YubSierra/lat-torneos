@@ -243,4 +243,27 @@ export class MatchesController {
       alternatePlayerId: body.alternatePlayerId,
     });
   }
+
+  // PATCH /matches/:id/assign-slot
+  @Patch(':id/assign-slot')
+  @UseGuards(JwtAuthGuard)
+  assignToSlot(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      courtId: string;
+      scheduledDate: string;
+      scheduledTime: string;
+      estimatedDuration: number;
+    },
+  ) {
+    return this.matchesService.assignToSlot(id, body);
+  }
+
+  // GET /matches/tournament/:tournamentId/unscheduled
+  @Get('tournament/:tournamentId/unscheduled')
+  @UseGuards(JwtAuthGuard)
+  getUnscheduled(@Param('tournamentId') tournamentId: string) {
+    return this.matchesService.getUnscheduled(tournamentId);
+  }
 }
