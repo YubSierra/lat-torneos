@@ -1165,4 +1165,133 @@ export class MatchesService {
       .getRawMany();
     return result.map((r) => r.category);
   }
+
+// Agrega estos métodos al final de la clase MatchesService
+// en backend/src/matches/matches.service.ts
+
+  // ── DESPROGRAMAR PARTIDO ─────────────────────────────────────────────────
+  async unscheduleMatch(id: string) {
+    const match = await this.findOne(id);
+    if (match.status === MatchStatus.COMPLETED || match.status === MatchStatus.WO) {
+      throw new Error('No se puede desprogramar un partido ya terminado');
+    }
+    (match as any).scheduledAt       = null;
+    (match as any).courtId           = null;
+    (match as any).estimatedDuration = 90;
+    await this.repo.save(match);
+    return { message: 'Partido devuelto a pendiente sin horario' };
+  }
+
+  // ── REASIGNAR PARTIDO MANUALMENTE ────────────────────────────────────────
+  async rescheduleMatch(
+    id: string,
+    date: string,
+    time: string,
+    courtId: string,
+    duration: number,
+  ) {
+    const match = await this.findOne(id);
+    if (match.status === MatchStatus.COMPLETED || match.status === MatchStatus.WO) {
+      throw new Error('No se puede reprogramar un partido terminado');
+    }
+    (match as any).scheduledAt       = new Date(`${date}T${time}:00`);
+    (match as any).courtId           = courtId;
+    (match as any).estimatedDuration = duration || 90;
+    await this.repo.save(match);
+    return { message: 'Partido reprogramado correctamente', match };
+  }
+
+  // ── PARTIDOS PENDIENTES SIN PROGRAMAR ────────────────────────────────────
+  async getPendingUnscheduled(tournamentId: string) {
+    // Traer todos los pendientes del torneo
+    const all = await this.repo.find({
+      where: { tournamentId, status: MatchStatus.PENDING },
+    });
+
+    // Filtrar los que NO tienen scheduledAt
+    const unscheduled = all.filter(m => !(m as any).scheduledAt);
+
+    if (unscheduled.length === 0) return [];
+
+    // Enriquecer con nombres de jugadores
+    const playerIds = [...new Set([
+      ...unscheduled.map(m => m.player1Id),
+      ...unscheduled.map(m => m.player2Id),
+    ].filter(Boolean))];
+
+    const users = playerIds.length > 0
+      ? await this.userRepo
+          .createQueryBuilder('u')
+          .where('u.id IN (:...ids)', { ids: playerIds })
+          .getMany()
+      : [];
+
+    const userMap = new Map(
+      users.map(u => [
+        u.id,
+        `${u.nombres || ''} ${u.apellidos || ''}`.trim() || u.email,
+      ]),
+    );
+
+    return unscheduled.map(m => ({
+      ...m,
+      player1Name: m.player1Id ? (userMap.get(m.player1Id) || 'Jugador') : 'BYE',
+      player2Name: m.player2Id ? (userMap.get(m.player2Id) || 'Jugador') : 'BYE',
+    }));
+  }
+
+  // ── CATEGORÍAS ACTIVAS DEL TORNEO ────────────────────────────────────────
+  async getCategoriesByTournament(tournamentId: string): Promise<string[]> {
+    const result = await this.repo
+      .createQueryBuilder('m')
+      .select('DISTINCT m.category', 'category')
+      .where('m.tournamentId = :tournamentId', { tournamentId })
+      .orderBy('m.category', 'ASC')
+      .getRawMany();
+    return result.map(r => r.category);
+  }
+
+  // ── RESUMEN DEL CUADRO POR CATEGORÍA ─────────────────────────────────────
+  async getDrawSummary(tournamentId: string, category: string) {
+    const all  = await this.repo.find({ where: { tournamentId, category } });
+    const RR   = ['RR', 'RR_A', 'RR_B'];
+    const MAIN = ['R64', 'R32', 'R16', 'QF', 'SF', 'F', 'SF_M', 'F_M'];
+    const rr   = all.filter(m => RR.includes(m.round as string));
+    const main = all.filter(m => MAIN.includes(m.round as string));
+    return {
+      hasRR        : rr.length > 0,
+      hasMainDraw  : main.length > 0,
+      rrCount      : rr.length,
+      mainCount    : main.length,
+      rrCompleted  : rr.filter(m => [MatchStatus.COMPLETED, MatchStatus.WO].includes(m.status)).length,
+      mainCompleted: main.filter(m => [MatchStatus.COMPLETED, MatchStatus.WO].includes(m.status)).length,
+    };
+  }
+
+  // ── ELIMINAR CUADRO ───────────────────────────────────────────────────────
+  async deleteDraw(
+    tournamentId: string,
+    category: string,
+    drawType: 'rr' | 'maindraw' | 'all',
+  ) {
+    const RR_ROUNDS   = ['RR', 'RR_A', 'RR_B'];
+    const MAIN_ROUNDS = ['R64', 'R32', 'R16', 'QF', 'SF', 'F', 'SF_M', 'F_M'];
+    const rounds =
+      drawType === 'rr'       ? RR_ROUNDS   :
+      drawType === 'maindraw' ? MAIN_ROUNDS :
+      [...RR_ROUNDS, ...MAIN_ROUNDS];
+
+    const all      = await this.repo.find({ where: { tournamentId, category } });
+    const toDelete = all.filter(m => rounds.includes(m.round as string));
+
+    if (toDelete.length === 0) {
+      throw new Error('No hay partidos para eliminar en esa selección');
+    }
+
+    await this.repo.remove(toDelete);
+    return {
+      deleted: toDelete.length,
+      message: `Se eliminaron ${toDelete.length} partidos (${category})`,
+    };
+  }
 }
