@@ -62,6 +62,12 @@ export class MatchesController {
     return this.matchesService.getCategoriesByTournament(id);
   }
 
+  // GET /matches/tournament/:id/pending-rounds — rondas pendientes/suspendidas sin programar
+  @Get('tournament/:id/pending-rounds')
+  getPendingRounds(@Param('id') id: string) {
+    return this.matchesService.getPendingRounds(id);
+  }
+
   // GET /matches/player/:id/stats
   @Get('player/:id/stats')
   getPlayerStats(@Param('id') id: string) {
@@ -160,5 +166,11 @@ export class MatchesController {
   @UseGuards(JwtAuthGuard)
   removeMatch(@Param('id') id: string) {
     return this.matchesService.removeMatch(id);
+  }
+
+  @Patch(':id/suspend')
+  @UseGuards(JwtAuthGuard)
+  suspendMatch(@Param('id') id: string, @Body() body: { reason?: string; resumeScheduledAt?: string } = {}) {
+    return this.matchesService.suspendMatch(id, body.reason ?? 'Suspendido manualmente', body.resumeScheduledAt);
   }
 }

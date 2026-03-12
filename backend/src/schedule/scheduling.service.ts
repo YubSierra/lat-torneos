@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, IsNull } from 'typeorm';
 import { Match, MatchStatus } from '../matches/match.entity';
 import { Court } from '../courts/court.entity';
 import { CourtSchedule } from '../courts/court-schedule.entity';
@@ -92,6 +92,7 @@ export class SchedulingService {
       .createQueryBuilder('match')
       .where('match.tournamentId = :tournamentId', { tournamentId })
       .andWhere('match.status IN (:...statuses)', { statuses: statusFilter })
+      .andWhere('match.scheduledAt IS NULL')   // ← ESTE ES EL FIX
       .orderBy('match.createdAt', 'ASC')
       .getMany();
 

@@ -684,6 +684,35 @@ export default function Schedule() {
                     🗑️ Eliminar toda la programación
                   </button>
                 )}
+                {isAdmin && scheduleRows.length > 0 && (
+                  <button
+                    onClick={async () => {
+                      if (!confirm(`⚠️ ¿Suspender TODA la programación del torneo?\n\nLos partidos quedarán marcados como SUSPENDIDOS (no pendientes).`)) return;
+                      try {
+                        // Obtener IDs únicos de todos los partidos programados
+                        const matchIds = [...new Set(
+                          scheduleRows.map((r: any) => r.matchId).filter(Boolean)
+                        )];
+                        await Promise.all(
+                          matchIds.map(id => api.patch(`/matches/${id}/suspend`))
+                        );
+                        refetch();
+                        alert(`✅ ${matchIds.length} partidos suspendidos.`);
+                      } catch {
+                        alert('❌ Error al suspender');
+                      }
+                    }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '6px',
+                      background: '#FEF3C7', border: '1.5px solid #FCD34D',
+                      color: '#92400E', borderRadius: '8px',
+                      padding: '7px 14px', cursor: 'pointer',
+                      fontSize: '13px', fontWeight: 700,
+                    }}
+                  >
+                    ⏸️ Suspender programación
+                  </button>
+                )}
               </div>
 
               {/* Filtro por fecha */}
