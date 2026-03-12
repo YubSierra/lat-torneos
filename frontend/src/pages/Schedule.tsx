@@ -381,6 +381,10 @@ export default function Schedule() {
   const [showAssignModal,      setShowAssignModal]      = useState(false);
   const [filterDate,           setFilterDate]           = useState('');
   const [selectedCategories,   setSelectedCategories]   = useState<string[]>([]);
+  const [showDeleteModal,      setShowDeleteModal]       = useState(false);
+  const [showExportModal,      setShowExportModal]       = useState(false);
+  const [modalDeleteDate,      setModalDeleteDate]       = useState('');
+  const [modalExportDate,      setModalExportDate]       = useState('');
 
   // ── Queries ────────────────────────────────────────────────────────────────
   const { data: tournaments = [] } = useQuery({
@@ -470,6 +474,18 @@ export default function Schedule() {
     },
     onError: () => alert('❌ Error al eliminar la programación'),
   });
+
+  // Filas aplanadas de la programación existente
+  const scheduleRows = useMemo(() => {
+    if (scheduleResult) return [];
+    return flatSchedule;
+  }, [flatSchedule, scheduleResult]);
+
+  // Fechas disponibles en la programación actual
+  const availableDates = useMemo(() => {
+    const dates = [...new Set(flatSchedule.map((r: any) => r.date || r.scheduledAt?.slice(0, 10)).filter(Boolean))];
+    return (dates as string[]).sort();
+  }, [flatSchedule]);
 
   // ── Helpers canchas ───────────────────────────────────────────────────────
   const sedeMap: Record<string, any[]> = {};
@@ -620,35 +636,13 @@ export default function Schedule() {
                 {filteredSchedule.length > 0 && (
                   <button
                     onClick={() => {
-                      const tournament = (tournaments as any[]).find((t: any) => t.id === selectedTournament);
-                      
-                      const scheduleForPdf = filteredSchedule.map((r: any) => ({
-                        time    : r.time || (r.scheduledAt ? new Date(r.scheduledAt).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', hour12: false }) : ''),
-                        court   : r.court || r.courtName || '',
-                        sede    : r.sede || 'Principal',
-                        round   : r.round || '',
-                        category: r.category || '',
-                        player1 : r.player1Name || r.player1 || '',
-                        player2 : r.player2Name || r.player2 || '',
-                        duration: r.duration || (r.estimatedDuration ? `${r.estimatedDuration} min` : '90 min'),
-                      }));
-
-                      const dateToExport = filterDate || (scheduledDates[0] || new Date().toISOString().split('T')[0]);
-
-                      exportSchedulePdf({
-                        tournamentName: tournament?.name || 'Torneo',
-                        date          : dateToExport,
-                        city          : 'Medellín',
-                        referee,
-                        director,
-                        observations,
-                        schedule      : scheduleForPdf,
-                      });
+                      setModalExportDate(availableDates[0] || '');
+                      setShowExportModal(true);
                     }}
                     style={{
                       display: 'flex', alignItems: 'center', gap: '6px',
-                      background: '#1D4ED8', border: 'none',
-                      color: 'white', borderRadius: '8px',
+                      background: '#EFF6FF', border: '1.5px solid #BFDBFE',
+                      color: '#1D4ED8', borderRadius: '8px',
                       padding: '7px 14px', cursor: 'pointer',
                       fontSize: '13px', fontWeight: 700,
                     }}
@@ -660,28 +654,18 @@ export default function Schedule() {
                 {isAdmin && flatSchedule.length > 0 && (
                   <button
                     onClick={() => {
-                      const dates = [...new Set(flatSchedule.map((r: any) => r.date || r.scheduledAt?.slice(0, 10)).filter(Boolean))];
-                      if (confirm(`⚠️ ¿Eliminar TODA la programación del torneo?\n\nLos ${flatSchedule.length} partidos quedarán pendientes sin horario.`)) {
-                        Promise.all(
-                          dates.map((d) => api.delete(`/matches/tournament/${selectedTournament}/schedule/${d}`)),
-                        )
-                          .then(() => {
-                            refetchAll();
-                            setFilterDate('');
-                            alert(`✅ Programación eliminada (${dates.length} fecha${dates.length !== 1 ? 's' : ''}).`);
-                          })
-                          .catch(() => alert('❌ Error al eliminar la programación'));
-                      }
+                      setModalDeleteDate(availableDates[0] || '');
+                      setShowDeleteModal(true);
                     }}
                     style={{
                       display: 'flex', alignItems: 'center', gap: '6px',
                       background: '#FEF2F2', border: '1.5px solid #FECACA',
                       color: '#DC2626', borderRadius: '8px',
-                      padding: '6px 12px', cursor: 'pointer',
-                      fontSize: '12px', fontWeight: 700,
+                      padding: '7px 14px', cursor: 'pointer',
+                      fontSize: '13px', fontWeight: 700,
                     }}
                   >
-                    🗑️ Eliminar toda la programación
+                    🗑️ Eliminar programación
                   </button>
                 )}
                 {isAdmin && scheduleRows.length > 0 && (
@@ -1190,6 +1174,191 @@ export default function Schedule() {
           </>
         )}
       </main>
+
+      {/* ═══ MODAL ELIMINAR PROGRAMACIÓN POR DÍA ═══ */}
+      {showDeleteModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+        }}>
+          <div style={{
+            background: 'white', borderRadius: '16px', padding: '28px',
+            width: '420px', boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+          }}>
+            <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#DC2626', marginBottom: '8px' }}>
+              🗑️ Eliminar programación
+            </h3>
+            <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '20px' }}>
+              Selecciona el día que deseas eliminar. Los partidos volverán a estado pendiente.
+            </p>
+
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
+              Día a eliminar
+            </label>
+
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '20px' }}>
+              {availableDates.map(date => (
+                <button
+                  key={date}
+                  onClick={() => setModalDeleteDate(date)}
+                  style={{
+                    padding: '8px 16px', borderRadius: '8px', fontSize: '13px',
+                    fontWeight: '600', cursor: 'pointer', border: '2px solid',
+                    borderColor: modalDeleteDate === date ? '#DC2626' : '#E5E7EB',
+                    backgroundColor: modalDeleteDate === date ? '#FEF2F2' : 'white',
+                    color: modalDeleteDate === date ? '#DC2626' : '#374151',
+                  }}
+                >
+                  📅 {new Date(date + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })}
+                </button>
+              ))}
+              <button
+                onClick={() => setModalDeleteDate('ALL')}
+                style={{
+                  padding: '8px 16px', borderRadius: '8px', fontSize: '13px',
+                  fontWeight: '600', cursor: 'pointer', border: '2px solid',
+                  borderColor: modalDeleteDate === 'ALL' ? '#DC2626' : '#E5E7EB',
+                  backgroundColor: modalDeleteDate === 'ALL' ? '#FEF2F2' : 'white',
+                  color: modalDeleteDate === 'ALL' ? '#DC2626' : '#374151',
+                }}
+              >
+                ⚠️ Todos los días
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                style={{
+                  padding: '9px 20px', borderRadius: '8px', fontSize: '13px',
+                  border: '1px solid #E5E7EB', background: 'white',
+                  cursor: 'pointer', color: '#374151', fontWeight: '500',
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                disabled={!modalDeleteDate}
+                onClick={async () => {
+                  if (!modalDeleteDate) return;
+                  const label = modalDeleteDate === 'ALL'
+                    ? 'TODA la programación del torneo'
+                    : `la programación del ${modalDeleteDate}`;
+                  if (!confirm(`¿Confirmas eliminar ${label}?\n\nLos partidos volverán a estado PENDIENTE.`)) return;
+                  try {
+                    if (modalDeleteDate === 'ALL') {
+                      await Promise.all(
+                        availableDates.map(d =>
+                          api.delete(`/matches/tournament/${selectedTournament}/schedule/${d}`)
+                        )
+                      );
+                    } else {
+                      await api.delete(`/matches/tournament/${selectedTournament}/schedule/${modalDeleteDate}`);
+                    }
+                    setShowDeleteModal(false);
+                    setScheduleResult(null);
+                    refetchAll();
+                    alert('✅ Programación eliminada correctamente');
+                  } catch {
+                    alert('❌ Error al eliminar la programación');
+                  }
+                }}
+                style={{
+                  padding: '9px 20px', borderRadius: '8px', fontSize: '13px',
+                  border: 'none', cursor: modalDeleteDate ? 'pointer' : 'not-allowed',
+                  background: modalDeleteDate ? '#DC2626' : '#E5E7EB',
+                  color: 'white', fontWeight: '700',
+                  opacity: modalDeleteDate ? 1 : 0.6,
+                }}
+              >
+                🗑️ Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ MODAL EXPORTAR PDF POR DÍA ═══ */}
+      {showExportModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+        }}>
+          <div style={{
+            background: 'white', borderRadius: '16px', padding: '28px',
+            width: '420px', boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+          }}>
+            <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#1D4ED8', marginBottom: '8px' }}>
+              📄 Exportar PDF
+            </h3>
+            <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '20px' }}>
+              Selecciona el día que deseas exportar como PDF de orden de juego.
+            </p>
+
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
+              Día a exportar
+            </label>
+
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '20px' }}>
+              {availableDates.map(date => (
+                <button
+                  key={date}
+                  onClick={() => setModalExportDate(date)}
+                  style={{
+                    padding: '8px 16px', borderRadius: '8px', fontSize: '13px',
+                    fontWeight: '600', cursor: 'pointer', border: '2px solid',
+                    borderColor: modalExportDate === date ? '#1D4ED8' : '#E5E7EB',
+                    backgroundColor: modalExportDate === date ? '#EFF6FF' : 'white',
+                    color: modalExportDate === date ? '#1D4ED8' : '#374151',
+                  }}
+                >
+                  📅 {new Date(date + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowExportModal(false)}
+                style={{
+                  padding: '9px 20px', borderRadius: '8px', fontSize: '13px',
+                  border: '1px solid #E5E7EB', background: 'white',
+                  cursor: 'pointer', color: '#374151', fontWeight: '500',
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                disabled={!modalExportDate}
+                onClick={() => {
+                  if (!modalExportDate) return;
+                  const tournament = (tournaments as any[]).find((t: any) => t.id === selectedTournament);
+                  const rowsForDay = scheduleRows.filter((r: any) => r.date === modalExportDate);
+                  exportSchedulePdf({
+                    tournamentName: tournament?.name || 'Torneo',
+                    date: modalExportDate,
+                    city: 'Medellín',
+                    referee,
+                    director,
+                    observations,
+                    schedule: rowsForDay,
+                  });
+                  setShowExportModal(false);
+                }}
+                style={{
+                  padding: '9px 20px', borderRadius: '8px', fontSize: '13px',
+                  border: 'none', cursor: modalExportDate ? 'pointer' : 'not-allowed',
+                  background: modalExportDate ? '#1D4ED8' : '#E5E7EB',
+                  color: 'white', fontWeight: '700',
+                  opacity: modalExportDate ? 1 : 0.6,
+                }}
+              >
+                📄 Exportar PDF
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Modal Asignar partido pendiente ────────────────────────────── */}
       {showAssignModal && (
