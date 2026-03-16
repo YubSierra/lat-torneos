@@ -56,6 +56,11 @@ export default function Matches() {
   const [woModal,       setWoModal]       = useState<WOModalState>({ isOpen: false, match: null });
   const [suspendModal,  setSuspendModal]  = useState<{ isOpen: boolean; match: any | null }>({ isOpen: false, match: null });
   const [showSuspended, setShowSuspended] = useState(false);
+  const [editMatch,  setEditMatch]  = useState<any>(null);
+  const [editSets1,  setEditSets1]  = useState('');
+  const [editSets2,  setEditSets2]  = useState('');
+  const [editGames1, setEditGames1] = useState('');
+  const [editGames2, setEditGames2] = useState('');
 
   // ── Filtros de búsqueda ───────────────────────────────────────────────────
   const [filterName, setFilterName] = useState('');
@@ -524,7 +529,7 @@ export default function Matches() {
                     <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}>
                       <thead>
                         <tr style={{ backgroundColor: '#F9FAFB' }}>
-                          {['Ronda', 'Cat.', 'Jugador 1', 'Jugador 2', 'Fecha', 'Resultado', 'Ganador'].map(h => (
+                          {['Ronda', 'Cat.', 'Jugador 1', 'Jugador 2', 'Fecha', 'Resultado', 'Ganador', ...(isAdmin ? ['Acciones'] : [])].map(h => (
                             <th key={h} style={{ textAlign: 'left', padding: '9px 14px', color: '#6B7280', fontWeight: '600', fontSize: '11px' }}>{h}</th>
                           ))}
                         </tr>
@@ -575,11 +580,32 @@ export default function Matches() {
                                   : mySets}
                               </td>
                               <td style={{ padding: '9px 14px' }}>
-                                <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontWeight: '700', color: '#15803D', fontSize: '12px' }}>
-                                  <Trophy size={12} color="#2D6A2D" />
-                                  {m.winnerName || '—'}
-                                </span>
+                              <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontWeight: '700', color: '#15803D', fontSize: '12px' }}>
+                                <Trophy size={12} color="#2D6A2D" />
+                                {m.winnerName || '—'}
+                              </span>
                               </td>
+                              {isAdmin && (
+                                <td style={{ padding: '9px 14px' }}>
+                                  <button
+                                    onClick={() => {
+                                      setEditMatch(m);
+                                      setEditSets1(String(m.sets1 ?? ''));
+                                      setEditSets2(String(m.sets2 ?? ''));
+                                      setEditGames1(String(m.games1 ?? ''));
+                                      setEditGames2(String(m.games2 ?? ''));
+                                    }}
+                                    style={{
+                                      backgroundColor: '#EFF6FF', color: '#1D4ED8',
+                                      border: '1px solid #BFDBFE', borderRadius: '6px',
+                                      padding: '4px 8px', cursor: 'pointer',
+                                      fontSize: '11px', fontWeight: '600',
+                                    }}
+                                  >
+                                    ✏️ Editar
+                                  </button>
+                                </td>
+                              )}
                             </tr>
                           );
                         })}
@@ -632,6 +658,141 @@ export default function Matches() {
         onCancel={() => setSuspendModal({ isOpen: false, match: null })}
         isLoading={suspendMutation.isPending}
       />
+
+      {/* ── Modal editar resultado ── */}
+      {editMatch && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+          }}
+          onClick={() => setEditMatch(null)}
+        >
+          <div
+            style={{
+              backgroundColor: 'white', borderRadius: '16px', padding: '28px',
+              width: '420px', maxWidth: '95vw',
+              maxHeight: '90vh', overflowY: 'auto',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h2 style={{ fontSize: '18px', fontWeight: '700', marginBottom: '4px' }}>✏️ Editar Resultado</h2>
+            <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '20px' }}>
+              {ROUND_LABELS[editMatch.round] || editMatch.round} · {editMatch.category}
+            </p>
+
+            {/* Sets */}
+            <div style={{ marginBottom: '20px' }}>
+              <p style={{ fontSize: '12px', fontWeight: '600', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>Sets</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ flex: 1 }}>
+                  <p style={{ fontSize: '11px', color: '#9CA3AF', marginBottom: '4px' }}>{editMatch.player1Name}</p>
+                  <input
+                    type="number" min="0" max="3" value={editSets1}
+                    onChange={e => setEditSets1(e.target.value)}
+                    style={{ border: '2px solid #D1D5DB', borderRadius: '8px', padding: '10px', fontSize: '20px', fontWeight: '700', textAlign: 'center', width: '100%', maxWidth: '120px', boxSizing: 'border-box' }}
+                  />
+                </div>
+                <span style={{ fontSize: '20px', color: '#9CA3AF', marginTop: '18px' }}>-</span>
+                <div style={{ flex: 1 }}>
+                  <p style={{ fontSize: '11px', color: '#9CA3AF', marginBottom: '4px' }}>{editMatch.player2Name}</p>
+                  <input
+                    type="number" min="0" max="3" value={editSets2}
+                    onChange={e => setEditSets2(e.target.value)}
+                    style={{ border: '2px solid #D1D5DB', borderRadius: '8px', padding: '10px', fontSize: '20px', fontWeight: '700', textAlign: 'center', width: '100%', maxWidth: '120px', boxSizing: 'border-box' }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Games último set */}
+            <div style={{ marginBottom: '20px' }}>
+              <p style={{ fontSize: '12px', fontWeight: '600', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>Games (último set)</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ flex: 1 }}>
+                  <p style={{ fontSize: '11px', color: '#9CA3AF', marginBottom: '4px' }}>{editMatch.player1Name}</p>
+                  <input
+                    type="number" min="0" value={editGames1}
+                    onChange={e => setEditGames1(e.target.value)}
+                    style={{ border: '2px solid #D1D5DB', borderRadius: '8px', padding: '10px', fontSize: '20px', fontWeight: '700', textAlign: 'center', width: '100%', maxWidth: '120px', boxSizing: 'border-box' }}
+                  />
+                </div>
+                <span style={{ fontSize: '20px', color: '#9CA3AF', marginTop: '18px' }}>-</span>
+                <div style={{ flex: 1 }}>
+                  <p style={{ fontSize: '11px', color: '#9CA3AF', marginBottom: '4px' }}>{editMatch.player2Name}</p>
+                  <input
+                    type="number" min="0" value={editGames2}
+                    onChange={e => setEditGames2(e.target.value)}
+                    style={{ border: '2px solid #D1D5DB', borderRadius: '8px', padding: '10px', fontSize: '20px', fontWeight: '700', textAlign: 'center', width: '100%', maxWidth: '120px', boxSizing: 'border-box' }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Ganador */}
+            <div style={{ marginBottom: '20px' }}>
+              <p style={{ fontSize: '12px', fontWeight: '600', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>Ganador</p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                {[
+                  { id: editMatch.player1Id, name: editMatch.player1Name },
+                  { id: editMatch.player2Id, name: editMatch.player2Name },
+                ].map(p => {
+                  const sel = editMatch._winnerId === p.id;
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => setEditMatch({ ...editMatch, _winnerId: p.id })}
+                      style={{
+                        padding: '12px', borderRadius: '10px', textAlign: 'left', cursor: 'pointer',
+                        border: sel ? '2px solid #16A34A' : '2px solid #E5E7EB',
+                        backgroundColor: sel ? '#F0FDF4' : '#F9FAFB',
+                      }}
+                    >
+                      <div style={{ fontSize: '13px', fontWeight: '600', color: sel ? '#166534' : '#111827' }}>{p.name}</div>
+                      {sel && <div style={{ fontSize: '11px', color: '#16A34A', fontWeight: '700', marginTop: '4px' }}>🏆 GANA</div>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Botones */}
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                onClick={() => setEditMatch(null)}
+                style={{ flex: 1, padding: '10px', borderRadius: '10px', border: '2px solid #E5E7EB', backgroundColor: 'white', color: '#374151', fontWeight: '600', fontSize: '14px', cursor: 'pointer' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    await api.patch(`/matches/${editMatch.id}/score`, {
+                      sets1:    Number(editSets1),
+                      sets2:    Number(editSets2),
+                      games1:   Number(editGames1),
+                      games2:   Number(editGames2),
+                      winnerId: editMatch._winnerId,
+                    });
+                    queryClient.invalidateQueries({ queryKey: ['matches'] });
+                    setEditMatch(null);
+                  } catch {
+                    alert('❌ Error al guardar resultado');
+                  }
+                }}
+                style={{
+                  flex: 1, padding: '10px', borderRadius: '10px', border: 'none',
+                  background: 'linear-gradient(135deg, #1D4ED8, #1E40AF)',
+                  color: 'white', fontWeight: '700', fontSize: '14px', cursor: 'pointer',
+                }}
+              >
+                Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
