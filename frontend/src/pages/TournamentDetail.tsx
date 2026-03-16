@@ -60,6 +60,14 @@ export default function TournamentDetail() {
   const [showMainDrawModal, setShowMainDrawModal] = useState(false);
   const [mdCategory,        setMdCategory]        = useState('');
   const [mdAdvancing,       setMdAdvancing]       = useState(1);
+  const [rrCategories,      setRrCategories]      = useState<string[]>([]);
+
+  // ── Editar resultado de partido ───────────────────────────────────────
+  const [editMatch,  setEditMatch]  = useState<any>(null);
+  const [editSets1,  setEditSets1]  = useState('');
+  const [editSets2,  setEditSets2]  = useState('');
+  const [editGames1, setEditGames1] = useState('');
+  const [editGames2, setEditGames2] = useState('');
 
   // ── Suspensión de partido desde el cuadro ────────────────────────────
   const [suspendModal, setSuspendModal] = useState<{
@@ -669,7 +677,7 @@ export default function TournamentDetail() {
               <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ backgroundColor: '#F9FAFB' }}>
-                    {['Ronda','Categoría','Jugador 1','Jugador 2','Resultado','Estado','Hora'].map(h => (
+                    {['Ronda','Categoría','Jugador 1','Jugador 2','Resultado','Estado','Hora', ...(isAdmin ? ['Acciones'] : [])].map(h => (
                       <th key={h} style={{ textAlign: 'left', padding: '9px 12px', color: '#6B7280', fontWeight: '600', fontSize: '12px' }}>{h}</th>
                     ))}
                   </tr>
@@ -723,6 +731,28 @@ export default function TournamentDetail() {
                           : '—'
                         }
                       </td>
+                      {isAdmin && (
+                        <td style={{ padding: '9px 12px' }}>
+                          {(m.status === 'completed' || m.status === 'wo') && (
+                            <button
+                              onClick={() => {
+                                setEditMatch(m);
+                                setEditSets1(String(m.sets1 ?? ''));
+                                setEditSets2(String(m.sets2 ?? ''));
+                                setEditGames1(String(m.games1 ?? ''));
+                                setEditGames2(String(m.games2 ?? ''));
+                              }}
+                              style={{
+                                backgroundColor: '#EFF6FF', color: '#1D4ED8',
+                                border: '1px solid #BFDBFE', borderRadius: '6px',
+                                padding: '4px 8px', cursor: 'pointer', fontSize: '11px', fontWeight: '600',
+                              }}
+                            >
+                              ✏️ Editar
+                            </button>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -1053,12 +1083,18 @@ export default function TournamentDetail() {
                 {isAdmin && (bracketMatches as any[]).some((m: any) => ['RR','RR_A','RR_B'].includes(m.round)) && (
                   <button
                     onClick={async () => {
-                      const cats = [...new Set((bracketMatches as any[])
+                      const rrCats = [...new Set((bracketMatches as any[])
                         .filter((m: any) => ['RR','RR_A','RR_B'].includes(m.round))
                         .map((m: any) => m.category)
                       )] as string[];
-                      setMdCategory(cats[0]);
-                      const res = await api.get(`/matches/tournament/${id}/rr-status/${cats[0]}`);
+                      if (rrCats.length === 0) {
+                        alert('No hay categorías con Round Robin generado.');
+                        return;
+                      }
+                      const firstCat = rrCats[0];
+                      setMdCategory(firstCat);
+                      setRrCategories(rrCats);
+                      const res = await api.get(`/matches/tournament/${id}/rr-status/${firstCat}`);
                       setRrStatus(res.data);
                       setShowMainDrawModal(true);
                     }}
@@ -1098,33 +1134,97 @@ export default function TournamentDetail() {
               🏆 Generar Main Draw
             </h3>
             <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '20px' }}>
-              Categoría: <strong>{mdCategory}</strong> · Los ganadores pasan al cuadro de eliminación.
+              Selecciona la categoría y cuántos jugadores avanzan por grupo.
             </p>
 
-            {/* Estado de grupos */}
-            <div style={{ marginBottom: '18px' }}>
+            {/* ── Selector de categoría ── */}
+            {rrCategories.length > 1 && (
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Categoría
+                </label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                  {rrCategories.map(cat => (
+                    <button
+                      key={cat}
+                      onClick={async () => {
+                        setMdCategory(cat);
+                        const res = await api.get(`/matches/tournament/${id}/rr-status/${cat}`);
+                        setRrStatus(res.data);
+                      }}
+                      style={{
+                        padding: '7px 16px', borderRadius: '8px', fontSize: '13px',
+                        fontWeight: '600', cursor: 'pointer', border: '2px solid',
+                        borderColor: mdCategory === cat ? '#2D6A2D' : '#E5E7EB',
+                        backgroundColor: mdCategory === cat ? '#F0FDF4' : 'white',
+                        color: mdCategory === cat ? '#166534' : '#374151',
+                      }}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Categoría activa */}
+            <div style={{ backgroundColor: '#F0FDF4', border: '1px solid #86EFAC', borderRadius: '8px', padding: '10px 14px', marginBottom: '16px', fontSize: '13px', color: '#166534', fontWeight: '600' }}>
+              📋 Categoría seleccionada: <strong>{mdCategory}</strong>
+            </div>
+
+            {/* ── Jugadores que avanzan ── */}
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Jugadores que avanzan por grupo
+              </label>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                {[1, 2].map(n => (
+                  <button
+                    key={n}
+                    onClick={() => setMdAdvancing(n)}
+                    style={{
+                      padding: '8px 20px', borderRadius: '8px', fontSize: '14px',
+                      fontWeight: '600', cursor: 'pointer', border: '2px solid',
+                      borderColor: mdAdvancing === n ? '#2D6A2D' : '#E5E7EB',
+                      backgroundColor: mdAdvancing === n ? '#F0FDF4' : 'white',
+                      color: mdAdvancing === n ? '#166534' : '#374151',
+                    }}
+                  >
+                    {n} {n === 1 ? 'jugador' : 'jugadores'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* ── Estado de grupos ── */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Estado de grupos
+              </label>
               {rrStatus.groups?.map((g: any) => (
-                <div key={g.groupLabel} style={{ border: `1px solid ${g.complete ? '#86EFAC' : '#FDE68A'}`, borderRadius: '8px', padding: '12px', marginBottom: '8px', backgroundColor: g.complete ? '#F0FDF4' : '#FFFBEB' }}>
+                <div key={g.groupLabel} style={{
+                  border: `1px solid ${g.complete ? '#86EFAC' : '#FDE68A'}`,
+                  borderRadius: '8px', padding: '12px', marginBottom: '8px',
+                  backgroundColor: g.complete ? '#F0FDF4' : '#FFFBEB',
+                }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                    <span style={{ fontWeight: '700', color: '#1B3A1B' }}>Grupo {g.groupLabel}</span>
+                    <span style={{ fontWeight: '600', color: '#1B3A1B' }}>Grupo {g.groupLabel}</span>
                     <span style={{ fontSize: '12px', color: g.complete ? '#15803D' : '#92400E' }}>
-                      {g.complete ? '✓ Completo' : `${g.finished}/${g.total} partidos jugados`}
+                      {g.complete ? '✓ Completo' : `${g.finished}/${g.total} partidos`}
                     </span>
                   </div>
                   <table style={{ width: '100%', fontSize: '12px' }}>
                     <tbody>
-                      {g.standings?.map((p: any, idx: number) => (
-                        <tr key={p.playerId} style={{ opacity: idx < mdAdvancing ? 1 : 0.45 }}>
-                          <td style={{ padding: '4px 6px', width: '24px' }}>
-                            <span style={{ width: '18px', height: '18px', borderRadius: '50%', backgroundColor: idx === 0 ? '#22C55E' : idx === 1 ? '#3B82F6' : '#D1D5DB', color: 'white', fontSize: '9px', fontWeight: '800', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-                              {idx + 1}
-                            </span>
+                      {(g.standings || g.standings)?.map((p: any, idx: number) => (
+                        <tr key={p.playerId} style={{ opacity: idx < mdAdvancing ? 1 : 0.5 }}>
+                          <td style={{ padding: '3px 6px', fontWeight: '600', color: '#374151' }}>
+                            {idx + 1}.
                           </td>
-                          <td style={{ padding: '4px 6px', fontWeight: idx < mdAdvancing ? '700' : '400' }}>{p.name}</td>
-                          <td style={{ padding: '4px 6px', color: '#6B7280' }}>{p.wins}V {p.losses}D</td>
-                          {idx < mdAdvancing && (
-                            <td style={{ padding: '4px 6px', color: '#15803D', fontSize: '11px', fontWeight: '600' }}>→ Main Draw</td>
-                          )}
+                          <td style={{ padding: '3px 6px', color: '#1B3A1B', fontWeight: idx < mdAdvancing ? '600' : '400' }}>
+                            {p.playerName || p.name}
+                            {idx < mdAdvancing && <span style={{ marginLeft: '6px', color: '#15803D', fontSize: '11px' }}>✓ Avanza</span>}
+                          </td>
+                          <td style={{ padding: '3px 6px', color: '#6B7280' }}>{p.wins}V / {p.losses}D</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1133,34 +1233,21 @@ export default function TournamentDetail() {
               ))}
             </div>
 
-            {/* Cuántos avanzan */}
-            <div style={{ marginBottom: '16px' }}>
-              <label style={lbl}>Jugadores que avanzan por grupo al Main Draw</label>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                {[1, 2].map(n => (
-                  <button key={n} onClick={() => setMdAdvancing(n)}
-                    style={{ flex: 1, padding: '9px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: '600', fontSize: '13px', backgroundColor: mdAdvancing === n ? '#2D6A2D' : '#F3F4F6', color: mdAdvancing === n ? 'white' : '#374151' }}
-                  >
-                    {n} jugador{n > 1 ? 'es' : ''}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             {!rrStatus.allComplete && (
-              <div style={{ backgroundColor: '#FEF9C3', border: '1px solid #FDE047', borderRadius: '8px', padding: '10px', fontSize: '12px', color: '#92400E', marginBottom: '14px' }}>
+              <div style={{ backgroundColor: '#FEF9C3', border: '1px solid #FDE047', borderRadius: '8px', padding: '10px', fontSize: '12px', color: '#92400E', marginBottom: '16px' }}>
                 ⚠️ Hay grupos con partidos pendientes. El Main Draw se generará con los resultados actuales.
               </div>
             )}
 
             {generateMainDrawMutation.isError && (
-              <div style={{ backgroundColor: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', padding: '10px', fontSize: '12px', color: '#DC2626', marginBottom: '14px' }}>
+              <div style={{ backgroundColor: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', padding: '10px', fontSize: '12px', color: '#DC2626', marginBottom: '16px' }}>
                 ❌ Error al generar. Verifica que todos los grupos tengan resultados.
               </div>
             )}
 
             <div style={{ display: 'flex', gap: '10px' }}>
-              <button onClick={() => setShowMainDrawModal(false)}
+              <button
+                onClick={() => setShowMainDrawModal(false)}
                 style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #D1D5DB', backgroundColor: 'white', cursor: 'pointer', fontSize: '14px' }}
               >
                 Cancelar
@@ -1168,9 +1255,14 @@ export default function TournamentDetail() {
               <button
                 onClick={() => generateMainDrawMutation.mutate()}
                 disabled={generateMainDrawMutation.isPending}
-                style={{ flex: 2, padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: '#2D6A2D', color: 'white', cursor: 'pointer', fontSize: '14px', fontWeight: '700', opacity: generateMainDrawMutation.isPending ? 0.6 : 1 }}
+                style={{
+                  flex: 2, padding: '12px', borderRadius: '8px', border: 'none',
+                  backgroundColor: '#2D6A2D', color: 'white', cursor: 'pointer',
+                  fontSize: '14px', fontWeight: '700',
+                  opacity: generateMainDrawMutation.isPending ? 0.5 : 1,
+                }}
               >
-                {generateMainDrawMutation.isPending ? 'Generando...' : '🏆 Confirmar Main Draw'}
+                {generateMainDrawMutation.isPending ? 'Generando...' : '🏆 Confirmar y Generar Main Draw'}
               </button>
             </div>
           </div>
@@ -1229,6 +1321,134 @@ export default function TournamentDetail() {
         onCancel={() => setCambiarPagoModal({ open: false, enrollment: null })}
         isLoading={cambiarPagoLoading}
       />
+
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* MODAL: Editar resultado de partido                                */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {editMatch && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}
+          onClick={() => setEditMatch(null)}>
+          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '420px', maxWidth: '95vw' }}
+            onClick={e => e.stopPropagation()}>
+
+            {/* Header */}
+            <div style={{ background: 'linear-gradient(135deg, #1D4ED8, #1E40AF)', borderRadius: '10px', padding: '16px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ fontSize: '24px' }}>✏️</span>
+              <div>
+                <h3 style={{ color: 'white', fontSize: '16px', fontWeight: '700', margin: 0 }}>Editar Resultado</h3>
+                <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: '12px', margin: 0 }}>
+                  {editMatch.round} · {editMatch.category}
+                </p>
+              </div>
+            </div>
+
+            {/* Jugadores */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
+              <div style={{ textAlign: 'center', padding: '10px', backgroundColor: '#F0FDF4', borderRadius: '8px' }}>
+                <div style={{ fontSize: '11px', color: '#6B7280', marginBottom: '4px' }}>Jugador 1</div>
+                <div style={{ fontSize: '13px', fontWeight: '600', color: '#1B3A1B' }}>{editMatch.player1Name || '—'}</div>
+              </div>
+              <span style={{ color: '#9CA3AF', fontWeight: '700' }}>vs</span>
+              <div style={{ textAlign: 'center', padding: '10px', backgroundColor: '#F0FDF4', borderRadius: '8px' }}>
+                <div style={{ fontSize: '11px', color: '#6B7280', marginBottom: '4px' }}>Jugador 2</div>
+                <div style={{ fontSize: '13px', fontWeight: '600', color: '#1B3A1B' }}>{editMatch.player2Name || '—'}</div>
+              </div>
+            </div>
+
+            {/* Sets */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '8px', textTransform: 'uppercase' }}>Sets</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', gap: '8px' }}>
+                <input type="number" min={0} max={3} value={editSets1}
+                  onChange={e => setEditSets1(e.target.value)}
+                  style={{ border: '2px solid #D1D5DB', borderRadius: '8px', padding: '10px', fontSize: '20px', fontWeight: '700', textAlign: 'center' }} />
+                <span style={{ color: '#9CA3AF', fontWeight: '700' }}>—</span>
+                <input type="number" min={0} max={3} value={editSets2}
+                  onChange={e => setEditSets2(e.target.value)}
+                  style={{ border: '2px solid #D1D5DB', borderRadius: '8px', padding: '10px', fontSize: '20px', fontWeight: '700', textAlign: 'center' }} />
+              </div>
+            </div>
+
+            {/* Games */}
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '8px', textTransform: 'uppercase' }}>Games totales</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', gap: '8px' }}>
+                <input type="number" min={0} value={editGames1}
+                  onChange={e => setEditGames1(e.target.value)}
+                  style={{ border: '2px solid #D1D5DB', borderRadius: '8px', padding: '10px', fontSize: '20px', fontWeight: '700', textAlign: 'center' }} />
+                <span style={{ color: '#9CA3AF', fontWeight: '700' }}>—</span>
+                <input type="number" min={0} value={editGames2}
+                  onChange={e => setEditGames2(e.target.value)}
+                  style={{ border: '2px solid #D1D5DB', borderRadius: '8px', padding: '10px', fontSize: '20px', fontWeight: '700', textAlign: 'center' }} />
+              </div>
+            </div>
+
+            {/* Ganador */}
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '8px', textTransform: 'uppercase' }}>Ganador</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                {[
+                  { id: editMatch.player1Id, name: editMatch.player1Name, label: 'Jugador 1' },
+                  { id: editMatch.player2Id, name: editMatch.player2Name, label: 'Jugador 2' },
+                ].map(p => {
+                  const isWinner = editMatch.winnerId === p.id;
+                  return (
+                    <button key={p.id}
+                      onClick={() => setEditMatch({ ...editMatch, winnerId: p.id })}
+                      style={{
+                        padding: '10px', borderRadius: '8px', cursor: 'pointer',
+                        border: isWinner ? '2px solid #16A34A' : '2px solid #E5E7EB',
+                        backgroundColor: isWinner ? '#F0FDF4' : 'white',
+                        color: isWinner ? '#166534' : '#374151',
+                        fontWeight: '600', fontSize: '12px',
+                      }}
+                    >
+                      {isWinner ? '🏆 ' : ''}{p.label}<br />
+                      <span style={{ fontWeight: '400', fontSize: '11px' }}>{p.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Botones */}
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                onClick={() => setEditMatch(null)}
+                style={{ flex: 1, padding: '11px', borderRadius: '8px', border: '1px solid #E5E7EB', backgroundColor: 'white', cursor: 'pointer', fontSize: '14px', fontWeight: '600' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    await api.patch(`/matches/${editMatch.id}/score`, {
+                      matchId: editMatch.id,
+                      sets1: Number(editSets1),
+                      sets2: Number(editSets2),
+                      games1: Number(editGames1),
+                      games2: Number(editGames2),
+                      points1: '0', points2: '0',
+                      winnerId: editMatch.winnerId,
+                    });
+                    queryClient.invalidateQueries({ queryKey: ['matches', id] });
+                    setEditMatch(null);
+                  } catch {
+                    alert('Error al guardar el resultado');
+                  }
+                }}
+                style={{
+                  flex: 2, padding: '11px', borderRadius: '8px', border: 'none',
+                  backgroundColor: '#1D4ED8', color: 'white',
+                  cursor: 'pointer', fontSize: '14px', fontWeight: '700',
+                }}
+              >
+                💾 Guardar resultado
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
