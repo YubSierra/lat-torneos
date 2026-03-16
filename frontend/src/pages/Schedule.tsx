@@ -463,6 +463,17 @@ export default function Schedule() {
     onSuccess: () => { refetchAll(); queryClient.invalidateQueries({ queryKey: ['pending-unscheduled', selectedTournament] }); },
   });
   
+  // ── Declarar W.O. (gana un jugador) ──────────────────────────────────────
+  const handleWalkover = async (matchId: string, winnerId: string) => {
+    try {
+      await api.patch(`/matches/${matchId}/walkover`, { winnerId });
+      refetchAll();
+      queryClient.invalidateQueries({ queryKey: ['pending-unscheduled', selectedTournament] });
+    } catch {
+      alert('❌ Error al declarar W.O.');
+    }
+  };
+
   // ── Eliminar programación de una fecha completa ───────────────────────────
   const clearScheduleMutation = useMutation({
     mutationFn: (date: string) =>
@@ -854,26 +865,69 @@ export default function Schedule() {
                                     </td>
                                     {isAdmin && (
                                       <td style={{ padding: '9px 12px', textAlign: 'center' }}>
-                                        {!isDone && (
-                                          <button
-                                            title="Liberar slot (dejar pendiente)"
-                                            onClick={() => {
-                                              if (confirm('¿Liberar este partido? Quedará pendiente sin horario asignado.')) {
-                                                unscheduleMutation.mutate(row.matchId || row.id);
-                                              }
-                                            }}
-                                            disabled={unscheduleMutation.isPending}
-                                            style={{
-                                              background: '#FEF2F2', border: '1px solid #FECACA',
-                                              borderRadius: '6px', padding: '4px 8px',
-                                              cursor: 'pointer', color: '#DC2626',
-                                              display: 'inline-flex', alignItems: 'center', gap: '4px',
-                                              fontSize: '11px', fontWeight: 600,
-                                            }}
-                                          >
-                                            <X size={12} /> Liberar
-                                          </button>
-                                        )}
+                                        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                                          {!isDone && (
+                                            <button
+                                              title="Liberar slot (dejar pendiente)"
+                                              onClick={() => {
+                                                if (confirm('¿Liberar este partido? Quedará pendiente sin horario asignado.')) {
+                                                  unscheduleMutation.mutate(row.matchId || row.id);
+                                                }
+                                              }}
+                                              disabled={unscheduleMutation.isPending}
+                                              style={{
+                                                background: '#FEF2F2', border: '1px solid #FECACA',
+                                                borderRadius: '6px', padding: '4px 8px',
+                                                cursor: 'pointer', color: '#DC2626',
+                                                display: 'inline-flex', alignItems: 'center', gap: '4px',
+                                                fontSize: '11px', fontWeight: 600,
+                                              }}
+                                            >
+                                              <X size={12} /> Liberar
+                                            </button>
+                                          )}
+                                          {!isDone && (
+                                            <button
+                                              title="W.O. — gana jugador 1"
+                                              onClick={() => {
+                                                if (confirm('¿Declarar W.O.? El jugador 1 gana 6-0 6-0')) {
+                                                  handleWalkover(row.matchId || row.id, row.player1Id);
+                                                }
+                                              }}
+                                              style={{
+                                                backgroundColor: '#FEF3C7', color: '#92400E',
+                                                padding: '4px 8px', borderRadius: '6px',
+                                                border: 'none', cursor: 'pointer', fontSize: '11px',
+                                                fontWeight: 600,
+                                              }}
+                                            >
+                                              W.O.
+                                            </button>
+                                          )}
+                                          {!isDone && (
+                                            <button
+                                              title="Doble W.O. — ninguno se presentó"
+                                              onClick={async () => {
+                                                if (!confirm('⚠️ ¿Doble W.O.?\n\nNingún jugador se presentó.\nEl partido quedará 0-0 sin ganador.')) return;
+                                                try {
+                                                  await api.patch(`/matches/${row.matchId || row.id}/double-walkover`);
+                                                  refetchAll();
+                                                  queryClient.invalidateQueries({ queryKey: ['pending-unscheduled', selectedTournament] });
+                                                } catch {
+                                                  alert('❌ Error al declarar Doble W.O.');
+                                                }
+                                              }}
+                                              style={{
+                                                backgroundColor: '#F3F4F6', color: '#6B7280',
+                                                padding: '4px 8px', borderRadius: '6px',
+                                                border: '1px solid #D1D5DB', cursor: 'pointer', fontSize: '11px',
+                                                fontWeight: 600,
+                                              }}
+                                            >
+                                              D.W.O.
+                                            </button>
+                                          )}
+                                        </div>
                                       </td>
                                     )}
                                   </tr>
@@ -1333,7 +1387,15 @@ export default function Schedule() {
                 onClick={() => {
                   if (!modalExportDate) return;
                   const tournament = (tournaments as any[]).find((t: any) => t.id === selectedTournament);
-                  const rowsForDay = scheduleRows.filter((r: any) => r.date === modalExportDate);
+
+                  // Filtrar flatSchedule por el día seleccionado
+                  const rowsForDay = (flatSchedule as any[])
+                    .filter((r: any) => r.date === modalExportDate)
+                    .map((r: any) => ({
+                      ...r,
+                      court: r.courtName || r.court || 'Sin cancha',  // courtName es el campo correcto
+                    }));
+
                   exportSchedulePdf({
                     tournamentName: tournament?.name || 'Torneo',
                     date: modalExportDate,

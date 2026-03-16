@@ -29,6 +29,11 @@ export const matchesApi = {
     return res.data;
   },
 
+  declareDoubleWalkover: async (matchId: string) => {
+    const res = await api.patch(`/matches/${matchId}/double-walkover`);
+    return res.data;
+  },
+
   rescheduleMatch: async (matchId: string, data: {
     scheduledAt: string;
     courtId?: string;

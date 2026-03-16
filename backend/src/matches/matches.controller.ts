@@ -142,6 +142,14 @@ export class MatchesController {
     return this.matchesService.declareWalkover(id, body.winnerId);
   }
 
+  // PATCH /matches/:id/double-walkover — ninguno se presentó
+  // Sin ganador, sin puntos, resultado 0-0
+  @Patch(':id/double-walkover')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  declareDoubleWalkover(@Param('id') id: string) {
+    return this.matchesService.declareDoubleWalkover(id);
+  }
+
   // PATCH /matches/:id/unschedule — liberar partido (quitar horario)
   @Patch(':id/unschedule')
   @UseGuards(JwtAuthGuard)

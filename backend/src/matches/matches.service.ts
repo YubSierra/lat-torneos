@@ -129,6 +129,21 @@ export class MatchesService {
     return match;
   }
 
+  // ── DECLARAR DOBLE W.O. ─────────────────────────
+  // Ningún jugador se presentó — sin ganador, sin puntos, 0-0
+  async declareDoubleWalkover(id: string) {
+    const match    = await this.findOne(id);
+    match.winnerId = null;
+    match.status   = MatchStatus.WO;
+    match.sets1    = 0;
+    match.sets2    = 0;
+    match.games1   = 0;
+    match.games2   = 0;
+    // NO se llama advanceWinner — nadie avanza
+    await this.repo.save(match);
+    return match;
+  }
+
   // ── ESTADÍSTICAS DE JUGADOR ─────────────────────
   async getPlayerStats(playerId: string) {
     const asPlayer1 = await this.repo.find({ where: { player1Id: playerId } });

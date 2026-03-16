@@ -612,6 +612,15 @@ export default function Matches() {
       <WOModal
         isOpen={woModal.isOpen} match={woModal.match}
         onConfirm={handleWOConfirm}
+        onDoubleWO={async (matchId) => {
+          try {
+            await api.patch(`/matches/${matchId}/double-walkover`);
+            queryClient.invalidateQueries({ queryKey: ['matches'] });
+            setWoModal({ isOpen: false, match: null });
+          } catch {
+            alert('Error al declarar Doble W.O.');
+          }
+        }}
         onCancel={() => setWoModal({ isOpen: false, match: null })}
       />
       <SuspendModal
