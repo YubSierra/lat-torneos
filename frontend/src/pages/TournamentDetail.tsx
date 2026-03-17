@@ -259,6 +259,14 @@ export default function TournamentDetail() {
     );
   }
 
+  // Helper: BYE real vs slot pendiente
+  const getPlayerName = (m: any, player: 1 | 2) => {
+    const pid  = player === 1 ? m.player1Id   : m.player2Id;
+    const name = player === 1 ? m.player1Name : m.player2Name;
+    if (pid) return name;
+    return (m.status === 'completed' || m.status === 'wo') ? 'BYE' : 'Por definir';
+  };
+
   return (
     <div className="flex min-h-screen bg-lat-bg">
       <Sidebar />
@@ -693,10 +701,10 @@ export default function TournamentDetail() {
                         <span style={{ backgroundColor: '#DBEAFE', color: '#1D4ED8', padding: '2px 7px', borderRadius: '999px', fontSize: '11px', fontWeight: '600' }}>{m.category}</span>
                       </td>
                       <td style={{ padding: '9px 12px', fontWeight: m.winnerId === m.player1Id ? '700' : '400', color: m.player1Id ? '#1B3A1B' : '#9CA3AF' }}>
-                        {m.player1Name || 'BYE'}
+                        {getPlayerName(m, 1)}
                       </td>
                       <td style={{ padding: '9px 12px', fontWeight: m.winnerId === m.player2Id ? '700' : '400', color: m.player2Id ? '#1B3A1B' : '#9CA3AF' }}>
-                        {m.player2Name || 'BYE'}
+                        {getPlayerName(m, 2)}
                       </td>
                       <td style={{ padding: '9px 12px', fontWeight: '700', color: '#1B3A1B' }}>
                         {m.status === 'completed' || m.status === 'wo'

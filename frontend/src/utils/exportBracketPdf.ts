@@ -62,6 +62,9 @@ function getPlayerText(
   const name = player === 1 ? match.player1Name : match.player2Name;
   // Jugador real asignado → nombre completo
   if (id && name) return { text: fullName(name), placeholder: false };
+  // BYE real (partido completado, playerId null) → mostrar BYE
+  if (!id && name === 'BYE') return { text: 'BYE', placeholder: true };
+  // Slot pendiente (name === null): buscar en ronda anterior
   const prevIdx = matchIdx * 2 + (player === 1 ? 0 : 1);
   const prev    = prevMatches[prevIdx];
   if (prev) {

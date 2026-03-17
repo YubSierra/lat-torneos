@@ -50,10 +50,17 @@ export class MatchesService {
       ]),
     );
 
+    const isBye = (m: Match) =>
+      m.status === MatchStatus.COMPLETED || m.status === MatchStatus.WO;
+
     return matches.map((m) => ({
       ...m,
-      player1Name: userMap.get(m.player1Id)?.name || 'BYE',
-      player2Name: userMap.get(m.player2Id)?.name || 'BYE',
+      player1Name: m.player1Id
+        ? (userMap.get(m.player1Id)?.name || m.player1Id)
+        : isBye(m) ? 'BYE' : null,
+      player2Name: m.player2Id
+        ? (userMap.get(m.player2Id)?.name || m.player2Id)
+        : isBye(m) ? 'BYE' : null,
       winnerName: userMap.get(m.winnerId)?.name || null,
       player1PhotoUrl: userMap.get(m.player1Id)?.photoUrl || null,
       player2PhotoUrl: userMap.get(m.player2Id)?.photoUrl || null,
