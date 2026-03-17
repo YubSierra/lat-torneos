@@ -261,10 +261,11 @@ export default function TournamentDetail() {
 
   // Helper: BYE real vs slot pendiente
   const getPlayerName = (m: any, player: 1 | 2) => {
-    const pid  = player === 1 ? m.player1Id   : m.player2Id;
-    const name = player === 1 ? m.player1Name : m.player2Name;
-    if (pid) return name;
-    return (m.status === 'completed' || m.status === 'wo') ? 'BYE' : 'Por definir';
+    const pid = player === 1 ? m.player1Id : m.player2Id;
+    if (pid) return player === 1 ? m.player1Name : m.player2Name;
+    // Sin playerId: si hay winnerId → BYE real (el otro avanzó directo)
+    //              si no hay winnerId → slot pendiente (esperando ganador)
+    return m.winnerId ? 'BYE' : 'Por definir';
   };
 
   return (
