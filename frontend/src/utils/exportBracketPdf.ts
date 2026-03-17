@@ -50,20 +50,31 @@ function lastName(name?: string): string {
   return parts.length >= 2 ? parts[1] : parts[0];
 }
 
+function fullName(name?: string): string {
+  if (!name || name === 'BYE') return name || 'BYE';
+  return name.trim();
+}
+
 function getPlayerText(
   match: Match, player: 1|2, prevMatches: Match[], matchIdx: number
 ): { text: string; placeholder: boolean } {
   const id   = player === 1 ? match.player1Id   : match.player2Id;
   const name = player === 1 ? match.player1Name : match.player2Name;
-  if (id && name) return { text: lastName(name), placeholder: false };
+  // Jugador real asignado → nombre completo
+  if (id && name) return { text: fullName(name), placeholder: false };
   const prevIdx = matchIdx * 2 + (player === 1 ? 0 : 1);
   const prev    = prevMatches[prevIdx];
   if (prev) {
     if (prev.winnerId) {
+      // Ganador conocido → solo apellido
       const wName = prev.winnerId === prev.player1Id ? prev.player1Name : prev.player2Name;
       return { text: `Gan.${lastName(wName)}`, placeholder: true };
     }
     if (prev.player1Name || prev.player2Name) {
+      // Si uno de los dos es BYE (sin id), el otro avanza directo → nombre completo
+      if (!prev.player1Id) return { text: fullName(prev.player2Name), placeholder: false };
+      if (!prev.player2Id) return { text: fullName(prev.player1Name), placeholder: false };
+      // Partido pendiente entre dos jugadores reales → solo apellidos
       return { text: `${lastName(prev.player1Name)}/${lastName(prev.player2Name)}`, placeholder: true };
     }
   }
@@ -382,9 +393,15 @@ export function exportBracketPdf({ tournamentName, matches, mode = 'both' }: Exp
     const catHeaderH     = 12;
     const needed         = catHeaderH + (mode !== 'maindraw' ? neededRRH : 0) + (mode !== 'rr' ? neededBracketH : 0);
 
-    // ── Nueva página solo si el RR solo no cabe — el bracket tiene su propio check ──
-    if (!isFirst && hasRR && mode !== 'maindraw') {
-      if (yPos + catHeaderH + neededRRH > pageH - FOOTER) {
+    // ── Salto de página entre categorías ────────────────────────────────
+    if (!isFirst) {
+      if (mode === 'maindraw') {
+        // Cada categoría arranca en página nueva
+        doc.addPage();
+        drawHeader();
+        yPos = 24;
+      } else if (hasRR && yPos + catHeaderH + neededRRH > pageH - FOOTER) {
+        // 'both' / 'rr': nueva página solo si no cabe
         doc.addPage();
         drawHeader();
         yPos = 24;
@@ -412,12 +429,13 @@ export function exportBracketPdf({ tournamentName, matches, mode = 'both' }: Exp
 
     // Main Draw — SVG cards (separador + bracket juntos en misma página)
     if ((mode === 'both' || mode === 'maindraw') && hasElim) {
-      const separatorH = (mode === 'both' && hasRR) ? 10 : 0;
-      const titleH     = 10;
+      const separatorH  = (mode === 'both' && hasRR) ? 10 : 0;
+      const titleH      = 10;
       const totalNeeded = separatorH + titleH + neededBracketH;
 
       // Si no caben separador + título + bracket juntos → nueva página
-      if (yPos + totalNeeded > pageH - FOOTER) {
+      // (en maindraw ya se hizo addPage por categoría arriba, no repetir)
+      if (mode !== 'maindraw' && yPos + totalNeeded > pageH - FOOTER) {
         doc.addPage();
         drawHeader();
         yPos = 24;
