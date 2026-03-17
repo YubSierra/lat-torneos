@@ -451,27 +451,53 @@ export class MatchesService {
     const byeCount = drawSize - qualifiers.length;
     const firstRound = this.getFirstRound(drawSize);
 
-    // Llenar con BYEs
-    const players = [...qualifiers];
-    for (let i = 0; i < byeCount; i++) players.push('BYE');
+    // ── DISTRIBUIR JUGADORES CON BYES CORRECTAMENTE ──
+    // Regla: los BYEs van junto a las siembras más altas (Q1 y Q2)
+    const bracket: (string | null)[] = new Array(drawSize).fill(null);
 
-    // Generar partidos
+    // Siembra 1 arriba, Siembra 2 abajo
+    bracket[0]            = qualifiers[0] ?? null;
+    bracket[drawSize - 1] = qualifiers[1] ?? null;
+
+    // Los BYEs van en las posiciones adyacentes a las siembras
+    const byePositions: number[] = [];
+    for (let half = 1; byePositions.length < byeCount; half *= 2) {
+      const candidates = [half, drawSize - 1 - half];
+      for (const pos of candidates) {
+        if (pos > 0 && pos < drawSize - 1 && !byePositions.includes(pos)) {
+          byePositions.push(pos);
+          if (byePositions.length >= byeCount) break;
+        }
+      }
+    }
+
+    // Llenar el resto con clasificados restantes (Q3, Q4, Q5...)
+    const remainingQualifiers = qualifiers.slice(2);
+    const availableSlots: number[] = [];
+    for (let i = 1; i < drawSize - 1; i++) {
+      if (!byePositions.includes(i)) availableSlots.push(i);
+    }
+    remainingQualifiers.forEach((q, i) => {
+      if (availableSlots[i] !== undefined) bracket[availableSlots[i]] = q;
+    });
+
+    // ── GENERAR PARTIDOS DESDE EL BRACKET ──
     const matches = [];
     for (let i = 0; i < drawSize; i += 2) {
-      const p1 = players[i];
-      const p2 = players[i + 1];
+      const p1 = bracket[i];
+      const p2 = bracket[i + 1];
 
-      if (p1 === 'BYE' || p2 === 'BYE') {
-        const winner = p1 === 'BYE' ? p2 : p1;
+      if (!p1 || !p2) {
+        const winner = p1 ?? p2;
         matches.push(
           this.repo.create({
             tournamentId,
             category,
             round: firstRound as any,
-            player1Id: p1 === 'BYE' ? null : p1,
-            player2Id: p2 === 'BYE' ? null : p2,
-            winnerId: winner,
-            status: MatchStatus.COMPLETED,
+            player1Id: p1 ?? null,
+            player2Id: p2 ?? null,
+            winnerId:  winner ?? null,
+            status:    MatchStatus.COMPLETED,
           }),
         );
       } else {
@@ -482,7 +508,7 @@ export class MatchesService {
             round: firstRound as any,
             player1Id: p1,
             player2Id: p2,
-            status: MatchStatus.PENDING,
+            status:    MatchStatus.PENDING,
           }),
         );
       }

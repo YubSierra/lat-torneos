@@ -74,6 +74,7 @@ export class ScheduleController {
       roundDurations: Record<string, number>;
       maxMatchesPerPlayer?: number;
       categories?: string[];
+      roundFilter?: string[];
     },
   ) {
     return this.schedulingService.generateSchedule(
@@ -83,6 +84,7 @@ export class ScheduleController {
       body.roundDurations,
       body.maxMatchesPerPlayer || 2,
       body.categories,
+      body.roundFilter,
     );
   }
 

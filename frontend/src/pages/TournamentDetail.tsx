@@ -57,7 +57,8 @@ export default function TournamentDetail() {
 
   // ── Main Draw modal ───────────────────────────────────────────────────
   const [rrStatus,          setRrStatus]          = useState<any>(null);
-  const [showMainDrawModal, setShowMainDrawModal] = useState(false);
+  const [showMainDrawModal,       setShowMainDrawModal]       = useState(false);
+  const [showExportBracketModal,  setShowExportBracketModal]  = useState(false);
   const [mdCategory,        setMdCategory]        = useState('');
   const [mdAdvancing,       setMdAdvancing]       = useState(1);
   const [rrCategories,      setRrCategories]      = useState<string[]>([]);
@@ -1073,8 +1074,8 @@ export default function TournamentDetail() {
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 {/* Exportar PDF */}
                 <button
-                  onClick={() => exportBracketPdf({ tournamentName: tournament?.name || 'Torneo', matches: bracketMatches })}
-                  style={{ display: 'flex', alignItems: 'center', gap: '7px', backgroundColor: '#1D4ED8', color: 'white', padding: '8px 14px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: '600' }}
+                  onClick={() => setShowExportBracketModal(true)}
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#1D4ED8', color: 'white', padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}
                 >
                   📄 Exportar PDF
                 </button>
@@ -1446,6 +1447,68 @@ export default function TournamentDetail() {
                 💾 Guardar resultado
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* MODAL: Selección tipo de exportación PDF del bracket             */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {showExportBracketModal && (
+        <div
+          style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}
+          onClick={() => setShowExportBracketModal(false)}
+        >
+          <div
+            style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '380px', maxWidth: '95vw' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#1B3A1B', marginBottom: '6px' }}>
+              📄 Exportar PDF
+            </h3>
+            <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '20px' }}>
+              ¿Qué deseas exportar?
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {[
+                { mode: 'both',     icon: '🎾', label: 'Todo el cuadro',   desc: 'Round Robin + Main Draw' },
+                { mode: 'rr',       icon: '📊', label: 'Solo Round Robin', desc: 'Grupos y posiciones' },
+                { mode: 'maindraw', icon: '🏆', label: 'Solo Main Draw',   desc: 'Cuadro de eliminación' },
+              ].map(({ mode, icon, label, desc }) => (
+                <button
+                  key={mode}
+                  onClick={() => {
+                    exportBracketPdf({
+                      tournamentName: tournament?.name || 'Torneo',
+                      matches: bracketMatches as any[],
+                      mode: mode as any,
+                    });
+                    setShowExportBracketModal(false);
+                  }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '14px',
+                    padding: '14px 16px', borderRadius: '10px', border: '2px solid #E5E7EB',
+                    backgroundColor: 'white', cursor: 'pointer', textAlign: 'left',
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = '#2D6A2D'; (e.currentTarget as HTMLElement).style.backgroundColor = '#F0FDF4'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = '#E5E7EB'; (e.currentTarget as HTMLElement).style.backgroundColor = 'white'; }}
+                >
+                  <span style={{ fontSize: '24px' }}>{icon}</span>
+                  <div>
+                    <div style={{ fontSize: '14px', fontWeight: '700', color: '#1B3A1B' }}>{label}</div>
+                    <div style={{ fontSize: '12px', color: '#6B7280' }}>{desc}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={() => setShowExportBracketModal(false)}
+              style={{ marginTop: '16px', width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #E5E7EB', backgroundColor: 'white', cursor: 'pointer', fontSize: '14px', color: '#6B7280' }}
+            >
+              Cancelar
+            </button>
           </div>
         </div>
       )}

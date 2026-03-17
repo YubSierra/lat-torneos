@@ -92,6 +92,25 @@ export default function Matches() {
     enabled: !!selectedTournament && showSuspended,
   });
 
+  const { data: flatSchedule = [] } = useQuery<any[]>({
+    queryKey: ['schedule-flat', selectedTournament],
+    queryFn: async () => {
+      const res = await api.get(`/tournaments/${selectedTournament}/schedule`);
+      const raw = res.data;
+      if (Array.isArray(raw)) return raw;
+      const flat: any[] = [];
+      Object.entries(raw).forEach(([date, sedes]: [string, any]) => {
+        Object.entries(sedes).forEach(([sede, courtMap]: [string, any]) => {
+          Object.entries(courtMap).forEach(([courtName, ms]: [string, any]) => {
+            (ms as any[]).forEach((m: any) => flat.push({ ...m, date, sede, courtName }));
+          });
+        });
+      });
+      return flat;
+    },
+    enabled: !!selectedTournament,
+  });
+
   // Datos del panel del jugador
   const { data: playerStats } = useQuery({
     queryKey: ['player-stats', playerPanel?.id],
@@ -438,6 +457,99 @@ export default function Matches() {
                   </div>
                 </div>
               )}
+
+              {/* ════════════════════════ PROGRAMADOS por sede/cancha ══ */}
+              {(() => {
+                const scheduled = (flatSchedule as any[]).filter(r =>
+                  r.time && r.time !== '—' && r.status !== 'completed' && r.status !== 'wo'
+                );
+                if (scheduled.length === 0) return null;
+
+                const byDate: Record<string, Record<string, Record<string, any[]>>> = {};
+                scheduled.forEach(r => {
+                  const date  = r.date      || '—';
+                  const sede  = r.sede      || 'Principal';
+                  const court = r.courtName || r.court || 'Sin cancha';
+                  if (!byDate[date])              byDate[date] = {};
+                  if (!byDate[date][sede])        byDate[date][sede] = {};
+                  if (!byDate[date][sede][court]) byDate[date][sede][court] = [];
+                  byDate[date][sede][court].push(r);
+                });
+
+                return (
+                  <div style={{ marginBottom: '24px' }}>
+                    <h2 style={{ fontSize: '15px', fontWeight: '800', color: '#1B3A1B', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      📅 Programados ({scheduled.length})
+                    </h2>
+                    {Object.entries(byDate).sort().map(([date, sedes]) => (
+                      <div key={date} style={{ marginBottom: '20px' }}>
+                        <div style={{ backgroundColor: '#1B3A1B', color: 'white', borderRadius: '8px', padding: '8px 14px', marginBottom: '12px', fontSize: '13px', fontWeight: '700' }}>
+                          📆 {new Date(date + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' }).toUpperCase()}
+                        </div>
+                        {Object.entries(sedes).map(([sede, courts]) => (
+                          <div key={sede} style={{ marginBottom: '16px' }}>
+                            <div style={{ backgroundColor: '#2D6A2D', color: 'white', borderRadius: '6px', padding: '6px 12px', marginBottom: '8px', fontSize: '12px', fontWeight: '700' }}>
+                              🏟️ {sede}
+                            </div>
+                            {Object.entries(courts).sort().map(([court, rows]) => (
+                              <div key={court} style={{ marginBottom: '12px', border: '1px solid #E5E7EB', borderRadius: '8px', overflow: 'hidden' }}>
+                                <div style={{ backgroundColor: '#F0FDF4', padding: '6px 12px', borderBottom: '1px solid #E5E7EB', fontSize: '12px', fontWeight: '700', color: '#166534' }}>
+                                  🎾 {court}
+                                </div>
+                                <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
+                                  <thead>
+                                    <tr style={{ backgroundColor: '#F9FAFB' }}>
+                                      {['Hora', 'Ronda', 'Cat.', 'Jugador 1', 'Jugador 2', 'Estado'].map(h => (
+                                        <th key={h} style={{ padding: '6px 10px', textAlign: 'left', color: '#6B7280', fontWeight: '600' }}>{h}</th>
+                                      ))}
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {(rows as any[]).sort((a, b) => a.time.localeCompare(b.time)).map((r: any, i: number) => (
+                                      <tr key={r.matchId || i} style={{ borderBottom: '1px solid #F3F4F6', backgroundColor: i % 2 === 0 ? 'white' : '#FAFAFA' }}>
+                                        <td style={{ padding: '7px 10px' }}>
+                                          <span style={{ backgroundColor: '#DCFCE7', color: '#15803D', padding: '2px 7px', borderRadius: '999px', fontSize: '11px', fontWeight: '700' }}>
+                                            {r.time}
+                                          </span>
+                                        </td>
+                                        <td style={{ padding: '7px 10px' }}>
+                                          <span style={{ padding: '2px 7px', borderRadius: '999px', fontSize: '11px', fontWeight: '600', backgroundColor: '#F3E8FF', color: '#6B21A8' }}>
+                                            {ROUND_LABELS[r.round] || r.round}
+                                          </span>
+                                        </td>
+                                        <td style={{ padding: '7px 10px' }}>
+                                          <span style={{ padding: '2px 7px', borderRadius: '999px', fontSize: '11px', backgroundColor: '#DBEAFE', color: '#1D4ED8' }}>
+                                            {r.category}
+                                          </span>
+                                        </td>
+                                        <td style={{ padding: '7px 10px', fontWeight: r.status === 'live' ? '700' : '500', color: '#1B3A1B' }}>
+                                          {r.player1 || <span style={{ color: '#9CA3AF' }}>Por definir</span>}
+                                        </td>
+                                        <td style={{ padding: '7px 10px', fontWeight: r.status === 'live' ? '700' : '500', color: '#1B3A1B' }}>
+                                          {r.player2 || <span style={{ color: '#9CA3AF' }}>Por definir</span>}
+                                        </td>
+                                        <td style={{ padding: '7px 10px' }}>
+                                          <span style={{
+                                            padding: '2px 7px', borderRadius: '999px', fontSize: '11px', fontWeight: '600',
+                                            backgroundColor: r.status === 'live' ? '#FEE2E2' : '#FEF9C3',
+                                            color: r.status === 'live' ? '#DC2626' : '#92400E',
+                                          }}>
+                                            {r.status === 'live' ? '🔴 En vivo' : '⏳ Programado'}
+                                          </span>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
 
               {/* ════════════════════════════════════════ PENDIENTES ══ */}
               <div className="bg-white rounded-xl shadow-sm overflow-hidden">

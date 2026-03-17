@@ -1,395 +1,450 @@
 // frontend/src/utils/exportBracketPdf.ts
-// ── CUADROS ONLY — sin lista de partidos ─────────────────────────────────────
-// RR    → tabla de posiciones por grupo  (Pos / Jugador / Siem. / PJ / V / D)
-// Main  → cuadro de llave visual por columnas (una columna por ronda)
-import jsPDF     from 'jspdf';
+import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-const RR_ROUNDS   = new Set(['RR', 'RR_A', 'RR_B']);
-const ELIM_ORDER  = ['R64', 'R32', 'R16', 'QF', 'SF', 'F', 'SF_M', 'F_M'];
-
-const ROUND_LABELS: Record<string, string> = {
-  R64: 'R64',  R32: 'R32',  R16: 'R16',
-  QF:  'Cuartos', SF: 'Semi', F: 'Final',
-  SF_M: 'Semi M.', F_M: 'Final M.',
-  RR: 'Round Robin', RR_A: 'Grupo A', RR_B: 'Grupo B',
-};
-
-const C_DARK  : [number,number,number] = [27,  58,  27];
-const C_MID   : [number,number,number] = [45,  106, 45];
-const C_WHITE : [number,number,number] = [255, 255, 255];
-const C_GRAY  : [number,number,number] = [249, 250, 251];
-const C_GREEN : [number,number,number] = [220, 252, 231];
-const C_GOLD  : [number,number,number] = [254, 249, 195];
-const C_BLUE  : [number,number,number] = [219, 234, 254];
-
-const PAGE_H        = 210;          // A4 landscape mm (alto)
-const FOOTER_H      = 14;
-const USABLE_BOTTOM = PAGE_H - FOOTER_H - 8;
-
 interface Match {
-  id         : string;
-  category   : string;
-  round      : string;
-  player1Id? : string;
-  player2Id? : string;
+  id: string;
+  category: string;
+  round: string;
   player1Name?: string;
   player2Name?: string;
-  seeding1?  : number | null;
-  seeding2?  : number | null;
-  winnerId?  : string;
-  status     : string;
-  groupLabel?: string | null;
+  player1Id?: string;
+  player2Id?: string;
+  seeding1?: number;
+  seeding2?: number;
+  winnerId?: string;
+  status: string;
+  scheduledAt?: string;
+  groupLabel?: string;
+  sets1?: number;
+  sets2?: number;
 }
 
-function estimateTableH(rows: number): number {
-  return 9 + rows * 8.5 + 4;   // header + filas + padding
-}
-
-function estimateGroupBlock(players: number): number {
-  return 9 + estimateTableH(players) + 6;
-}
-
-export function exportBracketPdf({ tournamentName, matches }: {
+export interface ExportOptions {
   tournamentName: string;
   matches: Match[];
-}) {
-  if (!matches?.length) { alert('No hay partidos para exportar'); return; }
+  mode?: 'both' | 'rr' | 'maindraw';
+}
 
-  const doc   = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-  const pageW = doc.internal.pageSize.getWidth();
-  let y = 0;
+// ── Constantes ─────────────────────────────────────────────────────────────
+const ELIM_ROUNDS = ['R64','R32','R16','QF','SF','F'];
+const RR_ROUNDS   = ['RR','RR_A','RR_B'];
+const ROUND_LABELS: Record<string,string> = {
+  R64:'R64', R32:'R32', R16:'R16',
+  QF:'Cuartos', SF:'Semifinal', F:'Final',
+  RR:'Round Robin', RR_A:'Grupo A', RR_B:'Grupo B',
+  SF_M:'SF Master', F_M:'Final Master',
+};
 
-  function newPage() { doc.addPage(); y = 15; }
-  function ensureSpace(needed: number) { if (y + needed > USABLE_BOTTOM) newPage(); }
+// Dimensiones tarjeta SVG en PDF (mm)
+const CARD_W  = 42;
+const CARD_H  = 14;
+const COL_GAP = 10;
+const ROW_GAP = 4;
+const SLOT_H  = CARD_H + ROW_GAP;
+const HEADER_H = 10; // altura reservada para el header de ronda
 
-  // ── Encabezado primera página ─────────────────────────────────────────────
-  doc.setFillColor(...C_DARK);
-  doc.rect(0, 0, pageW, 22, 'F');
-  doc.setTextColor(...C_WHITE);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(14);
-  doc.text('LIGA ANTIOQUEÑA DE TENIS', pageW / 2, 10, { align: 'center' });
-  doc.setFontSize(10);
-  doc.text(tournamentName.toUpperCase(), pageW / 2, 17, { align: 'center' });
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  doc.text(
-    `Exportado: ${new Date().toLocaleDateString('es-CO', { year:'numeric', month:'long', day:'numeric' })}`,
-    pageW - 12, 20, { align: 'right' },
+function lastName(name?: string): string {
+  if (!name || name === 'BYE') return name || 'BYE';
+  const parts = name.trim().split(' ');
+  return parts.length >= 2 ? parts[1] : parts[0];
+}
+
+function getPlayerText(
+  match: Match, player: 1|2, prevMatches: Match[], matchIdx: number
+): { text: string; placeholder: boolean } {
+  const id   = player === 1 ? match.player1Id   : match.player2Id;
+  const name = player === 1 ? match.player1Name : match.player2Name;
+  if (id && name) return { text: lastName(name), placeholder: false };
+  const prevIdx = matchIdx * 2 + (player === 1 ? 0 : 1);
+  const prev    = prevMatches[prevIdx];
+  if (prev) {
+    if (prev.winnerId) {
+      const wName = prev.winnerId === prev.player1Id ? prev.player1Name : prev.player2Name;
+      return { text: `Gan.${lastName(wName)}`, placeholder: true };
+    }
+    if (prev.player1Name || prev.player2Name) {
+      return { text: `${lastName(prev.player1Name)}/${lastName(prev.player2Name)}`, placeholder: true };
+    }
+  }
+  return { text: 'Por definir', placeholder: true };
+}
+
+// ── Tarjeta SVG ─────────────────────────────────────────────────────────────
+function drawMatchCard(
+  doc: jsPDF, x: number, y: number, match: Match,
+  p1: { text: string; placeholder: boolean },
+  p2: { text: string; placeholder: boolean },
+) {
+  const isDone = match.status === 'completed' || match.status === 'wo';
+  const isLive = match.status === 'live';
+
+  doc.setFillColor(
+    isLive ? 255 : isDone ? 240 : 255,
+    isLive ? 245 : isDone ? 253 : 255,
+    isLive ? 245 : isDone ? 244 : 255,
   );
-  y = 28;
+  doc.roundedRect(x, y, CARD_W, CARD_H, 1.5, 1.5, 'F');
+  doc.setDrawColor(
+    isLive ? 239 : isDone ? 134 : 200,
+    isLive ? 68  : isDone ? 239 : 200,
+    isLive ? 68  : isDone ? 172 : 200,
+  );
+  doc.setLineWidth(0.4);
+  doc.roundedRect(x, y, CARD_W, CARD_H, 1.5, 1.5, 'D');
+  doc.setDrawColor(230, 230, 230);
+  doc.setLineWidth(0.2);
+  doc.line(x + 1, y + CARD_H / 2, x + CARD_W - 1, y + CARD_H / 2);
 
-  // ── Agrupar por categoría ─────────────────────────────────────────────────
-  const byCategory: Record<string, Match[]> = {};
-  matches.forEach(m => {
-    if (!byCategory[m.category]) byCategory[m.category] = [];
-    byCategory[m.category].push(m);
-  });
+  const halfH = CARD_H / 2;
+  const textX = x + 2;
+  const maxW  = CARD_W - 10;
+  const p1Won = match.winnerId === match.player1Id;
+  const p2Won = match.winnerId === match.player2Id;
 
-  // ── Helper: nombre con siembra ────────────────────────────────────────────
-  function playerLabel(name: string | undefined, seed: number | null | undefined): string {
-    const n = name || 'BYE';
-    return seed ? `[${seed}] ${n}` : n;
+  doc.setFontSize(6.5);
+  doc.setFont('helvetica', p1Won ? 'bold' : 'normal');
+  doc.setTextColor(
+    p1.placeholder ? 150 : p1Won ? 21 : 31,
+    p1.placeholder ? 150 : p1Won ? 128 : 41,
+    p1.placeholder ? 150 : p1Won ? 61 : 51,
+  );
+  doc.text(doc.splitTextToSize(p1.text, maxW)[0] || p1.text, textX, y + halfH * 0.62);
+  if (isDone && match.sets1 !== undefined) {
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(p1Won ? 21 : 150, p1Won ? 128 : 150, p1Won ? 61 : 150);
+    doc.text(String(match.sets1), x + CARD_W - 3, y + halfH * 0.62, { align: 'right' });
   }
 
-  Object.entries(byCategory).forEach(([cat, catMatches]) => {
-
-    ensureSpace(14);
-    doc.setFillColor(...C_MID);
-    doc.rect(0, y - 1, pageW, 9, 'F');
-    doc.setTextColor(...C_WHITE);
+  doc.setFont('helvetica', p2Won ? 'bold' : 'normal');
+  doc.setTextColor(
+    p2.placeholder ? 150 : p2Won ? 21 : 31,
+    p2.placeholder ? 150 : p2Won ? 128 : 41,
+    p2.placeholder ? 150 : p2Won ? 61 : 51,
+  );
+  doc.text(doc.splitTextToSize(p2.text, maxW)[0] || p2.text, textX, y + halfH * 1.58);
+  if (isDone && match.sets2 !== undefined) {
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.text(`CATEGORÍA: ${cat.toUpperCase()}`, pageW / 2, y + 5.5, { align: 'center' });
-    y += 13;
+    doc.setTextColor(p2Won ? 21 : 150, p2Won ? 128 : 150, p2Won ? 61 : 150);
+    doc.text(String(match.sets2), x + CARD_W - 3, y + halfH * 1.58, { align: 'right' });
+  }
+}
 
-    const rrMatches   = catMatches.filter(m => RR_ROUNDS.has(m.round));
-    const elimMatches = catMatches.filter(m => ELIM_ORDER.includes(m.round));
+// ── Conectores ──────────────────────────────────────────────────────────────
+function drawConnector(doc: jsPDF, x: number, y1: number, y2: number, yMid: number) {
+  doc.setDrawColor(180, 200, 180);
+  doc.setLineWidth(0.3);
+  const h = COL_GAP / 2;
+  doc.line(x, y1, x + h, y1);
+  doc.line(x, y2, x + h, y2);
+  doc.line(x + h, y1, x + h, y2);
+  doc.line(x + h, yMid, x + COL_GAP, yMid);
+}
 
-    // ══════════════════════════════════════════════════════════════════════
-    // SECCIÓN RR — SOLO TABLA DE POSICIONES
-    // ══════════════════════════════════════════════════════════════════════
-    if (rrMatches.length > 0) {
+// ── Calcular altura total del bracket ───────────────────────────────────────
+function bracketHeight(firstCount: number): number {
+  return HEADER_H + firstCount * SLOT_H - ROW_GAP + 8;
+}
 
-      ensureSpace(12);
-      doc.setFillColor(...C_GREEN);
-      doc.setDrawColor(...C_MID);
-      doc.rect(10, y, pageW - 20, 7, 'FD');
-      doc.setTextColor(...C_MID);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.text('ROUND ROBIN — POSICIONES POR GRUPO', 14, y + 5);
-      y += 10;
+// ── Renderizar bracket de eliminación SVG ───────────────────────────────────
+function renderElimBracket(
+  doc: jsPDF, rounds: Record<string, Match[]>,
+  startX: number, startY: number,
+): number {
+  const existingRounds = ELIM_ROUNDS.filter(r => rounds[r]);
+  if (existingRounds.length === 0) return startY;
 
-      // Agrupar por groupLabel
-      const byGroup: Record<string, Match[]> = {};
-      rrMatches.forEach(m => {
-        const key = m.groupLabel ? String(m.groupLabel) : (ROUND_LABELS[m.round] ?? m.round);
-        if (!byGroup[key]) byGroup[key] = [];
-        byGroup[key].push(m);
-      });
+  const firstIdx  = ELIM_ROUNDS.indexOf(existingRounds[0]);
+  const allRounds = ELIM_ROUNDS.slice(firstIdx);
+  const firstCount = rounds[existingRounds[0]]?.length ?? 1;
 
-      Object.entries(byGroup).sort().forEach(([groupLabel, gMatches]) => {
-        // Jugadores únicos
-        const playerIds = new Set<string>();
-        gMatches.forEach(m => {
-          if (m.player1Id) playerIds.add(m.player1Id);
-          if (m.player2Id) playerIds.add(m.player2Id);
-        });
+  // Completar con placeholders
+  allRounds.forEach((r, idx) => {
+    if (!rounds[r]) {
+      const count = Math.max(1, Math.ceil(firstCount / Math.pow(2, idx)));
+      rounds[r] = Array.from({ length: count }, (_, i) => ({
+        id: `ph-${r}-${i}`, round: r, category: '', status: 'pending',
+      } as Match));
+    }
+  });
 
-        ensureSpace(estimateGroupBlock(playerIds.size));
+  // Posiciones top
+  function getTopPositions(roundIdx: number, count: number): number[] {
+    const base = startY + HEADER_H;
+    if (roundIdx === 0) return Array.from({ length: count }, (_, i) => base + i * SLOT_H);
+    const prev = getTopPositions(roundIdx - 1, count * 2);
+    return Array.from({ length: count }, (_, i) => {
+      const t1 = prev[i * 2];
+      const t2 = prev[i * 2 + 1] ?? t1;
+      return (t1 + t2) / 2;
+    });
+  }
 
-        // Header grupo
-        doc.setFillColor(240, 253, 244);
-        doc.setDrawColor(...C_MID);
-        doc.rect(10, y, pageW - 20, 7, 'FD');
-        doc.setTextColor(...C_MID);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(8.5);
-        doc.text(`GRUPO: ${groupLabel}`, 14, y + 5);
-        y += 9;
+  // Headers de ronda
+  allRounds.forEach((round, rIdx) => {
+    const colX = startX + rIdx * (CARD_W + COL_GAP);
+    doc.setFillColor(27, 58, 27);
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(255, 255, 255);
+    doc.roundedRect(colX, startY, CARD_W, 7, 1, 1, 'F');
+    doc.text(
+      `${ROUND_LABELS[round] || round} (${rounds[round]?.length || 0})`,
+      colX + CARD_W / 2, startY + 4.8, { align: 'center' },
+    );
+  });
 
-        // Calcular standings
-        const pm = new Map<string, {
-          name: string; seed: number | null;
-          w: number; l: number; pj: number;
-        }>();
+  // Tarjetas + conectores
+  allRounds.forEach((round, rIdx) => {
+    const roundMatches = rounds[round] ?? [];
+    const positions    = getTopPositions(rIdx, roundMatches.length);
+    const prevRound    = rIdx > 0 ? rounds[allRounds[rIdx - 1]] ?? [] : [];
+    const colX         = startX + rIdx * (CARD_W + COL_GAP);
 
-        gMatches.forEach(m => {
-          if (m.player1Id && !pm.has(m.player1Id))
-            pm.set(m.player1Id, { name: m.player1Name || 'Jugador', seed: m.seeding1 ?? null, w: 0, l: 0, pj: 0 });
-          if (m.player2Id && !pm.has(m.player2Id))
-            pm.set(m.player2Id, { name: m.player2Name || 'Jugador', seed: m.seeding2 ?? null, w: 0, l: 0, pj: 0 });
+    roundMatches.forEach((m, mIdx) => {
+      const p1 = getPlayerText(m, 1, prevRound, mIdx);
+      const p2 = getPlayerText(m, 2, prevRound, mIdx);
+      drawMatchCard(doc, colX, positions[mIdx], m, p1, p2);
+    });
 
-          if ((m.status === 'completed' || m.status === 'wo') && m.winnerId) {
-            const loserId = m.winnerId === m.player1Id ? m.player2Id : m.player1Id;
-            const winner  = pm.get(m.winnerId);
-            const loser   = loserId ? pm.get(loserId) : undefined;
-            if (winner) { winner.w++; winner.pj++; }
-            if (loser)  { loser.l++;  loser.pj++;  }
-          }
-        });
-
-        const sorted    = [...pm.entries()].sort((a, b) => b[1].w - a[1].w);
-        const pending   = gMatches.filter(m => m.status === 'pending').length;
-        const completed = gMatches.length - pending;
-
-        // ── SOLO tabla de posiciones — sin filas de partidos ─────────────
-        autoTable(doc, {
-          head: [['Pos.', 'Jugador', 'Siem.', 'PJ', 'V', 'D']],
-          body: sorted.map(([, p], i) => [
-            `${i + 1}`,
-            p.name,
-            p.seed ? `[${p.seed}]` : '-',
-            `${p.pj}`,
-            `${p.w}`,
-            `${p.l}`,
-          ]),
-          startY: y,
-          margin: { left: 10, right: 10 },
-          rowPageBreak: 'avoid',
-          pageBreak:    'avoid',
-          styles: { fontSize: 8.5, cellPadding: 3, valign: 'middle' },
-          headStyles: {
-            fillColor: C_DARK, textColor: C_WHITE,
-            fontStyle: 'bold', halign: 'center', fontSize: 8,
-          },
-          columnStyles: {
-            0: { halign: 'center', cellWidth: 13 },
-            2: { halign: 'center', cellWidth: 16 },
-            3: { halign: 'center', cellWidth: 13 },
-            4: { halign: 'center', cellWidth: 13 },
-            5: { halign: 'center', cellWidth: 13 },
-          },
-          alternateRowStyles: { fillColor: C_GRAY },
-          didParseCell: (data) => {
-            if (data.section === 'body' && data.row.index === 0) {
-              data.cell.styles.fillColor  = C_GREEN;
-              data.cell.styles.textColor  = C_DARK;
-              data.cell.styles.fontStyle  = 'bold';
-            }
-          },
-        });
-
-        y = (doc as any).lastAutoTable.finalY + 3;
-
-        doc.setFontSize(7);
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(107, 114, 128);
-        doc.text(
-          `Terminados: ${completed}/${gMatches.length}   Pendientes: ${pending}`,
-          14, y,
-        );
-        y += 9;
+    if (rIdx < allRounds.length - 1) {
+      const nextPositions = getTopPositions(rIdx + 1, (rounds[allRounds[rIdx + 1]] ?? []).length);
+      roundMatches.forEach((_, mIdx) => {
+        if (mIdx % 2 !== 0) return;
+        const y1   = positions[mIdx] + CARD_H / 2;
+        const y2   = (positions[mIdx + 1] ?? positions[mIdx]) + CARD_H / 2;
+        const yMid = (nextPositions[Math.floor(mIdx / 2)] ?? positions[mIdx]) + CARD_H / 2;
+        drawConnector(doc, colX + CARD_W, y1, y2, yMid);
       });
     }
+  });
 
-    // ══════════════════════════════════════════════════════════════════════
-    // SECCIÓN MAIN DRAW — CUADRO VISUAL POR COLUMNAS
-    // Cada columna = una ronda | cada celda = nombre del jugador/siembra
-    // ══════════════════════════════════════════════════════════════════════
-    if (elimMatches.length > 0) {
+  return startY + bracketHeight(firstCount);
+}
 
-      ensureSpace(20);
-      doc.setFillColor(...C_BLUE);
-      doc.setDrawColor(59, 130, 246);
-      doc.rect(10, y, pageW - 20, 7, 'FD');
-      doc.setTextColor(30, 64, 175);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.text('CUADRO PRINCIPAL (MAIN DRAW)', 14, y + 5);
-      y += 10;
+// ── RR — solo tabla de posiciones ──────────────────────────────────────────
+function renderRR(
+  doc: jsPDF, rounds: Record<string, Match[]>,
+  startY: number, pageW: number, margin: number,
+  drawHeader: () => void, pageH: number, footerH: number,
+): number {
+  const rrPresent = RR_ROUNDS.filter(r => rounds[r]);
+  if (rrPresent.length === 0) return startY;
 
-      // Rondas presentes, en orden
-      const presentRounds = ELIM_ORDER.filter(r =>
-        elimMatches.some(m => m.round === r)
-      );
+  const groups: Record<string, Match[]> = {};
+  rrPresent.forEach(r => {
+    rounds[r].forEach(m => {
+      const g = m.groupLabel || (r === 'RR_A' ? 'A' : r === 'RR_B' ? 'B' : 'A');
+      if (!groups[g]) groups[g] = [];
+      groups[g].push(m);
+    });
+  });
 
-      if (presentRounds.length === 0) return;
+  const entries = Object.entries(groups).sort();
+  const cols    = Math.min(entries.length, 2);
+  const colW    = Math.floor((pageW - margin * 2 - (cols - 1) * 4) / cols);
+  let   y       = startY;
+  let   maxRowH = 0;
+  let   colIdx  = 0;
 
-      // Para el cuadro visual, construimos una lista de "slots" por ronda.
-      // Cada slot = una celda con el nombre del jugador.
-      // Ronda inicial: todos los jugadores en pares (matchup por matchup)
-      // Rondas siguientes: ganador o "Por def." si el partido no terminó
+  // Calcular altura estimada de un grupo: header + filas (4-6 jugadores × 5mm) + padding
+  const groupHeight = (nPlayers: number) => 7 + (nPlayers + 1) * 5.5 + 4;
 
-      const firstRound  = presentRounds[0];
-      const firstMatches = elimMatches.filter(m => m.round === firstRound);
+  entries.forEach(([groupLabel, gMatches], gIdx) => {
+    // Al empezar una nueva fila (par de grupos)
+    if (gIdx > 0 && colIdx === 0) {
+      y += maxRowH + 5;
+      maxRowH = 0;
+    }
 
-      // Filas de la tabla = un matchup de la primera ronda (2 jugadores)
-      // Columnas = rondas presentes
-      const numRows = firstMatches.length * 2; // cada partido → 2 filas (p1 y p2)
+    // Contar jugadores únicos del grupo
+    const playerIds = new Set<string>();
+    gMatches.forEach(m => { if (m.player1Id) playerIds.add(m.player1Id); if (m.player2Id) playerIds.add(m.player2Id); });
+    const nPlayers = playerIds.size;
+    const estGroupH = groupHeight(nPlayers);
 
-      // Construir contenido columna por columna
-      // column[roundIndex] = array de strings (nombre por slot)
-      const columns: string[][] = presentRounds.map(round => {
-        const rMatches = elimMatches.filter(m => m.round === round);
-        const slots: string[] = [];
+    // Si estamos en la primera columna y el grupo no cabe → nueva página
+    if (colIdx === 0 && y + estGroupH > pageH - footerH) {
+      doc.addPage();
+      drawHeader();
+      y = 24;
+      maxRowH = 0;
+    }
 
-        rMatches.forEach(m => {
-          const p1 = playerLabel(m.player1Name, m.seeding1);
-          const p2 = playerLabel(m.player2Name, m.seeding2);
+    const gX = margin + colIdx * (colW + 4);
+    let   gY = y;
 
-          if (round === firstRound) {
-            // Primera ronda: mostrar los dos jugadores del matchup
-            slots.push(p1);
-            slots.push(p2);
-          } else {
-            // Rondas siguientes: solo el ganador (o placeholder)
-            const winner =
-              (m.status === 'completed' || m.status === 'wo') && m.winnerId
-                ? playerLabel(
-                    m.winnerId === m.player1Id ? m.player1Name : m.player2Name,
-                    m.winnerId === m.player1Id ? m.seeding1   : m.seeding2,
-                  )
-                : '···';
-            // Cada partido ocupa el doble de filas que la ronda siguiente
-            // → repetir el ganador para alinear visualmente
-            slots.push(winner);
-            slots.push('');   // fila vacía para el par
-          }
-        });
+    // Header grupo
+    doc.setFillColor(27, 58, 27);
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'bold');
+    const done = gMatches.filter(m => m.status === 'completed' || m.status === 'wo').length;
+    doc.roundedRect(gX, gY, colW, 5.5, 1, 1, 'F');
+    doc.text(`Grupo ${groupLabel}  ${done}/${gMatches.length}`, gX + colW / 2, gY + 3.8, { align: 'center' });
+    gY += 7;
 
-        // Rellenar hasta numRows si faltan filas
-        while (slots.length < numRows) slots.push('');
-        return slots;
+    // Standings
+    const standings: Record<string, { name: string; wins: number; losses: number }> = {};
+    gMatches.forEach(m => {
+      [[m.player1Id, m.player1Name],[m.player2Id, m.player2Name]].forEach(([pid, name]) => {
+        if (!pid) return;
+        if (!standings[pid]) standings[pid] = { name: name || '', wins: 0, losses: 0 };
       });
+      if (m.winnerId && (m.status === 'completed' || m.status === 'wo')) {
+        if (standings[m.winnerId]) standings[m.winnerId].wins++;
+        const loserId = m.winnerId === m.player1Id ? m.player2Id : m.player1Id;
+        if (loserId && standings[loserId]) standings[loserId].losses++;
+      }
+    });
+    const sorted = Object.entries(standings).sort(([,a],[,b]) => b.wins - a.wins);
 
-      // Encabezados de columna
-      const head = [presentRounds.map(r => (ROUND_LABELS[r] ?? r).toUpperCase())];
+    autoTable(doc, {
+      head: [['#', 'Jugador', 'V', 'D']],
+      body: sorted.map(([,s], pos) => [pos + 1, s.name, s.wins, s.losses]),
+      startY: gY,
+      margin: { left: gX, right: pageW - gX - colW },
+      tableWidth: colW,
+      pageBreak: 'avoid',
+      styles: { fontSize: 6.5, cellPadding: 1.5, lineColor: [200,220,200], lineWidth: 0.2, overflow: 'linebreak' },
+      headStyles: { fillColor: [45,106,45], textColor: [255,255,255], fontStyle: 'bold', fontSize: 6.5 },
+      columnStyles: {
+        0: { cellWidth: 6,  halign: 'center' },
+        2: { cellWidth: 8,  halign: 'center', textColor: [21,128,61] },
+        3: { cellWidth: 8,  halign: 'center', textColor: [220,38,38] },
+      },
+      alternateRowStyles: { fillColor: [240,253,244] },
+    });
 
-      // Cuerpo: transponer columnas → filas
-      const body: string[][] = [];
-      for (let row = 0; row < numRows; row++) {
-        body.push(columns.map(col => col[row] ?? ''));
+    const groupBottom = (doc as any).lastAutoTable.finalY;
+    maxRowH = Math.max(maxRowH, groupBottom - y);
+    colIdx  = (colIdx + 1) % cols;
+  });
+
+  return y + maxRowH + 8;
+}
+
+// ── FUNCIÓN PRINCIPAL ───────────────────────────────────────────────────────
+export function exportBracketPdf({ tournamentName, matches, mode = 'both' }: ExportOptions) {
+  const doc    = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const pageW  = doc.internal.pageSize.getWidth();
+  const pageH  = doc.internal.pageSize.getHeight();
+  const MARGIN = 12;
+  const FOOTER = 12; // espacio reservado para footer
+
+  const drawHeader = () => {
+    doc.setFillColor(27, 58, 27);
+    doc.rect(0, 0, pageW, 20, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(16); doc.setFont('helvetica', 'bold');
+    const title = mode === 'rr'       ? 'LAT — ROUND ROBIN'
+                : mode === 'maindraw' ? 'LAT — CUADRO DE ELIMINACION DIRECTA'
+                :                       'LAT — CUADRO DE LLAVES';
+    doc.text(title, pageW / 2, 9, { align: 'center' });
+    doc.setFontSize(10); doc.setFont('helvetica', 'normal');
+    doc.text(tournamentName.toUpperCase(), pageW / 2, 16, { align: 'center' });
+  };
+
+  const drawFooter = (p: number, total: number) => {
+    doc.setFillColor(27, 58, 27);
+    doc.rect(0, pageH - FOOTER, pageW, FOOTER, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(7); doc.setFont('helvetica', 'normal');
+    doc.text('Liga Antioqueña de Tenis — Sistema LAT', MARGIN, pageH - 4);
+    doc.text(`Pag. ${p} / ${total}`, pageW - MARGIN, pageH - 4, { align: 'right' });
+  };
+
+  drawHeader();
+
+  // Agrupar por categoría
+  const byCategory: Record<string, Record<string, Match[]>> = {};
+  matches.forEach(m => {
+    if (!byCategory[m.category])          byCategory[m.category] = {};
+    if (!byCategory[m.category][m.round]) byCategory[m.category][m.round] = [];
+    byCategory[m.category][m.round].push(m);
+  });
+
+  let yPos    = 24;
+  let isFirst = true;
+
+  Object.entries(byCategory).forEach(([category, rounds]) => {
+    const hasRR   = RR_ROUNDS.some(r => rounds[r]);
+    const hasElim = ELIM_ROUNDS.some(r => rounds[r]);
+
+    if (mode === 'maindraw' && !hasElim) return;
+    if (mode === 'rr'       && !hasRR)   return;
+
+    // ── Calcular altura necesaria para el bracket ────────────────────────
+    const firstElimRound = ELIM_ROUNDS.find(r => rounds[r]);
+    const firstCount     = firstElimRound ? rounds[firstElimRound]?.length ?? 1 : 0;
+    const neededBracketH = firstCount > 0 ? bracketHeight(firstCount) + 20 : 0;
+    const neededRRH      = hasRR ? 80 : 0; // estimado RR
+    const catHeaderH     = 12;
+    const needed         = catHeaderH + (mode !== 'maindraw' ? neededRRH : 0) + (mode !== 'rr' ? neededBracketH : 0);
+
+    // ── Nueva página solo si el RR solo no cabe — el bracket tiene su propio check ──
+    if (!isFirst && hasRR && mode !== 'maindraw') {
+      if (yPos + catHeaderH + neededRRH > pageH - FOOTER) {
+        doc.addPage();
+        drawHeader();
+        yPos = 24;
+      }
+    }
+
+    isFirst = false;
+
+    // Header categoría
+    doc.setFillColor(45, 106, 45);
+    doc.rect(MARGIN, yPos - 4, pageW - MARGIN * 2, 8, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(11); doc.setFont('helvetica', 'bold');
+    doc.text(`CATEGORIA: ${category.toUpperCase()}`, pageW / 2, yPos + 1, { align: 'center' });
+    yPos += 10;
+
+    // RR — solo standings
+    if ((mode === 'both' || mode === 'rr') && hasRR) {
+      doc.setFontSize(8); doc.setFont('helvetica', 'bold');
+      doc.setTextColor(27, 58, 27);
+      doc.text('ROUND ROBIN — POSICIONES POR GRUPO', MARGIN, yPos + 3);
+      yPos += 7;
+      yPos = renderRR(doc, rounds, yPos, pageW, MARGIN, drawHeader, pageH, FOOTER);
+    }
+
+    // Main Draw — SVG cards (separador + bracket juntos en misma página)
+    if ((mode === 'both' || mode === 'maindraw') && hasElim) {
+      const separatorH = (mode === 'both' && hasRR) ? 10 : 0;
+      const titleH     = 10;
+      const totalNeeded = separatorH + titleH + neededBracketH;
+
+      // Si no caben separador + título + bracket juntos → nueva página
+      if (yPos + totalNeeded > pageH - FOOTER) {
+        doc.addPage();
+        drawHeader();
+        yPos = 24;
       }
 
-      // Número de columnas para calcular ancho
-      const colCount   = presentRounds.length;
-      const tableWidth = pageW - 20;
-      const colWidth   = tableWidth / colCount;
+      // Separador MAIN DRAW — en la misma página que el bracket
+      if (mode === 'both' && hasRR) {
+        doc.setDrawColor(180, 180, 180); doc.setLineWidth(0.3);
+        doc.line(MARGIN, yPos, pageW - MARGIN, yPos);
+        doc.setFontSize(7); doc.setFont('helvetica', 'bold');
+        doc.setTextColor(100, 100, 100);
+        doc.text('MAIN DRAW', pageW / 2, yPos + 3.5, { align: 'center' });
+        yPos += 8;
+      }
 
-      // Calcular si la tabla cabe
-      const tableH = estimateTableH(numRows);
-      ensureSpace(tableH + 10);
-
-      autoTable(doc, {
-        head,
-        body,
-        startY: y,
-        margin: { left: 10, right: 10 },
-        rowPageBreak: 'avoid',
-        styles: {
-          fontSize    : 8,
-          cellPadding : 3,
-          valign      : 'middle',
-          overflow    : 'linebreak',
-          minCellHeight: 9,
-        },
-        headStyles: {
-          fillColor: C_DARK,
-          textColor: C_WHITE,
-          fontStyle: 'bold',
-          halign   : 'center',
-          fontSize : 8,
-        },
-        columnStyles: Object.fromEntries(
-          presentRounds.map((_, i) => [i, { cellWidth: colWidth, halign: 'left' }])
-        ),
-        alternateRowStyles: { fillColor: C_GRAY },
-        didParseCell: (data) => {
-          if (data.section !== 'body') return;
-
-          const val = String(data.cell.raw ?? '');
-
-          // Fila vacía (par sin jugador) → gris más oscuro
-          if (!val.trim()) {
-            data.cell.styles.fillColor  = [241, 245, 249];
-            return;
-          }
-
-          // Placeholder "···" (partido no jugado aún)
-          if (val === '···') {
-            data.cell.styles.textColor  = [156, 163, 175];
-            data.cell.styles.fontStyle  = 'italic';
-            return;
-          }
-
-          // Última columna (Final) → fondo dorado para el campeón
-          const isLastCol = data.column.index === presentRounds.length - 1;
-          if (isLastCol && val.trim() && val !== '···') {
-            data.cell.styles.fillColor  = C_GOLD;
-            data.cell.styles.textColor  = [146, 64, 14];
-            data.cell.styles.fontStyle  = 'bold';
-          }
-
-          // Siembras en verde oscuro
-          if (val.startsWith('[')) {
-            data.cell.styles.textColor  = C_DARK;
-            data.cell.styles.fontStyle  = 'bold';
-          }
-        },
-      });
-
-      y = (doc as any).lastAutoTable.finalY + 10;
+      doc.setFontSize(8); doc.setFont('helvetica', 'bold');
+      doc.setTextColor(27, 58, 27);
+      doc.text('CUADRO DE ELIMINACION DIRECTA', MARGIN, yPos + 3);
+      yPos += 8;
+      yPos = renderElimBracket(doc, rounds, MARGIN, yPos);
     }
   });
 
-  // ── Footer en todas las páginas ───────────────────────────────────────────
-  const total = doc.getNumberOfPages();
-  for (let p = 1; p <= total; p++) {
-    doc.setPage(p);
-    const fY = doc.internal.pageSize.getHeight() - 10;
-    doc.setFillColor(...C_DARK);
-    doc.rect(0, fY - 4, pageW, 14, 'F');
-    doc.setTextColor(...C_WHITE);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.text(
-      `${tournamentName} · Página ${p} de ${total}`,
-      pageW / 2, fY + 2, { align: 'center' },
-    );
-  }
+  // Footers
+  const totalPages = doc.getNumberOfPages();
+  for (let p = 1; p <= totalPages; p++) { doc.setPage(p); drawFooter(p, totalPages); }
 
-  doc.save(`Cuadro_${tournamentName.replace(/\s+/g, '_')}.pdf`);
+  const modeStr = mode === 'rr' ? 'RR' : mode === 'maindraw' ? 'MainDraw' : 'Cuadro';
+  doc.save(`${modeStr}_${tournamentName.replace(/\s+/g,'_')}.pdf`);
 }

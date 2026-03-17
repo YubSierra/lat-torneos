@@ -139,9 +139,11 @@ export function exportSchedulePdf(options: ExportOptions) {
             matches.map(m => {
               const roundLabel = ROUND_LABELS[m.round] || m.round;
               const cat = m.category || '';
+              const p1 = m.player1 && m.player1 !== 'BYE' ? m.player1 : `Ganador ${ROUND_LABELS[m.round] || m.round}`;
+              const p2 = m.player2 && m.player2 !== 'BYE' ? m.player2 : `Por definir`;
               return (
                 `${cat} — ${roundLabel}\n` +
-                `${m.player1 || '?'}\nvs.\n${m.player2 || '?'}\n` +
+                `${p1}\nvs.\n${p2}\n` +
                 `(${m.duration || ''}${m.gameSystem ? ' · ' + m.gameSystem : ''})`
               );
             }).join('\n\n')

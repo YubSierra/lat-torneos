@@ -16,6 +16,20 @@ const ROUND_LABELS: Record<string, string> = {
   RR_A: 'Grupo A', RR_B: 'Grupo B', SF_M: 'SF Máster', F_M: 'Final Máster',
 };
 
+const ROUNDS = [
+  { key: 'R64',  label: 'R64' },
+  { key: 'R32',  label: 'R32' },
+  { key: 'R16',  label: 'R16' },
+  { key: 'QF',   label: 'Cuartos' },
+  { key: 'SF',   label: 'Semifinal' },
+  { key: 'F',    label: 'Final' },
+  { key: 'RR',   label: 'Round Robin' },
+  { key: 'RR_A', label: 'Grupo A' },
+  { key: 'RR_B', label: 'Grupo B' },
+  { key: 'SF_M', label: 'SF Máster' },
+  { key: 'F_M',  label: 'Final Máster' },
+];
+
 const DEFAULT_DURATIONS: Record<string, number> = {
   R64: 75, R32: 75, R16: 75, QF: 90,
   SF: 120, F: 150, RR: 75, RR_A: 75, RR_B: 75, SF_M: 120, F_M: 150,
@@ -385,6 +399,7 @@ export default function Schedule() {
   const [showExportModal,      setShowExportModal]       = useState(false);
   const [modalDeleteDate,      setModalDeleteDate]       = useState('');
   const [modalExportDate,      setModalExportDate]       = useState('');
+  const [selectedRounds,       setSelectedRounds]        = useState<string[]>([]);
 
   // ── Queries ────────────────────────────────────────────────────────────────
   const { data: tournaments = [] } = useQuery({
@@ -448,6 +463,7 @@ export default function Schedule() {
         roundDurations,
         maxMatchesPerPlayer,
         categories: selectedCategories.length > 0 ? selectedCategories : undefined,
+        roundFilter: selectedRounds.length > 0 ? selectedRounds : undefined,
       });
       return res.data;
     },
@@ -845,11 +861,11 @@ export default function Schedule() {
                                       </span>
                                     </td>
                                     <td style={{ padding: '9px 12px', fontWeight: 500, color: '#111827' }}>
-                                      {row.player1Name || row.player1 || 'BYE'}
+                                      {row.player1Name || row.player1 || <span style={{ color: '#9CA3AF', fontSize: '11px' }}>Por definir</span>}
                                     </td>
                                     <td style={{ padding: '9px 4px', textAlign: 'center', color: '#9CA3AF', fontSize: '11px' }}>vs</td>
                                     <td style={{ padding: '9px 12px', fontWeight: 500, color: '#111827' }}>
-                                      {row.player2Name || row.player2 || 'BYE'}
+                                      {row.player2Name || row.player2 || <span style={{ color: '#9CA3AF', fontSize: '11px' }}>Por definir</span>}
                                     </td>
                                     <td style={{ padding: '9px 12px', textAlign: 'center', color: '#6B7280', fontSize: '12px' }}>
                                       {row.estimatedDuration || 90}min
@@ -1084,6 +1100,55 @@ export default function Schedule() {
                   ))}
                 </div>
               </div>
+            </div>
+
+            {/* Paso X — Filtro de rondas (opcional) */}
+            <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
+              <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#1B3A1B', marginBottom: '4px' }}>
+                🎯 Filtrar rondas a programar <span style={{ fontSize: '12px', color: '#9CA3AF', fontWeight: '400' }}>(opcional — vacío = todas)</span>
+              </h2>
+              <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '16px' }}>
+                Selecciona solo las rondas que quieres programar hoy. Útil para programar por días.
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                {ROUNDS.map(({ key, label }) => {
+                  const isSelected = selectedRounds.includes(key);
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setSelectedRounds(prev =>
+                        isSelected ? prev.filter(r => r !== key) : [...prev, key]
+                      )}
+                      style={{
+                        padding: '7px 14px', borderRadius: '8px', fontSize: '13px',
+                        fontWeight: '600', cursor: 'pointer', border: '2px solid',
+                        borderColor: isSelected ? '#2D6A2D' : '#E5E7EB',
+                        backgroundColor: isSelected ? '#F0FDF4' : 'white',
+                        color: isSelected ? '#166534' : '#6B7280',
+                      }}
+                    >
+                      {isSelected ? '✓ ' : ''}{label}
+                    </button>
+                  );
+                })}
+                {selectedRounds.length > 0 && (
+                  <button
+                    onClick={() => setSelectedRounds([])}
+                    style={{
+                      padding: '7px 14px', borderRadius: '8px', fontSize: '13px',
+                      fontWeight: '500', cursor: 'pointer', border: '1px solid #FECACA',
+                      backgroundColor: '#FEF2F2', color: '#DC2626',
+                    }}
+                  >
+                    ✕ Limpiar
+                  </button>
+                )}
+              </div>
+              {selectedRounds.length > 0 && (
+                <p style={{ fontSize: '12px', color: '#2D6A2D', marginTop: '10px', fontWeight: '600' }}>
+                  ✓ Solo se programarán: {selectedRounds.map(r => ROUNDS.find(x => x.key === r)?.label).join(', ')}
+                </p>
+              )}
             </div>
 
             {/* Paso 4: Observaciones */}

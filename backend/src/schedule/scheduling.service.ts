@@ -88,18 +88,17 @@ export class SchedulingService {
       ? [MatchStatus.PENDING, MatchStatus.SUSPENDED]
       : [MatchStatus.PENDING];
 
-    let matches = await this.matchRepo
+    let matchQuery = this.matchRepo
       .createQueryBuilder('match')
       .where('match.tournamentId = :tournamentId', { tournamentId })
       .andWhere('match.status IN (:...statuses)', { statuses: statusFilter })
-      .andWhere('match.scheduledAt IS NULL')   // ← ESTE ES EL FIX
-      .orderBy('match.createdAt', 'ASC')
-      .getMany();
+      .andWhere('match.scheduledAt IS NULL');
 
-    // Filtrar por ronda si se especificó
     if (roundFilter && roundFilter.length > 0) {
-      matches = matches.filter((m) => roundFilter.includes(m.round));
+      matchQuery = matchQuery.andWhere('match.round IN (:...rounds)', { rounds: roundFilter });
     }
+
+    let matches = await matchQuery.orderBy('match.createdAt', 'ASC').getMany();
 
     // 1b. Filtrar por categorías seleccionadas
     if (categories && categories.length > 0) {
