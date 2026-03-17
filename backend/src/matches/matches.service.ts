@@ -404,120 +404,61 @@ export class MatchesService {
   }
 
   // ── GENERAR MAIN DRAW DESDE RR ──────────────────
-  // advancingPerGroup: cuántos jugadores pasan por grupo (1 o 2)
   async generateMainDrawFromRR(
     tournamentId: string,
     category: string,
     advancingPerGroup: number = 1,
   ) {
     const status = await this.getRRGroupStatus(tournamentId, category);
-
     if (!status.allComplete) {
-      throw new HttpException(
-        'No todos los partidos del Round Robin están terminados',
-        HttpStatus.BAD_REQUEST,
-      );
+      throw new Error('No todos los partidos del Round Robin están terminados');
     }
 
-    // Bloquear si es grupo único — el ganador del RR es campeón, no hay Main Draw
-    if (status.groups.length === 1) {
-      throw new HttpException(
-        'Este torneo tiene un solo grupo — el ganador del Round Robin es campeón directamente. No se genera Main Draw.',
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-
-    const qualifiers: string[] = [];
-    status.groups.forEach((group) => {
-      group.standings
-        .slice(0, advancingPerGroup)
-        .forEach((p) => qualifiers.push(p.playerId));
+    // Clasificados: PRIMERO todos los 1ros (máxima prioridad de siembra = BYE),
+    // LUEGO todos los 2dos. Así los primeros siempre tienen BYE antes que los segundos.
+    const firstPlacers: string[] = [];
+    const secondPlacers: string[] = [];
+    status.groups.forEach(group => {
+      if (group.standings[0]) firstPlacers.push(group.standings[0].playerId);
+      if (advancingPerGroup >= 2 && group.standings[1]) secondPlacers.push(group.standings[1].playerId);
     });
+    const qualifiers = [...firstPlacers, ...secondPlacers];
 
-    if (qualifiers.length < 2) {
-      throw new Error(
-        `Solo hay ${qualifiers.length} clasificados. Mínimo 2 para generar Main Draw.`,
-      );
-    }
+    if (qualifiers.length < 2)
+      throw new Error('Se necesitan al menos 2 clasificados para generar el Main Draw');
 
-    const existingElim = await this.repo
-      .createQueryBuilder('m')
-      .where('m.tournamentId = :tid', { tid: tournamentId })
-      .andWhere('m.category = :cat', { cat: category })
-      .andWhere('m.round NOT IN (:...rrRounds)', {
-        rrRounds: ['RR', 'RR_A', 'RR_B'],
-      })
-      .getMany();
-
-    if (existingElim.length > 0) {
+    const existing = await this.repo.find({
+      where: { tournamentId, category, round: 'QF' as any },
+    });
+    if (existing.length > 0)
       throw new Error('El Main Draw ya fue generado para esta categoría');
-    }
 
-    // Calcular tamaño del cuadro
-    const drawSize = this.nextPowerOfTwo(qualifiers.length);
-    const byeCount = drawSize - qualifiers.length;
+    const drawSize   = this.nextPowerOfTwo(qualifiers.length);
+    const byeCount   = drawSize - qualifiers.length;
     const firstRound = this.getFirstRound(drawSize);
 
-    // ── DISTRIBUIR JUGADORES CON BYES CORRECTAMENTE ──
-    // Regla: los BYEs van junto a las siembras más altas (Q1 y Q2)
-    const bracket: (string | null)[] = new Array(drawSize).fill(null);
+    // Construir el cuadro con siembra ITF
+    const draw = this.buildITFDraw(qualifiers, byeCount, drawSize);
 
-    // Siembra 1 arriba, Siembra 2 abajo
-    bracket[0]            = qualifiers[0] ?? null;
-    bracket[drawSize - 1] = qualifiers[1] ?? null;
-
-    // Los BYEs van en las posiciones adyacentes a las siembras
-    const byePositions: number[] = [];
-    for (let half = 1; byePositions.length < byeCount; half *= 2) {
-      const candidates = [half, drawSize - 1 - half];
-      for (const pos of candidates) {
-        if (pos > 0 && pos < drawSize - 1 && !byePositions.includes(pos)) {
-          byePositions.push(pos);
-          if (byePositions.length >= byeCount) break;
-        }
-      }
-    }
-
-    // Llenar el resto con clasificados restantes (Q3, Q4, Q5...)
-    const remainingQualifiers = qualifiers.slice(2);
-    const availableSlots: number[] = [];
-    for (let i = 1; i < drawSize - 1; i++) {
-      if (!byePositions.includes(i)) availableSlots.push(i);
-    }
-    remainingQualifiers.forEach((q, i) => {
-      if (availableSlots[i] !== undefined) bracket[availableSlots[i]] = q;
-    });
-
-    // ── GENERAR PARTIDOS DESDE EL BRACKET ──
     const matches = [];
     for (let i = 0; i < drawSize; i += 2) {
-      const p1 = bracket[i];
-      const p2 = bracket[i + 1];
-
-      if (!p1 || !p2) {
-        const winner = p1 ?? p2;
-        matches.push(
-          this.repo.create({
-            tournamentId,
-            category,
-            round: firstRound as any,
-            player1Id: p1 ?? null,
-            player2Id: p2 ?? null,
-            winnerId:  winner ?? null,
-            status:    MatchStatus.COMPLETED,
-          }),
-        );
+      const p1 = draw[i];
+      const p2 = draw[i + 1];
+      if (p1 === 'BYE' || p2 === 'BYE') {
+        const winner = p1 === 'BYE' ? p2 : p1;
+        matches.push(this.repo.create({
+          tournamentId, category, round: firstRound as any,
+          player1Id: p1 === 'BYE' ? null : p1,
+          player2Id: p2 === 'BYE' ? null : p2,
+          winnerId: winner,
+          status: MatchStatus.COMPLETED,
+        }));
       } else {
-        matches.push(
-          this.repo.create({
-            tournamentId,
-            category,
-            round: firstRound as any,
-            player1Id: p1,
-            player2Id: p2,
-            status:    MatchStatus.PENDING,
-          }),
-        );
+        matches.push(this.repo.create({
+          tournamentId, category, round: firstRound as any,
+          player1Id: p1, player2Id: p2,
+          status: MatchStatus.PENDING,
+        }));
       }
     }
 
@@ -525,17 +466,72 @@ export class MatchesService {
 
     return {
       qualifiers: qualifiers.length,
-      drawSize,
-      byeCount,
-      firstRound,
+      drawSize, byeCount, firstRound,
       matches: matches.length,
-      groups: status.groups.map((g) => ({
+      groups: status.groups.map(g => ({
         group: `Grupo ${g.groupLabel}`,
-        classified: g.standings
-          .slice(0, advancingPerGroup)
-          .map((p) => p.playerName),
+        classified: g.standings.slice(0, advancingPerGroup).map(p => p.playerName),
       })),
     };
+  }
+
+  // ── SIEMBRA ITF ─────────────────────────────────────────────────────────────
+  // Reglas:
+  // 1. Los top `byeCount` seeds reciben BYE (prioridad a los 1ros de grupo)
+  // 2. Los restantes se emparejan: el mejor disponible vs el peor disponible
+  //    (S4 vs S_último, S5 vs S_penúltimo, etc.)
+  // 3. Los pares se ubican en posiciones ITF:
+  //    S1 arriba del cuadro, S2 abajo, S3/S4 en mitades opuestas, etc.
+  //    Garantía: S1 y S2 solo se ven en la Final.
+  //              S1-S4 solo se ven en Semis.
+  private buildITFDraw(seeds: string[], byeCount: number, drawSize: number): string[] {
+    const draw     = new Array<string>(drawSize).fill('BYE');
+    const numPairs = drawSize / 2;
+    const slots    = this.getITFSlotOrder(numPairs);
+
+    // Construir los grupos (seed, pareja)
+    const withBye = seeds.slice(0, byeCount);
+    const toPlay  = [...seeds.slice(byeCount)];
+
+    const pairs: [string, string][] = [];
+    withBye.forEach(s => pairs.push([s, 'BYE']));
+    // Emparejar: mejor vs peor de los que quedan
+    while (toPlay.length >= 2) pairs.push([toPlay.shift()!, toPlay.pop()!]);
+    if (toPlay.length === 1) pairs.push([toPlay[0], 'BYE']);
+
+    pairs.forEach(([seed, partner], idx) => {
+      if (idx >= slots.length) return;
+      const slot    = slots[idx];
+      const evenPos = slot * 2;
+      const oddPos  = slot * 2 + 1;
+
+      // Índice par  → seed en posición par del slot  (arriba del par)
+      // Índice impar → seed en posición impar del slot (abajo del par)
+      // Esto pone S1 en el top absoluto (pos 0) y S2 en el bottom absoluto (pos drawSize-1)
+      if (idx % 2 === 0) {
+        draw[evenPos] = seed;
+        draw[oddPos]  = partner;
+      } else {
+        draw[oddPos]  = seed;
+        draw[evenPos] = partner;
+      }
+    });
+
+    return draw;
+  }
+
+  // Orden de slots ITF por tamaño de cuadro (garantiza la separación correcta entre siembras)
+  private getITFSlotOrder(numPairs: number): number[] {
+    const orders: Record<number, number[]> = {
+      1:  [0],
+      2:  [0, 1],
+      4:  [0, 3, 2, 1],
+      8:  [0, 7, 4, 3, 2, 5, 1, 6],
+      16: [0, 15, 8, 7, 4, 11, 3, 12, 2, 9, 5, 14, 1, 10, 6, 13],
+      32: [0, 31, 16, 15, 8, 23, 7, 24, 4, 19, 11, 28, 3, 20, 12, 27,
+           2, 17, 9, 26, 5, 22, 14, 29, 1, 18, 10, 25, 6, 21, 13, 30],
+    };
+    return orders[numPairs] ?? Array.from({ length: numPairs }, (_, i) => i);
   }
 
   // ── ACTUALIZAR MARCADOR EN VIVO ─────────────────

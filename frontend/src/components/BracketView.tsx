@@ -222,6 +222,8 @@ function getPlayerInfo(
     const eliminated = !!match.winnerId && match.winnerId !== id;
     return { text: lastName(name), placeholder: false, eliminated };
   }
+  // BYE real: playerId null pero el partido ya fue completado (auto-avanzó)
+  if (!id && name === 'BYE') return { text: 'BYE', placeholder: true, eliminated: false };
 
   // Tiene label guardado
   if (label) return { text: label, placeholder: true, eliminated: false };
@@ -238,7 +240,12 @@ function getPlayerInfo(
         ? prevMatch.player1Name : prevMatch.player2Name;
       return { text: `Gan. ${lastName(winnerName)}`, placeholder: true, eliminated: false };
     }
-    // Si tiene jugadores pero sin ganador → mostrar "Gan. Apellido1 / Apellido2"
+    // Si uno es BYE → el otro avanza directo con nombre completo
+    if (!prevMatch.player1Id && prevMatch.player2Name && prevMatch.player2Name !== 'BYE')
+      return { text: prevMatch.player2Name, placeholder: false, eliminated: false };
+    if (!prevMatch.player2Id && prevMatch.player1Name && prevMatch.player1Name !== 'BYE')
+      return { text: prevMatch.player1Name, placeholder: false, eliminated: false };
+    // Ambos jugadores asignados pero sin ganador → apellidos
     if (prevMatch.player1Name || prevMatch.player2Name) {
       const n1 = lastName(prevMatch.player1Name);
       const n2 = lastName(prevMatch.player2Name);
