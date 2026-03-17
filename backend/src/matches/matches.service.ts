@@ -352,42 +352,104 @@ export class MatchesService {
       ).length;
 
       // Calcular standings
-      const standings = new Map<
-        string,
-        { wins: number; losses: number; name: string }
-      >();
-      gMatches.forEach((m) => {
-        if (!standings.has(m.player1Id)) {
-          standings.set(m.player1Id, {
-            wins: 0,
-            losses: 0,
-            name: userMap.get(m.player1Id) || m.player1Id,
-          });
-        }
-        if (!standings.has(m.player2Id)) {
-          standings.set(m.player2Id, {
-            wins: 0,
-            losses: 0,
-            name: userMap.get(m.player2Id) || m.player2Id,
-          });
-        }
-        if (m.winnerId) {
-          standings.get(m.winnerId)!.wins++;
-          const loserId =
-            m.winnerId === m.player1Id ? m.player2Id : m.player1Id;
-          if (standings.has(loserId)) standings.get(loserId)!.losses++;
+      const standings = new Map<string, {
+        wins: number; losses: number; name: string;
+        setsWon: number; setsLost: number;
+        gamesWon: number; gamesLost: number;
+      }>();
+
+      gMatches.forEach(m => {
+        if (m.player1Id && !standings.has(m.player1Id))
+          standings.set(m.player1Id, { wins: 0, losses: 0, name: userMap.get(m.player1Id) || m.player1Id, setsWon: 0, setsLost: 0, gamesWon: 0, gamesLost: 0 });
+        if (m.player2Id && !standings.has(m.player2Id))
+          standings.set(m.player2Id, { wins: 0, losses: 0, name: userMap.get(m.player2Id) || m.player2Id, setsWon: 0, setsLost: 0, gamesWon: 0, gamesLost: 0 });
+
+        if (m.status === MatchStatus.COMPLETED || m.status === MatchStatus.WO) {
+          const loserId = m.winnerId === m.player1Id ? m.player2Id : m.player1Id;
+          if (m.winnerId && standings.has(m.winnerId)) standings.get(m.winnerId)!.wins++;
+          if (loserId   && standings.has(loserId))    standings.get(loserId)!.losses++;
+          // Sets
+          if (standings.has(m.player1Id)) { standings.get(m.player1Id)!.setsWon  += m.sets1; standings.get(m.player1Id)!.setsLost += m.sets2; }
+          if (standings.has(m.player2Id)) { standings.get(m.player2Id)!.setsWon  += m.sets2; standings.get(m.player2Id)!.setsLost += m.sets1; }
+          // Games
+          if (standings.has(m.player1Id)) { standings.get(m.player1Id)!.gamesWon  += m.games1; standings.get(m.player1Id)!.gamesLost += m.games2; }
+          if (standings.has(m.player2Id)) { standings.get(m.player2Id)!.gamesWon  += m.games2; standings.get(m.player2Id)!.gamesLost += m.games1; }
         }
       });
 
-      const sorted = [...standings.entries()]
-        .sort((a, b) => b[1].wins - a[1].wins)
-        .map(([playerId, s], idx) => ({
-          position: idx + 1,
-          playerId,
-          playerName: s.name,
-          wins: s.wins,
-          losses: s.losses,
-        }));
+      // ── ORDENAR CON DESEMPATE ITF ──────────────────────────────────────────
+      // 1. Victorias  2. H2H entre empatados  3. % sets  4. % games
+      const entries = [...standings.entries()];
+
+      const sortedEntries = entries.sort(([idA, a], [idB, b]) => {
+        if (b.wins !== a.wins) return b.wins - a.wins;
+
+        // H2H entre los empatados con el mismo número de victorias
+        const tiedIds = entries
+          .filter(([, s]) => s.wins === a.wins)
+          .map(([id]) => id);
+
+        if (tiedIds.length === 2) {
+          // H2H directo entre los dos
+          const h2h = gMatches.find(m =>
+            (m.status === MatchStatus.COMPLETED || m.status === MatchStatus.WO) &&
+            ((m.player1Id === idA && m.player2Id === idB) ||
+             (m.player1Id === idB && m.player2Id === idA))
+          );
+          if (h2h?.winnerId === idA) return -1;
+          if (h2h?.winnerId === idB) return  1;
+        }
+
+        // % sets entre empatados
+        const tiedMatches = gMatches.filter(m =>
+          (m.status === MatchStatus.COMPLETED || m.status === MatchStatus.WO) &&
+          tiedIds.includes(m.player1Id) && tiedIds.includes(m.player2Id)
+        );
+        const calcSets = (id: string) => {
+          let w = 0, l = 0;
+          tiedMatches.forEach(m => {
+            if (m.player1Id === id) { w += m.sets1; l += m.sets2; }
+            if (m.player2Id === id) { w += m.sets2; l += m.sets1; }
+          });
+          return (w + l) > 0 ? w / (w + l) : 0;
+        };
+        const setPctDiff = calcSets(idB) - calcSets(idA);
+        if (Math.abs(setPctDiff) > 0.0001) return setPctDiff;
+
+        // % games entre empatados
+        const calcGames = (id: string) => {
+          let w = 0, l = 0;
+          tiedMatches.forEach(m => {
+            if (m.player1Id === id) { w += m.games1; l += m.games2; }
+            if (m.player2Id === id) { w += m.games2; l += m.games1; }
+          });
+          return (w + l) > 0 ? w / (w + l) : 0;
+        };
+        const gamePctDiff = calcGames(idB) - calcGames(idA);
+        if (Math.abs(gamePctDiff) > 0.0001) return gamePctDiff;
+
+        // % sets general
+        const setsA = (a.setsWon + a.setsLost) > 0 ? a.setsWon / (a.setsWon + a.setsLost) : 0;
+        const setsB = (b.setsWon + b.setsLost) > 0 ? b.setsWon / (b.setsWon + b.setsLost) : 0;
+        if (Math.abs(setsB - setsA) > 0.0001) return setsB - setsA;
+
+        // % games general
+        const gamesA = (a.gamesWon + a.gamesLost) > 0 ? a.gamesWon / (a.gamesWon + a.gamesLost) : 0;
+        const gamesB = (b.gamesWon + b.gamesLost) > 0 ? b.gamesWon / (b.gamesWon + b.gamesLost) : 0;
+        return gamesB - gamesA;
+      });
+
+      const sorted = sortedEntries.map(([playerId, s], idx) => ({
+        position: idx + 1,
+        playerId,
+        playerName: s.name,
+        wins: s.wins,
+        losses: s.losses,
+        setsWon: s.setsWon,
+        setsLost: s.setsLost,
+        gamesWon: s.gamesWon,
+        gamesLost: s.gamesLost,
+      }));
 
       groups.push({
         groupLabel,
