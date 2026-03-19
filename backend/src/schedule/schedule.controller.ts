@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, Put, UseGuards, Query } from '@nestjs/common';
 import { DrawService } from './draw.service';
 import { SchedulingService } from './scheduling.service';
 import { JwtAuthGuard } from '../auth/jwt.guard';
@@ -38,6 +38,16 @@ export class ScheduleController {
     );
   }
 
+  // PUT /tournaments/:id/draw/rr-groups  ← editar grupos RR manualmente
+  @Put('draw/rr-groups')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  editRRGroups(
+    @Param('tournamentId') tournamentId: string,
+    @Body() body: { category: string; groups: Record<string, string[]> },
+  ) {
+    return this.drawService.editRRGroups(tournamentId, body.category, body.groups);
+  }
+
   // POST /tournaments/:id/schedule/preview  ← simula, NO guarda
   @Post('schedule/preview')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -75,6 +85,7 @@ export class ScheduleController {
       maxMatchesPerPlayer?: number;
       categories?: string[];
       roundFilter?: string[];
+      restTimeBetweenMatches?: number;
     },
   ) {
     return this.schedulingService.generateSchedule(
@@ -82,9 +93,12 @@ export class ScheduleController {
       body.date,
       body.courts,
       body.roundDurations,
-      body.maxMatchesPerPlayer || 2,
+      body.maxMatchesPerPlayer ?? 2,
       body.categories,
       body.roundFilter,
+      true,
+      true,
+      body.restTimeBetweenMatches ?? 0,
     );
   }
 
@@ -92,5 +106,19 @@ export class ScheduleController {
   @Get('schedule')
   getSchedule(@Param('tournamentId') tournamentId: string) {
     return this.schedulingService.getSchedule(tournamentId);
+  }
+
+  // POST /tournaments/:id/draw/create-placeholders  ← crea SF/F placeholder para grupo único
+  @Post('draw/create-placeholders')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  createMainDrawPlaceholders(
+    @Param('tournamentId') tournamentId: string,
+    @Body() body: { category: string; advancingCount: number },
+  ) {
+    return this.drawService.createMainDrawPlaceholders(
+      tournamentId,
+      body.category,
+      body.advancingCount,
+    );
   }
 }

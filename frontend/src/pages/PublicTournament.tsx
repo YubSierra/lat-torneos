@@ -7,6 +7,7 @@ import { io, Socket } from 'socket.io-client';
 import { Trophy, ChevronRight, BarChart2, Calendar, X } from 'lucide-react';
 import api            from '../api/axios';
 import PlayerAvatar   from '../components/PlayerAvatar';
+import BracketView    from '../components/BracketView';
 
 // ── Constantes ────────────────────────────────────────────────────────────────
 const ROUND_LABELS: Record<string, string> = {
@@ -40,6 +41,7 @@ export default function PublicTournament() {
   const [selectedId, setSelectedId] = useState(paramId || '');
   const [scores, setScores]         = useState<LiveScores>({});
   const socketRef                   = useRef<Socket | null>(null);
+  const [tab, setTab]               = useState<'partidos' | 'cuadro' | 'honor'>('partidos');
 
   // Panel jugador
   const [playerPanel, setPlayerPanel] = useState<{
@@ -162,6 +164,7 @@ export default function PublicTournament() {
   const handleTournamentChange = (id: string) => {
     setSelectedId(id);
     setPlayerPanel(null);
+    setTab('partidos');
     if (id) navigate(`/torneo/${id}`, { replace: true });
     else    navigate('/torneo', { replace: true });
   };
@@ -212,16 +215,34 @@ export default function PublicTournament() {
             ))}
           </select>
           {tournament && (
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              <span style={{ padding: '3px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: '600', backgroundColor: '#DCFCE7', color: '#15803D' }}>
-                {tournament.status}
-              </span>
-              {tournament.circuitLine && (
-                <span style={{ padding: '3px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: '600', backgroundColor: '#EDE9FE', color: '#6D28D9' }}>
-                  {tournament.circuitLine}
+            <>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <span style={{ padding: '3px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: '600', backgroundColor: '#DCFCE7', color: '#15803D' }}>
+                  {tournament.status}
                 </span>
+                {tournament.circuitLine && (
+                  <span style={{ padding: '3px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: '600', backgroundColor: '#EDE9FE', color: '#6D28D9' }}>
+                    {tournament.circuitLine}
+                  </span>
+                )}
+              </div>
+              {(tournament.refereeName || tournament.directorName) && (
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
+                  {tournament.refereeName && (
+                    <span style={{ fontSize: '12px', color: '#374151' }}>
+                      🧑‍⚖️ <strong>Árbitro:</strong> {tournament.refereeName}
+                      {tournament.refereePhone && <span style={{ color: '#6B7280' }}> · {tournament.refereePhone}</span>}
+                    </span>
+                  )}
+                  {tournament.directorName && (
+                    <span style={{ fontSize: '12px', color: '#374151', marginLeft: '8px' }}>
+                      👔 <strong>Director:</strong> {tournament.directorName}
+                      {tournament.directorPhone && <span style={{ color: '#6B7280' }}> · {tournament.directorPhone}</span>}
+                    </span>
+                  )}
+                </div>
               )}
-            </div>
+            </>
           )}
         </div>
 
@@ -234,7 +255,31 @@ export default function PublicTournament() {
           </div>
         ) : (
           <>
-          {/* ── Barra de filtros ────────────────────────────────────────────── */}
+          {/* ── Tabs ────────────────────────────────────────────────────────── */}
+          <div style={{ backgroundColor: 'white', borderRadius: '14px', padding: '6px', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', display: 'flex', gap: '4px' }}>
+            {([
+              { key: 'partidos', label: '🎾 Partidos' },
+              { key: 'cuadro',   label: '🏆 Cuadro' },
+              { key: 'honor',    label: '🏅 Honor' },
+            ] as const).map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setTab(key)}
+                style={{
+                  flex: 1, padding: '9px 16px', borderRadius: '10px', border: 'none',
+                  cursor: 'pointer', fontSize: '14px', fontWeight: '700',
+                  backgroundColor: tab === key ? '#2D6A2D' : 'transparent',
+                  color: tab === key ? 'white' : '#6B7280',
+                  transition: 'all 0.15s',
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* ── Barra de filtros (solo en pestaña Partidos) ──────────────────── */}
+          {tab === 'partidos' && (
           <div style={{ backgroundColor: 'white', borderRadius: '14px', padding: '12px 16px', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
             <span style={{ fontSize: '13px', color: '#6B7280', fontWeight: '600', whiteSpace: 'nowrap' }}>🔍 Filtrar:</span>
 
@@ -284,7 +329,25 @@ export default function PublicTournament() {
               </span>
             )}
           </div>
+          )}
 
+          {/* ── PESTAÑA: CUADRO ─────────────────────────────────────────── */}
+          {tab === 'cuadro' && (
+            <div style={{ backgroundColor: 'white', borderRadius: '14px', padding: '20px', boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>
+              <BracketView
+                matches={matches as any[]}
+                isAdmin={false}
+              />
+            </div>
+          )}
+
+          {/* ── PESTAÑA: HONOR ───────────────────────────────────────────── */}
+          {tab === 'honor' && (
+            <HallOfHonor matches={matches as any[]} onOpenPlayer={openPlayer} />
+          )}
+
+          {/* ── PESTAÑA: PARTIDOS ────────────────────────────────────────── */}
+          {tab === 'partidos' && (
           <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
 
             {/* ── Columna principal ──────────────────────────────────────── */}
@@ -372,6 +435,7 @@ export default function PublicTournament() {
             )}
 
           </div>
+          )} {/* end tab === 'partidos' */}
           </>
         )}
 
@@ -966,4 +1030,133 @@ function EnrollmentBanner({ tournament }: { tournament: any }) {
   }
 
   return null;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CUADRO DE HONOR
+// ═════════════════════════════════════════════════════════════════════════════
+function HallOfHonor({
+  matches,
+  onOpenPlayer,
+}: {
+  matches: any[];
+  onOpenPlayer: (id: string, name: string, photoUrl?: string) => void;
+}) {
+  // Finals: 'F' (elimination) or 'F_M' (masters)
+  const finals = matches.filter(
+    (m: any) =>
+      (m.round === 'F' || m.round === 'F_M') &&
+      (m.status === 'completed' || m.status === 'wo'),
+  );
+
+  if (finals.length === 0) {
+    return (
+      <div style={{ backgroundColor: 'white', borderRadius: '14px', padding: '60px 20px', textAlign: 'center', boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>
+        <p style={{ fontSize: '48px', margin: '0 0 12px' }}>🏅</p>
+        <p style={{ color: '#374151', fontSize: '16px', fontWeight: '700', margin: '0 0 6px' }}>Cuadro de Honor</p>
+        <p style={{ color: '#9CA3AF', fontSize: '13px' }}>Aún no hay finales disputadas en este torneo</p>
+      </div>
+    );
+  }
+
+  // Group by category
+  const byCategory: Record<string, any[]> = {};
+  for (const m of finals) {
+    const cat = m.category || 'General';
+    if (!byCategory[cat]) byCategory[cat] = [];
+    byCategory[cat].push(m);
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+
+      {/* Header */}
+      <div style={{ backgroundColor: 'linear-gradient(135deg,#1B3A1B,#2D6A2D)', background: 'linear-gradient(135deg,#1B3A1B 0%,#2D6A2D 100%)', borderRadius: '14px', padding: '24px 20px', textAlign: 'center', boxShadow: '0 2px 8px rgba(27,58,27,0.3)' }}>
+        <p style={{ margin: '0 0 4px', fontSize: '36px' }}>🏅</p>
+        <p style={{ margin: 0, fontSize: '20px', fontWeight: '900', color: 'white', letterSpacing: '0.5px' }}>Cuadro de Honor</p>
+        <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'rgba(255,255,255,0.65)' }}>Campeones y finalistas por categoría</p>
+      </div>
+
+      {/* Cards per category */}
+      {Object.entries(byCategory).map(([category, categoryFinals]) => {
+        // Take the last final if there are multiple (shouldn't happen normally)
+        const final = categoryFinals[categoryFinals.length - 1];
+        const isP1Winner = final.winnerId === final.player1Id;
+        const winner   = isP1Winner
+          ? { id: final.player1Id, name: final.player1Name, photo: final.player1PhotoUrl }
+          : { id: final.player2Id, name: final.player2Name, photo: final.player2PhotoUrl };
+        const finalist = isP1Winner
+          ? { id: final.player2Id, name: final.player2Name, photo: final.player2PhotoUrl }
+          : { id: final.player1Id, name: final.player1Name, photo: final.player1PhotoUrl };
+
+        return (
+          <div
+            key={category}
+            style={{ backgroundColor: 'white', borderRadius: '14px', overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
+          >
+            {/* Category header */}
+            <div style={{ background: 'linear-gradient(90deg,#1B3A1B,#2D6A2D)', padding: '10px 20px' }}>
+              <p style={{ margin: 0, fontSize: '14px', fontWeight: '800', color: 'white', letterSpacing: '0.3px' }}>
+                🎾 {category}
+              </p>
+            </div>
+
+            {/* Podium */}
+            <div style={{ display: 'flex', gap: '0', alignItems: 'stretch' }}>
+
+              {/* Finalist (left) */}
+              <button
+                onClick={() => onOpenPlayer(finalist.id, finalist.name, finalist.photo)}
+                style={{ flex: 1, background: 'none', border: 'none', cursor: finalist.id ? 'pointer' : 'default', padding: '24px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', borderRight: '1px solid #F3F4F6', transition: 'background 0.15s' }}
+                onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#F9FAFB')}
+                onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+              >
+                <div style={{ position: 'relative' }}>
+                  <PlayerAvatar name={finalist.name || '?'} photoUrl={finalist.photo} size={72} borderColor="#D1D5DB" />
+                  <span style={{ position: 'absolute', bottom: -6, right: -6, fontSize: '22px', lineHeight: 1 }}>🥈</span>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <p style={{ margin: '0 0 2px', fontSize: '13px', fontWeight: '700', color: '#374151', lineHeight: 1.2 }}>{finalist.name || 'BYE'}</p>
+                  <p style={{ margin: 0, fontSize: '11px', color: '#9CA3AF', fontWeight: '600' }}>Finalista</p>
+                </div>
+              </button>
+
+              {/* Separator */}
+              <div style={{ width: '1px', backgroundColor: '#F3F4F6', flexShrink: 0 }} />
+
+              {/* Winner (center / right) */}
+              <button
+                onClick={() => onOpenPlayer(winner.id, winner.name, winner.photo)}
+                style={{ flex: 1, background: 'none', border: 'none', cursor: winner.id ? 'pointer' : 'default', padding: '20px 16px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', backgroundColor: '#FFFBEB', transition: 'background 0.15s' }}
+                onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#FEF9C3')}
+                onMouseLeave={e => (e.currentTarget.style.backgroundColor = '#FFFBEB')}
+              >
+                <div style={{ position: 'relative' }}>
+                  <div style={{ position: 'absolute', inset: -4, borderRadius: '50%', background: 'linear-gradient(135deg,#FBBF24,#F59E0B)', zIndex: 0, opacity: 0.25 }} />
+                  <PlayerAvatar name={winner.name || '?'} photoUrl={winner.photo} size={88} borderColor="#F59E0B" />
+                  <span style={{ position: 'absolute', bottom: -8, right: -8, fontSize: '28px', lineHeight: 1 }}>🥇</span>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <p style={{ margin: '0 0 2px', fontSize: '15px', fontWeight: '900', color: '#92400E', lineHeight: 1.2 }}>{winner.name || 'BYE'}</p>
+                  <p style={{ margin: 0, fontSize: '11px', color: '#B45309', fontWeight: '700', letterSpacing: '0.3px' }}>CAMPEÓN</p>
+                </div>
+              </button>
+
+            </div>
+
+            {/* Score footer */}
+            {(final.sets1 != null || final.score) && (
+              <div style={{ borderTop: '1px solid #F3F4F6', padding: '8px 20px', display: 'flex', justifyContent: 'center', gap: '6px', alignItems: 'center' }}>
+                <span style={{ fontSize: '11px', color: '#9CA3AF' }}>Resultado:</span>
+                <span style={{ fontSize: '12px', fontWeight: '700', color: '#374151', fontFamily: 'monospace' }}>
+                  {final.sets1 != null ? `${final.sets1}–${final.sets2}` : final.score || ''}
+                  {final.status === 'wo' ? ' (W.O.)' : ''}
+                </span>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
 }

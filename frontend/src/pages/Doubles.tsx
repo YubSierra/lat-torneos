@@ -15,7 +15,7 @@ const payColor = (status: string) => {
   return { bg: '#FEF9C3', color: '#92400E', label: '⏳ Pendiente' };
 };
 
-const PLAYER_CATEGORIES = ['PRIMERA','SEGUNDA','INTERMEDIA','TERCERA','CUARTA','QUINTA','SEXTA'];
+const DEFAULT_CATEGORIES = ['PRIMERA','SEGUNDA','INTERMEDIA','TERCERA','CUARTA','QUINTA','SEXTA'];
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function Doubles() {
@@ -32,6 +32,24 @@ export default function Doubles() {
 
   // ── Estado formulario nuevo jugador (dobles sin singles) ─────────────────
   const [showNewPlayerForm, setShowNewPlayerForm] = useState(false);
+  const [createError, setCreateError] = useState('');
+  const [search1, setSearch1] = useState('');
+  const [search2, setSearch2] = useState('');
+  const [open1, setOpen1] = useState(false);
+  const [open2, setOpen2] = useState(false);
+
+  // Editar pareja
+  const [showEditModal,  setShowEditModal]  = useState(false);
+  const [editTeam,       setEditTeam]       = useState<any>(null);
+  const [editData,       setEditData]       = useState({ player1Id: '', player2Id: '', teamName: '' });
+  const [editSearch1,    setEditSearch1]    = useState('');
+  const [editSearch2,    setEditSearch2]    = useState('');
+  const [editOpen1,      setEditOpen1]      = useState(false);
+  const [editOpen2,      setEditOpen2]      = useState(false);
+  const [editError,      setEditError]      = useState('');
+
+  // Confirmar eliminación
+  const [confirmDeleteTeam, setConfirmDeleteTeam] = useState<any>(null);
   const [newPlayer, setNewPlayer] = useState({
     nombres: '', apellidos: '', email: '',
     telefono: '', docNumber: '', category: 'TERCERA',
@@ -44,6 +62,12 @@ export default function Doubles() {
   });
 
   const tournament = (tournaments as any[]).find((t: any) => t.id === selectedTournament);
+
+  // Categorías del torneo seleccionado, o fallback a las por defecto
+  const tournamentCategories: string[] =
+    tournament?.categories?.length
+      ? tournament.categories.map((c: any) => c.name)
+      : DEFAULT_CATEGORIES;
 
   const { data: teams = [], refetch: refetchTeams } = useQuery({
     queryKey: ['doubles-teams', selectedTournament],
@@ -73,7 +97,11 @@ export default function Doubles() {
       refetchTeams();
       queryClient.invalidateQueries({ queryKey: ['doubles-unpaired', selectedTournament] });
       setShowCreateModal(false);
+      setCreateError('');
       setNewTeam({ player1Id: '', player2Id: '', teamName: '' });
+    },
+    onError: (err: any) => {
+      setCreateError(err?.response?.data?.message || 'Error al crear la pareja.');
     },
   });
 
@@ -87,6 +115,52 @@ export default function Doubles() {
       queryClient.invalidateQueries({ queryKey: ['doubles-unpaired', selectedTournament] });
       setShowPairModal(false);
       setPairPlayerId('');
+    },
+  });
+
+  // Eliminar pareja
+  const deleteMutation = useMutation({
+    mutationFn: async (teamId: string) => {
+      await api.delete(`/doubles/team/${teamId}`);
+    },
+    onSuccess: () => {
+      refetchTeams();
+      queryClient.invalidateQueries({ queryKey: ['doubles-unpaired', selectedTournament] });
+      setConfirmDeleteTeam(null);
+    },
+  });
+
+  // Editar pareja
+  const editMutation = useMutation({
+    mutationFn: async () => {
+      const res = await api.patch(`/doubles/team/${editTeam.id}`, editData);
+      return res.data;
+    },
+    onSuccess: () => {
+      refetchTeams();
+      queryClient.invalidateQueries({ queryKey: ['doubles-unpaired', selectedTournament] });
+      setShowEditModal(false);
+      setEditTeam(null);
+      setEditError('');
+    },
+    onError: (err: any) => {
+      setEditError(err?.response?.data?.message || 'Error al guardar los cambios.');
+    },
+  });
+
+  // Cambiar categoría de pareja
+  const changeCatMutation = useMutation({
+    mutationFn: async ({ teamId, newCategory }: { teamId: string; newCategory: string }) => {
+      const res = await api.patch(`/doubles/team/${teamId}/change-category`, { newCategory });
+      return res.data;
+    },
+    onSuccess: () => {
+      refetchTeams();
+      setEditTeam(null);
+      setShowEditModal(false);
+    },
+    onError: (err: any) => {
+      setEditError(err?.response?.data?.message || 'Error al cambiar la categoría.');
     },
   });
 
@@ -143,7 +217,7 @@ export default function Doubles() {
           </div>
           {selectedTournament && tournament?.hasDoubles && isAdmin && (
             <button
-              onClick={() => setShowCreateModal(true)}
+              onClick={() => { setShowCreateModal(true); setCreateError(''); setSearch1(''); setSearch2(''); setOpen1(false); setOpen2(false); }}
               style={{
                 display: 'flex', alignItems: 'center', gap: '8px',
                 backgroundColor: '#2D6A2D', color: 'white',
@@ -163,7 +237,10 @@ export default function Doubles() {
           </label>
           <select
             value={selectedTournament}
-            onChange={e => setSelectedTournament(e.target.value)}
+            onChange={e => {
+              setSelectedTournament(e.target.value);
+              setNewPlayer(p => ({ ...p, category: '' }));
+            }}
             style={{ border: '1px solid #D1D5DB', borderRadius: '8px', padding: '8px 12px', fontSize: '14px', minWidth: '300px' }}
           >
             <option value="">Seleccionar torneo...</option>
@@ -353,15 +430,36 @@ export default function Doubles() {
 
                           {/* Acciones */}
                           {isAdmin && (
-                            <td style={td}>
-                              {!team.player2Id && (
+                            <td style={{ ...td, whiteSpace: 'nowrap' }}>
+                              <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                                {!team.player2Id && (
+                                  <button
+                                    onClick={() => { setSelectedTeam(team); setShowPairModal(true); }}
+                                    style={{ backgroundColor: '#2D6A2D', color: 'white', padding: '4px 10px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '11px', fontWeight: '600' }}
+                                  >
+                                    Emparejar
+                                  </button>
+                                )}
                                 <button
-                                  onClick={() => { setSelectedTeam(team); setShowPairModal(true); }}
-                                  style={{ backgroundColor: '#2D6A2D', color: 'white', padding: '4px 10px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '11px', fontWeight: '600' }}
+                                  onClick={() => {
+                                    setEditTeam(team);
+                                    setEditData({ player1Id: team.player1Id, player2Id: team.player2Id || '', teamName: team.teamName || '' });
+                                    setEditSearch1(''); setEditSearch2('');
+                                    setEditOpen1(false); setEditOpen2(false);
+                                    setEditError('');
+                                    setShowEditModal(true);
+                                  }}
+                                  style={{ backgroundColor: '#1D4ED8', color: 'white', padding: '4px 10px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '11px', fontWeight: '600' }}
                                 >
-                                  Emparejar
+                                  Editar
                                 </button>
-                              )}
+                                <button
+                                  onClick={() => setConfirmDeleteTeam(team)}
+                                  style={{ backgroundColor: '#DC2626', color: 'white', padding: '4px 10px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '11px', fontWeight: '600' }}
+                                >
+                                  Eliminar
+                                </button>
+                              </div>
                             </td>
                           )}
                         </tr>
@@ -383,7 +481,12 @@ export default function Doubles() {
               </h2>
               {isAdmin && (
                 <button
-                  onClick={() => setShowNewPlayerForm(!showNewPlayerForm)}
+                  onClick={() => {
+                    if (!showNewPlayerForm) {
+                      setNewPlayer(p => ({ ...p, category: tournamentCategories[0] || '' }));
+                    }
+                    setShowNewPlayerForm(!showNewPlayerForm);
+                  }}
                   style={{
                     display: 'flex', alignItems: 'center', gap: '6px',
                     backgroundColor: '#F0FDF4', color: '#15803D',
@@ -424,7 +527,7 @@ export default function Doubles() {
                     onChange={e => setNewPlayer({ ...newPlayer, category: e.target.value })}
                     style={{ border: '1px solid #D1D5DB', borderRadius: '6px', padding: '6px 10px', fontSize: '12px' }}
                   >
-                    {PLAYER_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    {tournamentCategories.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
                 <div style={{ display: 'flex', gap: '8px' }}>
@@ -460,7 +563,7 @@ export default function Doubles() {
         {/* MODAL: NUEVA PAREJA                                            */}
         {/* ═══════════════════════════════════════════════════════════════ */}
         {showCreateModal && (
-          <div style={overlay} onClick={() => setShowCreateModal(false)}>
+          <div style={overlay} onClick={() => { setShowCreateModal(false); setOpen1(false); setOpen2(false); }}>
             <div style={modal} onClick={e => e.stopPropagation()}>
               <h3 style={modalTitle}>Nueva Pareja de Dobles</h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -469,23 +572,95 @@ export default function Doubles() {
                   <input value={newTeam.teamName} onChange={e => setNewTeam({ ...newTeam, teamName: e.target.value })}
                     style={inp} placeholder="Ej: Los Invencibles" />
                 </div>
-                <div>
+                {/* Jugador 1 — buscador */}
+                <div style={{ position: 'relative' }}>
                   <label style={lbl}>Jugador 1 <span style={{ color: '#EF4444' }}>*</span></label>
-                  <select value={newTeam.player1Id} onChange={e => setNewTeam({ ...newTeam, player1Id: e.target.value })} style={inp}>
-                    <option value="">Seleccionar jugador...</option>
-                    {(unpaired as any[]).map((p: any) => (
-                      <option key={p.id} value={p.id}>{p.name} — {p.category}</option>
-                    ))}
-                  </select>
+                  {newTeam.player1Id ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', border: '1.5px solid #2D6A2D', borderRadius: '8px', padding: '8px 12px', backgroundColor: '#F0FDF4' }}>
+                      <span style={{ flex: 1, fontSize: '13px', color: '#1B3A1B', fontWeight: '500' }}>
+                        {(unpaired as any[]).find(p => p.id === newTeam.player1Id)?.name} —{' '}
+                        <span style={{ color: '#6B7280', fontWeight: 400 }}>{(unpaired as any[]).find(p => p.id === newTeam.player1Id)?.category}</span>
+                      </span>
+                      <button onClick={() => { setNewTeam({ ...newTeam, player1Id: '' }); setSearch1(''); }}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', fontSize: '16px', lineHeight: 1 }}>✕</button>
+                    </div>
+                  ) : (
+                    <>
+                      <input
+                        autoFocus
+                        value={search1}
+                        onChange={e => { setSearch1(e.target.value); setOpen1(true); }}
+                        onFocus={() => setOpen1(true)}
+                        placeholder="Buscar jugador..."
+                        style={{ ...inp, marginBottom: 0 }}
+                      />
+                      {open1 && (
+                        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, backgroundColor: 'white', border: '1.5px solid #D1D5DB', borderTop: 'none', borderRadius: '0 0 8px 8px', maxHeight: '200px', overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+                          {(unpaired as any[])
+                            .filter(p => p.name.toLowerCase().includes(search1.toLowerCase()) || p.category.toLowerCase().includes(search1.toLowerCase()))
+                            .map((p: any) => (
+                              <div key={p.id}
+                                onMouseDown={() => { setNewTeam({ ...newTeam, player1Id: p.id }); setSearch1(''); setOpen1(false); }}
+                                style={{ padding: '9px 12px', cursor: 'pointer', fontSize: '13px', borderBottom: '1px solid #F3F4F6' }}
+                                onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#F0FDF4')}
+                                onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'white')}
+                              >
+                                <span style={{ fontWeight: '500', color: '#1B3A1B' }}>{p.name}</span>
+                                <span style={{ marginLeft: '8px', fontSize: '11px', color: '#6B7280' }}>{p.category}</span>
+                              </div>
+                            ))}
+                          {(unpaired as any[]).filter(p => p.name.toLowerCase().includes(search1.toLowerCase()) || p.category.toLowerCase().includes(search1.toLowerCase())).length === 0 && (
+                            <div style={{ padding: '10px 12px', color: '#9CA3AF', fontSize: '13px' }}>Sin resultados</div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
-                <div>
+
+                {/* Jugador 2 — buscador */}
+                <div style={{ position: 'relative' }}>
                   <label style={lbl}>Jugador 2 <span style={{ color: '#9CA3AF', fontWeight: 400 }}>(opcional — puedes emparejarlo después)</span></label>
-                  <select value={newTeam.player2Id} onChange={e => setNewTeam({ ...newTeam, player2Id: e.target.value })} style={inp}>
-                    <option value="">Sin compañero aún...</option>
-                    {(unpaired as any[]).filter(p => p.id !== newTeam.player1Id).map((p: any) => (
-                      <option key={p.id} value={p.id}>{p.name} — {p.category}</option>
-                    ))}
-                  </select>
+                  {newTeam.player2Id ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', border: '1.5px solid #2D6A2D', borderRadius: '8px', padding: '8px 12px', backgroundColor: '#F0FDF4' }}>
+                      <span style={{ flex: 1, fontSize: '13px', color: '#1B3A1B', fontWeight: '500' }}>
+                        {(unpaired as any[]).find(p => p.id === newTeam.player2Id)?.name} —{' '}
+                        <span style={{ color: '#6B7280', fontWeight: 400 }}>{(unpaired as any[]).find(p => p.id === newTeam.player2Id)?.category}</span>
+                      </span>
+                      <button onClick={() => { setNewTeam({ ...newTeam, player2Id: '' }); setSearch2(''); }}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', fontSize: '16px', lineHeight: 1 }}>✕</button>
+                    </div>
+                  ) : (
+                    <>
+                      <input
+                        value={search2}
+                        onChange={e => { setSearch2(e.target.value); setOpen2(true); }}
+                        onFocus={() => setOpen2(true)}
+                        placeholder="Buscar compañero (opcional)..."
+                        style={{ ...inp, marginBottom: 0 }}
+                      />
+                      {open2 && (
+                        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, backgroundColor: 'white', border: '1.5px solid #D1D5DB', borderTop: 'none', borderRadius: '0 0 8px 8px', maxHeight: '200px', overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+                          {(unpaired as any[])
+                            .filter(p => p.id !== newTeam.player1Id && (p.name.toLowerCase().includes(search2.toLowerCase()) || p.category.toLowerCase().includes(search2.toLowerCase())))
+                            .map((p: any) => (
+                              <div key={p.id}
+                                onMouseDown={() => { setNewTeam({ ...newTeam, player2Id: p.id }); setSearch2(''); setOpen2(false); }}
+                                style={{ padding: '9px 12px', cursor: 'pointer', fontSize: '13px', borderBottom: '1px solid #F3F4F6' }}
+                                onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#F0FDF4')}
+                                onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'white')}
+                              >
+                                <span style={{ fontWeight: '500', color: '#1B3A1B' }}>{p.name}</span>
+                                <span style={{ marginLeft: '8px', fontSize: '11px', color: '#6B7280' }}>{p.category}</span>
+                              </div>
+                            ))}
+                          {(unpaired as any[]).filter(p => p.id !== newTeam.player1Id && (p.name.toLowerCase().includes(search2.toLowerCase()) || p.category.toLowerCase().includes(search2.toLowerCase()))).length === 0 && (
+                            <div style={{ padding: '10px 12px', color: '#9CA3AF', fontSize: '13px' }}>Sin resultados</div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
 
                 {/* Preview cobro */}
@@ -512,7 +687,7 @@ export default function Doubles() {
 
                 {createMutation.isError && (
                   <p style={{ fontSize: '13px', color: '#DC2626', backgroundColor: '#FEF2F2', padding: '8px 12px', borderRadius: '8px' }}>
-                    ⚠️ Error al crear la pareja. Verifica que los jugadores estén disponibles.
+                    ⚠️ {createError || 'Error al crear la pareja.'}
                   </p>
                 )}
 
@@ -558,6 +733,175 @@ export default function Doubles() {
                   style={{ ...confirmBtnStyle, opacity: !pairPlayerId || pairMutation.isPending ? 0.6 : 1 }}
                 >
                   {pairMutation.isPending ? 'Guardando...' : 'Confirmar pareja'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ═══════════════════════════════════════════════════════════════ */}
+        {/* MODAL: EDITAR PAREJA                                           */}
+        {/* ═══════════════════════════════════════════════════════════════ */}
+        {showEditModal && editTeam && (
+          <div style={overlay} onClick={() => setShowEditModal(false)}>
+            <div style={modal} onClick={e => e.stopPropagation()}>
+              <h3 style={modalTitle}>Editar Pareja</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+
+                {/* Nombre */}
+                <div>
+                  <label style={lbl}>Nombre de la pareja (opcional)</label>
+                  <input value={editData.teamName} onChange={e => setEditData({ ...editData, teamName: e.target.value })}
+                    style={inp} placeholder="Ej: Los Invencibles" />
+                </div>
+
+                {/* Categoría — separado del recálculo de jugadores */}
+                <div style={{ backgroundColor: '#FFF7ED', border: '1px solid #FDBA74', borderRadius: '10px', padding: '12px' }}>
+                  <label style={{ ...lbl, color: '#C2410C', marginBottom: '8px' }}>Categoría de la pareja</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <select
+                      value={editTeam?.category || ''}
+                      onChange={async e => {
+                        const newCat = e.target.value;
+                        if (!newCat || newCat === editTeam?.category) return;
+                        changeCatMutation.mutate({ teamId: editTeam.id, newCategory: newCat });
+                      }}
+                      disabled={changeCatMutation.isPending}
+                      style={{ ...inp, marginBottom: 0, flex: 1, borderColor: '#FDBA74' }}
+                    >
+                      {tournamentCategories.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    {changeCatMutation.isPending && <span style={{ fontSize: '11px', color: '#C2410C' }}>Guardando...</span>}
+                  </div>
+                  <p style={{ fontSize: '11px', color: '#92400E', marginTop: '6px', marginBottom: 0 }}>
+                    ⚠️ Solo disponible si no hay cuadros generados para esta categoría.
+                  </p>
+                </div>
+
+                {/* Jugador 1 */}
+                <div style={{ position: 'relative' }}>
+                  <label style={lbl}>Jugador 1 <span style={{ color: '#EF4444' }}>*</span></label>
+                  {editData.player1Id ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', border: '1.5px solid #2D6A2D', borderRadius: '8px', padding: '8px 12px', backgroundColor: '#F0FDF4' }}>
+                      <span style={{ flex: 1, fontSize: '13px', color: '#1B3A1B', fontWeight: '500' }}>
+                        {[...(unpaired as any[]), { id: editTeam.player1Id, name: editTeam.player1Name, category: editTeam.category }, { id: editTeam.player2Id, name: editTeam.player2Name, category: editTeam.category }]
+                          .find(p => p?.id === editData.player1Id)?.name}
+                      </span>
+                      <button onClick={() => { setEditData({ ...editData, player1Id: '' }); setEditSearch1(''); }}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', fontSize: '16px', lineHeight: 1 }}>✕</button>
+                    </div>
+                  ) : (
+                    <>
+                      <input autoFocus value={editSearch1}
+                        onChange={e => { setEditSearch1(e.target.value); setEditOpen1(true); }}
+                        onFocus={() => setEditOpen1(true)}
+                        placeholder="Buscar jugador..." style={{ ...inp, marginBottom: 0 }} />
+                      {editOpen1 && (
+                        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, backgroundColor: 'white', border: '1.5px solid #D1D5DB', borderTop: 'none', borderRadius: '0 0 8px 8px', maxHeight: '180px', overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+                          {[...(unpaired as any[]),
+                            ...(editTeam.player1Id && !(unpaired as any[]).find((p: any) => p.id === editTeam.player1Id)
+                              ? [{ id: editTeam.player1Id, name: editTeam.player1Name, category: editTeam.category }] : []),
+                            ...(editTeam.player2Id && !(unpaired as any[]).find((p: any) => p.id === editTeam.player2Id)
+                              ? [{ id: editTeam.player2Id, name: editTeam.player2Name, category: editTeam.category }] : []),
+                          ]
+                            .filter(p => p?.id !== editData.player2Id && (p?.name?.toLowerCase().includes(editSearch1.toLowerCase()) || p?.category?.toLowerCase().includes(editSearch1.toLowerCase())))
+                            .map((p: any) => (
+                              <div key={p.id} onMouseDown={() => { setEditData({ ...editData, player1Id: p.id }); setEditSearch1(''); setEditOpen1(false); }}
+                                style={{ padding: '9px 12px', cursor: 'pointer', fontSize: '13px', borderBottom: '1px solid #F3F4F6' }}
+                                onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#F0FDF4')}
+                                onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'white')}>
+                                <span style={{ fontWeight: '500', color: '#1B3A1B' }}>{p.name}</span>
+                                <span style={{ marginLeft: '8px', fontSize: '11px', color: '#6B7280' }}>{p.category}</span>
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {/* Jugador 2 */}
+                <div style={{ position: 'relative' }}>
+                  <label style={lbl}>Jugador 2 <span style={{ color: '#9CA3AF', fontWeight: 400 }}>(opcional)</span></label>
+                  {editData.player2Id ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', border: '1.5px solid #2D6A2D', borderRadius: '8px', padding: '8px 12px', backgroundColor: '#F0FDF4' }}>
+                      <span style={{ flex: 1, fontSize: '13px', color: '#1B3A1B', fontWeight: '500' }}>
+                        {[...(unpaired as any[]), { id: editTeam.player2Id, name: editTeam.player2Name, category: editTeam.category }]
+                          .find(p => p?.id === editData.player2Id)?.name}
+                      </span>
+                      <button onClick={() => { setEditData({ ...editData, player2Id: '' }); setEditSearch2(''); }}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', fontSize: '16px', lineHeight: 1 }}>✕</button>
+                    </div>
+                  ) : (
+                    <>
+                      <input value={editSearch2}
+                        onChange={e => { setEditSearch2(e.target.value); setEditOpen2(true); }}
+                        onFocus={() => setEditOpen2(true)}
+                        placeholder="Buscar compañero (opcional)..." style={{ ...inp, marginBottom: 0 }} />
+                      {editOpen2 && (
+                        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, backgroundColor: 'white', border: '1.5px solid #D1D5DB', borderTop: 'none', borderRadius: '0 0 8px 8px', maxHeight: '180px', overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+                          {[...(unpaired as any[]),
+                            ...(editTeam.player2Id && !(unpaired as any[]).find((p: any) => p.id === editTeam.player2Id)
+                              ? [{ id: editTeam.player2Id, name: editTeam.player2Name, category: editTeam.category }] : []),
+                          ]
+                            .filter(p => p?.id !== editData.player1Id && (p?.name?.toLowerCase().includes(editSearch2.toLowerCase()) || p?.category?.toLowerCase().includes(editSearch2.toLowerCase())))
+                            .map((p: any) => (
+                              <div key={p.id} onMouseDown={() => { setEditData({ ...editData, player2Id: p.id }); setEditSearch2(''); setEditOpen2(false); }}
+                                style={{ padding: '9px 12px', cursor: 'pointer', fontSize: '13px', borderBottom: '1px solid #F3F4F6' }}
+                                onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#F0FDF4')}
+                                onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'white')}>
+                                <span style={{ fontWeight: '500', color: '#1B3A1B' }}>{p.name}</span>
+                                <span style={{ marginLeft: '8px', fontSize: '11px', color: '#6B7280' }}>{p.category}</span>
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {editError && (
+                  <p style={{ fontSize: '13px', color: '#DC2626', backgroundColor: '#FEF2F2', padding: '8px 12px', borderRadius: '8px' }}>
+                    ⚠️ {editError}
+                  </p>
+                )}
+
+                <div style={{ display: 'flex', gap: '10px', paddingTop: '4px' }}>
+                  <button onClick={() => setShowEditModal(false)} style={cancelBtnStyle}>Cancelar</button>
+                  <button
+                    onClick={() => editMutation.mutate()}
+                    disabled={!editData.player1Id || editMutation.isPending}
+                    style={{ ...confirmBtnStyle, opacity: !editData.player1Id || editMutation.isPending ? 0.6 : 1 }}
+                  >
+                    {editMutation.isPending ? 'Guardando...' : 'Guardar cambios'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ═══════════════════════════════════════════════════════════════ */}
+        {/* MODAL: CONFIRMAR ELIMINACIÓN                                   */}
+        {/* ═══════════════════════════════════════════════════════════════ */}
+        {confirmDeleteTeam && (
+          <div style={overlay} onClick={() => setConfirmDeleteTeam(null)}>
+            <div style={{ ...modal, width: '380px' }} onClick={e => e.stopPropagation()}>
+              <h3 style={{ ...modalTitle, color: '#DC2626' }}>Eliminar Pareja</h3>
+              <p style={{ fontSize: '14px', color: '#374151', marginBottom: '8px' }}>
+                ¿Eliminar la pareja <strong>{confirmDeleteTeam.teamName || `${confirmDeleteTeam.player1Name} / ${confirmDeleteTeam.player2Name || 'Sin compañero'}`}</strong>?
+              </p>
+              <p style={{ fontSize: '12px', color: '#6B7280', marginBottom: '20px' }}>
+                Esta acción no se puede deshacer. Los jugadores quedarán disponibles para ser emparejados nuevamente.
+              </p>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button onClick={() => setConfirmDeleteTeam(null)} style={cancelBtnStyle}>Cancelar</button>
+                <button
+                  onClick={() => deleteMutation.mutate(confirmDeleteTeam.id)}
+                  disabled={deleteMutation.isPending}
+                  style={{ flex: 2, padding: '10px', borderRadius: '9px', border: 'none', backgroundColor: '#DC2626', color: 'white', fontWeight: '700', fontSize: '14px', cursor: 'pointer', opacity: deleteMutation.isPending ? 0.6 : 1 }}
+                >
+                  {deleteMutation.isPending ? 'Eliminando...' : 'Sí, eliminar'}
                 </button>
               </div>
             </div>

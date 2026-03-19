@@ -34,6 +34,11 @@ export const tournamentsApi = {
     return res.data;
   },
 
+  mergeCategories: async (tournamentId: string, from: string, to: string) => {
+    const res = await api.post(`/enrollments/tournament/${tournamentId}/merge-categories`, { from, to });
+    return res.data;
+  },
+
   generateDraw: async (
     id: string,
     category: string,

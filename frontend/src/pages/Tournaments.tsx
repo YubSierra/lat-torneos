@@ -1,13 +1,15 @@
 // frontend/src/pages/Tournaments.tsx
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
+import { Plus, Settings2 } from 'lucide-react';
 import { tournamentsApi } from '../api/tournaments.api';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import Sidebar from '../components/Sidebar';
 import { useNavigate } from 'react-router-dom';
-import CategorySelector, { type TournamentCategory } from '../components/CategorySelector'; // ← NUEVO
+import CategorySelector, { type TournamentCategory } from '../components/CategorySelector';
+import { circuitLinesApi, type CircuitLineItem } from '../api/circuitLines.api';
+import CircuitLineModal from '../components/CircuitLineModal';
 
 const TOURNAMENT_TYPES = [
   { value: 'elimination',   label: 'Eliminación Directa' },
@@ -22,14 +24,6 @@ const TOURNAMENT_TYPES = [
   { value: 'pro_set',       label: 'Pro Set'              },
 ];
 
-const CIRCUIT_LINES = [
-  { value: 'departamental',  label: 'Departamental'  },
-  { value: 'inter_escuelas', label: 'Inter Escuelas' },
-  { value: 'infantil',       label: 'Infantil'       },
-  { value: 'senior',         label: 'Senior'         },
-  { value: 'edades_fct',     label: 'Edades FCT'     },
-  { value: 'recreativo',     label: 'Recreativo'     },
-];
 
 const STATUS_LABELS: Record<string, { label: string; bg: string; color: string }> = {
   draft:     { label: 'Borrador',   bg: '#F3F4F6', color: '#6B7280'  },
@@ -45,6 +39,7 @@ export default function Tournaments() {
   const navigate      = useNavigate();
   const queryClient   = useQueryClient();
   const [showModal, setShowModal] = useState(false);
+  const [showCircuitModal, setShowCircuitModal] = useState(false);
 
   // Estado del formulario
   const [form, setForm] = useState({
@@ -56,6 +51,8 @@ export default function Tournaments() {
     doublesPlayerValue: 50000,
     doublesIncludedForSingles: false,
     doublesAdditionalValue: 0,
+    refereeName: '', refereePhone: '',
+    directorName: '', directorPhone: '',
   });
 
   // Estado de categorías por separado para mayor claridad
@@ -65,6 +62,14 @@ export default function Tournaments() {
     queryKey: ['tournaments'],
     queryFn: tournamentsApi.getAll,
   });
+
+  const { data: circuitLines = [] } = useQuery<CircuitLineItem[]>({
+    queryKey: ['circuit-lines'],
+    queryFn: circuitLinesApi.getAll,
+  });
+
+  const circuitLabel = (slug: string) =>
+    circuitLines.find(c => c.slug === slug)?.label ?? slug;
 
   const createMutation = useMutation({
     mutationFn: tournamentsApi.create,
@@ -83,6 +88,8 @@ export default function Tournaments() {
       eventStart: '', eventEnd: '',
       hasDoubles: false, doublesPlayerValue: 50000,
       doublesIncludedForSingles: false, doublesAdditionalValue: 0,
+      refereeName: '', refereePhone: '',
+      directorName: '', directorPhone: '',
     });
     setCategories([]);
   };
@@ -110,13 +117,27 @@ export default function Tournaments() {
             <p className="text-gray-500">Gestión de torneos y circuitos LAT</p>
           </div>
           {isAdmin && (
-            <button
-              onClick={() => setShowModal(true)}
-              className="flex items-center gap-2 bg-lat-green hover:bg-lat-dark text-gren px-4 py-2 rounded-lg transition-colors"
-            >
-              <Plus size={18} />
-              Nuevo Torneo
-            </button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => setShowCircuitModal(true)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '8px 14px', borderRadius: 8,
+                  border: '1.5px solid #C7D2FE', background: '#EEF2FF',
+                  color: '#4338CA', cursor: 'pointer', fontSize: 13, fontWeight: 600,
+                }}
+              >
+                <Settings2 size={16} />
+                Líneas de circuito
+              </button>
+              <button
+                onClick={() => setShowModal(true)}
+                className="flex items-center gap-2 bg-lat-green hover:bg-lat-dark text-gren px-4 py-2 rounded-lg transition-colors"
+              >
+                <Plus size={18} />
+                Nuevo Torneo
+              </button>
+            </div>
           )}
         </div>
 
@@ -150,7 +171,7 @@ export default function Tournaments() {
                     <p className="text-xs text-gray-500 mb-1">
                       {TOURNAMENT_TYPES.find(tt => tt.value === t.type)?.label || t.type}
                       {' · '}
-                      {CIRCUIT_LINES.find(c => c.value === t.circuitLine)?.label || t.circuitLine}
+                      {circuitLabel(t.circuitLine)}
                     </p>
 
                     {/* Categorías del torneo */}
@@ -225,6 +246,10 @@ export default function Tournaments() {
       {/* ════════════════════════════════════════════════════════════════ */}
       {/* MODAL CREAR TORNEO                                              */}
       {/* ════════════════════════════════════════════════════════════════ */}
+      {showCircuitModal && (
+        <CircuitLineModal onClose={() => setShowCircuitModal(false)} />
+      )}
+
       {showModal && (
         <div
           style={{
@@ -281,7 +306,7 @@ export default function Tournaments() {
                 <div>
                   <label style={labelStyle}>Línea de circuito</label>
                   <select value={form.circuitLine} onChange={e => setForm({ ...form, circuitLine: e.target.value })} style={inputStyle}>
-                    {CIRCUIT_LINES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                    {circuitLines.map(c => <option key={c.slug} value={c.slug}>{c.label}</option>)}
                   </select>
                 </div>
               </div>
@@ -334,6 +359,60 @@ export default function Tournaments() {
                 </div>
               </div>
 
+              {/* ── ÁRBITRO ── */}
+              <div style={{ border: '1.5px solid #E5E7EB', borderRadius: '12px', padding: '16px', backgroundColor: '#FAFAFA' }}>
+                <p style={{ fontWeight: '700', color: '#1B3A1B', fontSize: '14px', margin: '0 0 12px' }}>
+                  🧑‍⚖️ Árbitro (Referee)
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div>
+                    <label style={labelStyle}>Nombre</label>
+                    <input
+                      value={form.refereeName}
+                      onChange={e => setForm({ ...form, refereeName: e.target.value })}
+                      style={inputStyle}
+                      placeholder="Nombre completo del árbitro"
+                    />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Teléfono / Contacto</label>
+                    <input
+                      value={form.refereePhone}
+                      onChange={e => setForm({ ...form, refereePhone: e.target.value })}
+                      style={inputStyle}
+                      placeholder="+57 300 000 0000"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* ── DIRECTOR ── */}
+              <div style={{ border: '1.5px solid #E5E7EB', borderRadius: '12px', padding: '16px', backgroundColor: '#FAFAFA' }}>
+                <p style={{ fontWeight: '700', color: '#1B3A1B', fontSize: '14px', margin: '0 0 12px' }}>
+                  👔 Director del torneo
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div>
+                    <label style={labelStyle}>Nombre</label>
+                    <input
+                      value={form.directorName}
+                      onChange={e => setForm({ ...form, directorName: e.target.value })}
+                      style={inputStyle}
+                      placeholder="Nombre del director"
+                    />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Teléfono / Contacto</label>
+                    <input
+                      value={form.directorPhone}
+                      onChange={e => setForm({ ...form, directorPhone: e.target.value })}
+                      style={inputStyle}
+                      placeholder="+57 300 000 0000"
+                    />
+                  </div>
+                </div>
+              </div>
+
               {/* ── CATEGORÍAS ── */}
               <div style={{
                 border: '1.5px solid #E5E7EB', borderRadius: '12px',
@@ -350,6 +429,7 @@ export default function Tournaments() {
                 <CategorySelector
                   selected={categories}
                   onChange={setCategories}
+                  circuitLine={circuitLines.find(c => c.slug === form.circuitLine) ?? null}
                 />
               </div>
 

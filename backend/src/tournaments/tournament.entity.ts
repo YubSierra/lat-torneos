@@ -13,6 +13,7 @@ export enum TournamentType {
   PRO_SET        = 'pro_set',
 }
 
+/** @deprecated use slug strings from circuit_lines table */
 export enum CircuitLine {
   DEPARTAMENTAL  = 'departamental',
   INTER_ESCUELAS = 'inter_escuelas',
@@ -34,8 +35,8 @@ export class Tournament {
   @Column({ type: 'enum', enum: TournamentType })
   type: TournamentType;
 
-  @Column({ type: 'enum', enum: CircuitLine })
-  circuitLine: CircuitLine;
+  @Column({ type: 'varchar', default: 'departamental' })
+  circuitLine: string;
 
   @Column({ nullable: true })
   stageNumber: number;
@@ -118,6 +119,19 @@ export class Tournament {
     finalSetTiebreak: boolean;
     finalSetPoints: number;
   }>;
+
+  // ── ÁRBITRO Y DIRECTOR ───────────────────────────
+  @Column({ nullable: true })
+  refereeName: string;
+
+  @Column({ nullable: true })
+  refereePhone: string;
+
+  @Column({ nullable: true })
+  directorName: string;
+
+  @Column({ nullable: true })
+  directorPhone: string;
 
   // ── CATEGORÍAS DEL TORNEO ────────────────────────
   @Column({ type: 'jsonb', nullable: true })

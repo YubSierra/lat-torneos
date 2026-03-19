@@ -54,6 +54,14 @@ const RR_ORDER_4 = [
   [0, 1],
 ];
 
+// Orden de rondas para respetar la secuencia: rondas anteriores se juegan primero
+const ROUND_ORDER: Record<string, number> = {
+  RR: 0, RR_A: 0, RR_B: 0,
+  R64: 1, R32: 2, R16: 3,
+  QF: 4, SF: 5, F: 6,
+  SF_M: 5, F_M: 6,
+};
+
 @Injectable()
 export class SchedulingService {
   constructor(
@@ -78,6 +86,7 @@ export class SchedulingService {
     roundFilter?: string[],
     includeSuspended: boolean = true,
     save: boolean = true,
+    restTimeBetweenMatches: number = 0,
   ) {
     if (!courtsAvailability?.length) {
       throw new Error('Debes seleccionar al menos una cancha con horario disponible');
@@ -87,6 +96,25 @@ export class SchedulingService {
     const statusFilter = includeSuspended
       ? [MatchStatus.PENDING, MatchStatus.SUSPENDED]
       : [MatchStatus.PENDING];
+
+    // 1-pre. Liberar scheduledAt de partidos pendientes CON jugadores definidos
+    // en las categorías seleccionadas. Esto permite reprogramar rondas siguientes
+    // cuyos partidos ya tenían scheduledAt de una programación anterior.
+    if (save) {
+      const clearQ = this.matchRepo
+        .createQueryBuilder()
+        .update()
+        .set({ scheduledAt: null, courtId: null })
+        .where('tournamentId = :tournamentId', { tournamentId })
+        .andWhere('status IN (:...statuses)', { statuses: statusFilter })
+        .andWhere('player1Id IS NOT NULL')
+        .andWhere('player2Id IS NOT NULL');
+
+      if (categories && categories.length > 0) {
+        clearQ.andWhere('category IN (:...categories)', { categories });
+      }
+      await clearQ.execute();
+    }
 
     let matchQuery = this.matchRepo
       .createQueryBuilder('match')
@@ -114,8 +142,27 @@ export class SchedulingService {
       throw new Error('No hay partidos pendientes para programar');
     }
 
-    // 2. Ordenar partidos RR por grupo respetando el orden LAT
+    // 1c. Excluir partidos placeholder (rondas futuras sin jugadores definidos)
+    matches = matches.filter((m) => m.player1Id != null && m.player2Id != null);
+    if (matches.length === 0) {
+      throw new Error('No hay partidos con jugadores definidos para programar. Las siguientes rondas aún esperan resultados de la ronda actual.');
+    }
+
+    // 2. Ordenar partidos: primero RR según orden LAT, luego eliminación por ronda
     matches = this.sortMatchesByRROrder(matches);
+    matches = this.sortMatchesByRoundOrder(matches);
+
+    // 2b. Detectar categorías con un solo grupo RR → forzar una cancha
+    const rrGroupCount = new Map<string, Set<string>>();
+    matches.filter((m) => ['RR', 'RR_A', 'RR_B'].includes(m.round)).forEach((m) => {
+      if (!rrGroupCount.has(m.category)) rrGroupCount.set(m.category, new Set());
+      rrGroupCount.get(m.category)!.add((m as any).groupLabel || 'single');
+    });
+    const singleGroupRRCategories = new Set<string>();
+    rrGroupCount.forEach((groups, cat) => {
+      if (groups.size === 1) singleGroupRRCategories.add(cat);
+    });
+    const singleRRCourtLock = new Map<string, string>(); // category → courtId
 
     // 3. Obtener canchas
     const courtIds = courtsAvailability.map((c) => c.courtId);
@@ -162,6 +209,8 @@ export class SchedulingService {
     const playerMatchCount = new Map<string, number>(); // playerId → count ese día
     const playerScheduled = new Map<string, { start: number; end: number }[]>(); // playerId → slots ocupados
     const usedSlotsByCourt = new Map<string, Set<number>>(); // courtId → slots usados
+    // Tiempo mínimo de inicio por ronda: rondas posteriores no pueden empezar antes de que terminen las anteriores
+    const maxEndTimeByRoundOrder = new Map<number, number>(); // roundOrder → max end minutes
 
     // Inicializar contadores con partidos ya existentes
     existingScheduled.forEach((m) => {
@@ -183,6 +232,15 @@ export class SchedulingService {
       const p1 = match.player1Id;
       const p2 = match.player2Id;
 
+      // Calcular tiempo mínimo de inicio: todas las rondas anteriores deben haber terminado
+      const thisRoundOrder = ROUND_ORDER[match.round] ?? 99;
+      let minStartTime = 0;
+      maxEndTimeByRoundOrder.forEach((endTime, order) => {
+        if (order < thisRoundOrder) {
+          minStartTime = Math.max(minStartTime, endTime);
+        }
+      });
+
       // Buscar slot válido
       let assigned = false;
       for (let i = 0; i < slots.length; i++) {
@@ -194,18 +252,25 @@ export class SchedulingService {
         const slotStart = this.timeToMinutes(slot.time);
         const slotEnd = slotStart + duration;
 
+        // ── VALIDACIÓN 0: respetar orden de rondas — la ronda no puede empezar antes de que terminen las anteriores ──
+        if (slotStart < minStartTime) continue;
+
         // ── VALIDACIÓN 1: máx partidos por jugador (RR no aplica — juega todos) ──
         const isRR = ['RR', 'RR_A', 'RR_B'].includes(match.round);
-        if (!isRR) {
-          if (p1 && (playerMatchCount.get(p1) || 0) >= maxMatchesPerPlayer)
-            continue;
-          if (p2 && (playerMatchCount.get(p2) || 0) >= maxMatchesPerPlayer)
-            continue;
+        if (!isRR && maxMatchesPerPlayer > 0) {
+          if (p1 && (playerMatchCount.get(p1) || 0) >= maxMatchesPerPlayer) continue;
+          if (p2 && (playerMatchCount.get(p2) || 0) >= maxMatchesPerPlayer) continue;
         }
 
-        // ── VALIDACIÓN 2: no mismo horario en dos canchas ──
-        if (p1 && this.hasTimeConflict(playerScheduled.get(p1) || [], slotStart, slotEnd)) continue;
-        if (p2 && this.hasTimeConflict(playerScheduled.get(p2) || [], slotStart, slotEnd)) continue;
+        // ── VALIDACIÓN 1b: RR de un solo grupo → misma cancha ──
+        if (isRR && singleGroupRRCategories.has(match.category)) {
+          const lockedCourt = singleRRCourtLock.get(match.category);
+          if (lockedCourt && slot.courtId !== lockedCourt) continue;
+        }
+
+        // ── VALIDACIÓN 2: no mismo horario en dos canchas (respeta tiempo de descanso) ──
+        if (p1 && this.hasTimeConflict(playerScheduled.get(p1) || [], slotStart, slotEnd, restTimeBetweenMatches)) continue;
+        if (p2 && this.hasTimeConflict(playerScheduled.get(p2) || [], slotStart, slotEnd, restTimeBetweenMatches)) continue;
 
         // ── VALIDACIÓN 3: no singles y dobles al mismo tiempo ──
         if (p1 && this.hasDoublesConflict(p1, slotStart, slotEnd, playerScheduled, playerDoublesMap, match))
@@ -229,6 +294,15 @@ export class SchedulingService {
         if (!usedSlotsByCourt.has(slot.courtId)) usedSlotsByCourt.set(slot.courtId, new Set());
         usedSlotsByCourt.get(slot.courtId)!.add(i);
 
+        // Actualizar tiempo máximo de fin para esta ronda
+        const prevMax = maxEndTimeByRoundOrder.get(thisRoundOrder) || 0;
+        maxEndTimeByRoundOrder.set(thisRoundOrder, Math.max(prevMax, slotEnd));
+
+        // Fijar cancha para RR de grupo único
+        if (isRR && singleGroupRRCategories.has(match.category) && !singleRRCourtLock.has(match.category)) {
+          singleRRCourtLock.set(match.category, slot.courtId);
+        }
+
         // Obtener nombres
         const [player1, player2] = await Promise.all([
           p1 ? this.userRepo.findOne({ where: { id: p1 } }) : null,
@@ -248,6 +322,7 @@ export class SchedulingService {
           groupLabel: (match as any).groupLabel || null,
           player1: player1 ? `${player1.nombres} ${player1.apellidos}` : 'BYE',
           player2: player2 ? `${player2.nombres} ${player2.apellidos}` : 'BYE',
+          gameFormat: match.gameFormat || null,
         });
 
         assigned = true;
@@ -346,6 +421,14 @@ export class SchedulingService {
     return [...ordered, ...otherMatches];
   }
 
+  // ── ORDENAR RONDAS DE ELIMINACIÓN EN SECUENCIA ──
+  private sortMatchesByRoundOrder(matches: Match[]): Match[] {
+    const rrMatches = matches.filter((m) => ['RR', 'RR_A', 'RR_B'].includes(m.round));
+    const elim = matches.filter((m) => !['RR', 'RR_A', 'RR_B'].includes(m.round));
+    elim.sort((a, b) => (ROUND_ORDER[a.round] ?? 99) - (ROUND_ORDER[b.round] ?? 99));
+    return [...rrMatches, ...elim];
+  }
+
   private getGroupSize(matches: Match[]): number {
     return this.getUniquePlayers(matches).length;
   }
@@ -364,8 +447,9 @@ export class SchedulingService {
     existing: { start: number; end: number }[],
     newStart: number,
     newEnd: number,
+    restTime: number = 0,
   ): boolean {
-    return existing.some((e) => newStart < e.end && newEnd > e.start);
+    return existing.some((e) => newStart < e.end + restTime && newEnd > e.start - restTime);
   }
 
   // ── VALIDAR CONFLICTO SINGLES + DOBLES ──────────
@@ -490,7 +574,9 @@ export class SchedulingService {
     for (const match of matches) {
       if (!match.scheduledAt) continue;
 
-      const date = match.scheduledAt.toISOString().split('T')[0];
+      // Usar hora LOCAL para el date key — consistente con toTimeString() más abajo
+      const d = match.scheduledAt;
+      const date = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
       const court = courtMap.get(match.courtId);
       const sede = court?.sede || 'Principal';
       const courtName = court?.name || match.courtId;
@@ -509,6 +595,7 @@ export class SchedulingService {
         player2: playerMap.get(match.player2Id) || 'BYE',
         status: match.status,
         duration: `${match.estimatedDuration} min`,
+        gameFormat: match.gameFormat || null,
       });
     }
 

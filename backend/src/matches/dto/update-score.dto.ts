@@ -1,5 +1,13 @@
 import { IsString, IsEnum, IsNumber,
-         IsOptional, IsBoolean } from 'class-validator';
+         IsOptional, IsBoolean, IsArray, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+
+class SetHistoryEntry {
+  @IsNumber() games1: number;
+  @IsNumber() games2: number;
+  @IsOptional() @IsNumber() tiebreak1?: number;
+  @IsOptional() @IsNumber() tiebreak2?: number;
+}
 import { MatchStatus } from '../match.entity';
 
 export class UpdateScoreDto {
@@ -42,4 +50,10 @@ export class UpdateScoreDto {
   @IsOptional()
   @IsEnum(MatchStatus)
   status?: MatchStatus;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SetHistoryEntry)
+  setsHistory?: SetHistoryEntry[];
 }

@@ -1,10 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { Ranking } from './ranking.entity';
 import { RankingHistory } from './ranking-history.entity';
 import { Match, MatchStatus, MatchRound } from '../matches/match.entity';
 import { Enrollment } from '../enrollments/enrollment.entity';
+import { Tournament } from '../tournaments/tournament.entity';
+import { CircuitLine, CircuitRankingPoints, DEFAULT_LAT_RANKING_POINTS } from '../circuit-lines/circuit-line.entity';
 
 @Injectable()
 export class RankingsService {
@@ -17,111 +19,151 @@ export class RankingsService {
     private matchRepo: Repository<Match>,
     @InjectRepository(Enrollment)
     private enrollmentRepo: Repository<Enrollment>,
+    @InjectRepository(Tournament)
+    private tournamentRepo: Repository<Tournament>,
+    @InjectRepository(CircuitLine)
+    private circuitLineRepo: Repository<CircuitLine>,
   ) {}
 
-  // ── TABLA DE PUNTOS ART. 7 LAT ──────────────────
-  // Sencillos: Campeón 50, Subcampeón 35, SF 25...
-  // Dobles: 25% de los puntos de sencillos
-  // Máster: puntuación especial
-  private getBasePoints(round: string, modality: string, isMaster: boolean): number {
-    if (isMaster) {
-      const masterPoints = {
-        'F_M':  100,  // Campeón Máster
-        'SF_M': 70,   // Finalista Máster
-        'RR_A': 50,   // SF Máster (primero de grupo)
-        'RR_B': 36,   // 3° cuadro Máster
-      };
-      return masterPoints[round] || 20;
-    }
-
-    // Puntos sencillos (Art. 7)
-    const singlesPoints = {
-      'F':   50,   // Campeón
-      'SF':  35,   // Subcampeón / SF
-      'QF':  25,   // Cuartos
-      'R16': 18,   // Ronda de 16
-      'R32': 10,   // Ronda de 32
-      'R64': 6,    // Ronda de 64
-      'RR':  2,    // Round Robin (participación)
-    };
-
-    const points = singlesPoints[round] || 0;
-
-    // Dobles: 25% de los puntos de sencillos (Art. 7)
-    if (modality === 'doubles') {
-      return Math.round(points * 0.25);
-    }
-
-    return points;
+  /** Load ranking point config for a tournament's circuit line.
+   *  Returns null if the circuit line has ranking disabled. */
+  private async getPoints(tournamentId: string): Promise<CircuitRankingPoints | null> {
+    const tournament = await this.tournamentRepo.findOne({ where: { id: tournamentId } });
+    if (!tournament) return DEFAULT_LAT_RANKING_POINTS;
+    const cl = await this.circuitLineRepo.findOne({ where: { slug: tournament.circuitLine } });
+    if (!cl) return DEFAULT_LAT_RANKING_POINTS;
+    // Explicit null means "no ranking"
+    if (cl.rankingPoints === null) return null;
+    return cl.rankingPoints;
   }
 
-  // ── BONOS DE MÉRITOS ART. 8 LAT ────────────────
-  // +8pts si vences siembra 1
-  // +6pts si vences siembra 2
-  // +4pts si vences siembras 3-4
-  // +2pts si vences siembras 5-8
-  // NO aplica en: Round Robin, W.O., Torneo Máster, Dobles
-  private getMeritBonus(
+  // ── TABLA DE PUNTOS (dinámica por línea de circuito) ───────────────────────
+  private resolveChampionPoints(round: string, modality: string, pts: CircuitRankingPoints): number {
+    if (round === 'F_M') return pts.master.champion;
+    if (modality === 'doubles') return pts.doubles.champion;
+    return pts.singles.champion;
+  }
+
+  private resolveEliminatedPoints(round: string, modality: string, isMaster: boolean, pts: CircuitRankingPoints): number {
+    if (isMaster) {
+      return (pts.master as any)[round] ?? 0;
+    }
+    const table = modality === 'doubles' ? pts.doubles : pts.singles;
+    return (table as any)[round] ?? 0;
+  }
+
+  private resolveMeritBonus(
     opponentSeeding: number,
     round: string,
     modality: string,
     isMaster: boolean,
+    pts: CircuitRankingPoints,
   ): number {
-    // Art. 8: no aplica en estos casos
-    if (
-      isMaster ||
-      modality === 'doubles' ||
-      round === 'RR' ||
-      !opponentSeeding
-    ) return 0;
-
-    if (opponentSeeding === 1) return 8;
-    if (opponentSeeding === 2) return 6;
-    if (opponentSeeding <= 4)  return 4;
-    if (opponentSeeding <= 8)  return 2;
+    if (isMaster || modality === 'doubles' || ['RR', 'RR_A', 'RR_B'].includes(round) || !opponentSeeding) return 0;
+    if (opponentSeeding === 1) return pts.merit.seed1;
+    if (opponentSeeding === 2) return pts.merit.seed2;
+    if (opponentSeeding <= 4)  return pts.merit.seeds34;
+    if (opponentSeeding <= 8)  return pts.merit.seeds58;
     return 0;
   }
 
-  // ── CALCULAR Y GUARDAR PUNTOS AL COMPLETAR PARTIDO
-  async calculateMatchPoints(matchId: string) {
-    const match = await this.matchRepo.findOne({ where: { id: matchId } });
-    if (!match || match.status !== MatchStatus.COMPLETED) return;
-    if (!match.winnerId) return;
-
-    const isMaster = ['RR_A', 'RR_B', 'SF_M', 'F_M'].includes(match.round);
-
-    // Obtener inscripción del ganador para saber la modalidad
-    const enrollment = await this.enrollmentRepo.findOne({
+  // Cuántas victorias tiene un jugador en el torneo (incluye W.O.)
+  private async countWinsInTournament(tournamentId: string, playerId: string): Promise<number> {
+    return this.matchRepo.count({
       where: {
-        tournamentId: match.tournamentId,
-        playerId: match.winnerId,
+        tournamentId,
+        winnerId: playerId,
+        status: In([MatchStatus.COMPLETED, MatchStatus.WO]),
       },
     });
+  }
 
+  // ── CALCULAR Y GUARDAR PUNTOS AL COMPLETAR PARTIDO ───────────────────────────
+  async calculateMatchPoints(matchId: string) {
+    const match = await this.matchRepo.findOne({ where: { id: matchId } });
+    if (!match) return;
+    if (match.status !== MatchStatus.COMPLETED && match.status !== MatchStatus.WO) return;
+    if (!match.winnerId) return;
+
+    const pts = await this.getPoints(match.tournamentId);
+    // Circuit line has ranking disabled — skip entirely
+    if (pts === null) return { basePoints: 0, meritBonus: 0, totalPoints: 0, skipped: true };
+    const round    = match.round as string;
+    const isWO     = match.status === MatchStatus.WO;
+    const isRR     = ['RR', 'RR_A', 'RR_B'].includes(round);
+    const isMaster = ['RR_A', 'RR_B', 'SF_M', 'F_M'].includes(round);
+    const isFinal  = round === 'F' || round === 'F_M';
+
+    const enrollment = await this.enrollmentRepo.findOne({
+      where: { tournamentId: match.tournamentId, playerId: match.winnerId },
+    });
     const modality = enrollment?.modality || 'singles';
-    const season = new Date().getFullYear();
+    const season   = new Date().getFullYear();
 
-    // Calcular puntos base (Art. 7)
-    const basePoints = this.getBasePoints(match.round, modality, isMaster);
+    const loserId = match.winnerId === match.player1Id
+      ? match.player2Id
+      : match.player1Id;
 
-    // Calcular bono de méritos (Art. 8)
-    // Obtener la siembra del perdedor
     const loserSeeding = match.winnerId === match.player1Id
       ? match.seeding2
       : match.seeding1;
 
-    const meritBonus = this.getMeritBonus(
-      loserSeeding,
-      match.round,
-      modality,
-      isMaster,
-    );
+    // ── 1. Round Robin: pts por victoria (fase de grupos, no máster) ──────
+    if (isRR && !isMaster) {
+      const rrPts = pts.rrWinPoints;
+      await this.saveHistory(match.winnerId, match, rrPts, 0, modality, season);
+      await this.updateRanking(match.winnerId, match.category, rrPts, 0, season);
+      return { basePoints: rrPts, meritBonus: 0, totalPoints: rrPts };
+    }
 
-    const totalPoints = basePoints + meritBonus;
+    // ── 2. Puntos al ELIMINADO (perdedor de la ronda) ─────────────────────
+    if (loserId) {
+      const loserPts = this.resolveEliminatedPoints(round, modality, isMaster, pts);
+      if (loserPts > 0) {
+        const loserWins = isMaster
+          ? 1
+          : await this.countWinsInTournament(match.tournamentId, loserId);
+        if (loserWins > 0) {
+          await this.saveHistory(loserId, match, loserPts, 0, modality, season);
+          await this.updateRanking(loserId, match.category, loserPts, 0, season);
+        }
+      }
+    }
 
-    // Guardar en historial
+    // ── 3. Puntos al CAMPEÓN (ganador de la final) ────────────────────────
+    if (isFinal) {
+      const champPts   = this.resolveChampionPoints(round, modality, pts);
+      const meritBonus = (!isMaster && !isWO)
+        ? this.resolveMeritBonus(loserSeeding, round, modality, false, pts)
+        : 0;
+      await this.saveHistory(match.winnerId, match, champPts, meritBonus, modality, season);
+      await this.updateRanking(match.winnerId, match.category, champPts + meritBonus, meritBonus, season);
+      return { basePoints: champPts, meritBonus, totalPoints: champPts + meritBonus };
+    }
+
+    // ── 4. Bono de méritos al GANADOR (rondas previas a la final) ─────────
+    if (!isRR && !isMaster && !isWO) {
+      const meritBonus = this.resolveMeritBonus(loserSeeding, round, modality, false, pts);
+      if (meritBonus > 0) {
+        await this.saveHistory(match.winnerId, match, 0, meritBonus, modality, season);
+        await this.updateRanking(match.winnerId, match.category, meritBonus, meritBonus, season);
+      }
+    }
+
+    return { basePoints: 0, meritBonus: 0, totalPoints: 0 };
+  }
+
+  // ── HISTORIAL: guardar registro por partido ──────────────────────────────────
+  private async saveHistory(
+    playerId: string,
+    match: Match,
+    basePoints: number,
+    meritBonus: number,
+    modality: string,
+    season: number,
+  ) {
     await this.historyRepo.save({
-      playerId: match.winnerId,
+      playerId,
       tournamentId: match.tournamentId,
       tournamentName: '',
       circuitLine: '',
@@ -129,21 +171,10 @@ export class RankingsService {
       roundReached: match.round,
       basePoints,
       meritBonus,
-      totalPoints,
+      totalPoints: basePoints + meritBonus,
       modality,
       season,
     });
-
-    // Actualizar escalafón acumulado
-    await this.updateRanking(
-      match.winnerId,
-      match.category,
-      totalPoints,
-      meritBonus,
-      season,
-    );
-
-    return { basePoints, meritBonus, totalPoints };
   }
 
   // ── ACTUALIZAR POSICIÓN EN ESCALAFÓN ───────────

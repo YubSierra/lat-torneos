@@ -22,46 +22,86 @@ export class MatchesService {
 
   // ── HELPER: agregar nombres a partidos ──────────
   private async enrichWithNames(matches: Match[]) {
+    const isUuid = (id: string) => id && id !== 'BYE' && id.length === 36;
+
+    // Separar partidos de dobles (categoría termina en _DOBLES)
+    const doublesMatches = matches.filter(m => m.category?.endsWith('_DOBLES'));
+    const doublesTeamIds = new Set<string>(
+      doublesMatches.flatMap(m => [m.player1Id, m.player2Id, m.winnerId].filter(isUuid)),
+    );
+
+    // Resolver nombres de parejas de dobles
+    const teamNameMap = new Map<string, string>();
+    if (doublesTeamIds.size > 0) {
+      const teams = await this.repo.manager
+        .getRepository('doubles_teams')
+        .find({ where: { id: In([...doublesTeamIds]) } });
+
+      const doublesUserIds = [...new Set(
+        teams.flatMap((t: any) => [t.player1Id, t.player2Id].filter(Boolean)),
+      )];
+
+      const doublesUsers = doublesUserIds.length > 0
+        ? await this.userRepo.find({
+            where: { id: In(doublesUserIds) },
+            select: ['id', 'nombres', 'apellidos', 'email'],
+          })
+        : [];
+
+      const duMap = new Map(
+        doublesUsers.map(u => [u.id, `${u.nombres || ''} ${u.apellidos || ''}`.trim() || u.email]),
+      );
+
+      for (const t of teams as any[]) {
+        const n1 = duMap.get(t.player1Id) || '?';
+        const n2 = t.player2Id ? (duMap.get(t.player2Id) || '?') : null;
+        teamNameMap.set(t.id, n2 ? `${n1} / ${n2}` : n1);
+        if (t.teamName) teamNameMap.set(t.id, `${t.teamName} (${n1}${n2 ? ' / ' + n2 : ''})`);
+      }
+    }
+
+    // IDs de usuarios (partidos normales, excluyendo IDs de parejas ya resueltos)
     const playerIds = [
       ...new Set(
         [
           ...matches.map((m) => m.player1Id),
           ...matches.map((m) => m.player2Id),
           ...matches.map((m) => m.winnerId),
-        ].filter((id) => id && id !== 'BYE' && id.length === 36),
+        ].filter((id) => isUuid(id) && !doublesTeamIds.has(id)),
       ),
-    ]; // ← filtrar BYE y nulls
+    ];
 
-    if (playerIds.length === 0) return matches;
-
-    const users = await this.userRepo.find({
-      where: { id: In(playerIds) },
-      select: ['id', 'nombres', 'apellidos', 'email', 'photoUrl'],
-    });
+    const users = playerIds.length > 0
+      ? await this.userRepo.find({
+          where: { id: In(playerIds) },
+          select: ['id', 'nombres', 'apellidos', 'email', 'photoUrl'],
+        })
+      : [];
 
     const userMap = new Map(
       users.map((u) => [
         u.id,
         {
-          name:
-            `${u.nombres || ''} ${u.apellidos || ''}`.trim() || u.email,
+          name: `${u.nombres || ''} ${u.apellidos || ''}`.trim() || u.email,
           photoUrl: (u as any).photoUrl || null,
         },
       ]),
     );
 
-    const isBye = (m: Match) =>
+    const resolveName = (id: string | null, isBye: boolean): string | null => {
+      if (!id) return isBye ? 'BYE' : null;
+      if (teamNameMap.has(id)) return teamNameMap.get(id)!;
+      return userMap.get(id)?.name || null;
+    };
+
+    const isByeMatch = (m: Match) =>
       m.status === MatchStatus.COMPLETED || m.status === MatchStatus.WO;
 
     return matches.map((m) => ({
       ...m,
-      player1Name: m.player1Id
-        ? (userMap.get(m.player1Id)?.name || m.player1Id)
-        : isBye(m) ? 'BYE' : null,
-      player2Name: m.player2Id
-        ? (userMap.get(m.player2Id)?.name || m.player2Id)
-        : isBye(m) ? 'BYE' : null,
-      winnerName: userMap.get(m.winnerId)?.name || null,
+      player1Name: resolveName(m.player1Id, isByeMatch(m)),
+      player2Name: resolveName(m.player2Id, isByeMatch(m)),
+      winnerName:  m.winnerId ? (teamNameMap.get(m.winnerId) || userMap.get(m.winnerId)?.name || null) : null,
       player1PhotoUrl: userMap.get(m.player1Id)?.photoUrl || null,
       player2PhotoUrl: userMap.get(m.player2Id)?.photoUrl || null,
     }));
@@ -102,10 +142,28 @@ export class MatchesService {
   // ── ACTUALIZAR MARCADOR ─────────────────────────
   async updateScore(dto: UpdateScoreDto) {
     const match = await this.findOne(dto.matchId);
-    match.sets1 = dto.sets1;
-    match.sets2 = dto.sets2;
-    match.games1 = dto.games1;
-    match.games2 = dto.games2;
+
+    if (dto.setsHistory && dto.setsHistory.length > 0) {
+      // Calcular sets y games totales desde el historial set a set
+      let sets1 = 0, sets2 = 0, games1 = 0, games2 = 0;
+      dto.setsHistory.forEach(s => {
+        if (s.games1 > s.games2) sets1++;
+        else if (s.games2 > s.games1) sets2++;
+        games1 += s.games1;
+        games2 += s.games2;
+      });
+      match.sets1  = sets1;
+      match.sets2  = sets2;
+      match.games1 = games1;
+      match.games2 = games2;
+      match.setsHistory = dto.setsHistory as any;
+    } else {
+      match.sets1   = dto.sets1;
+      match.sets2   = dto.sets2;
+      match.games1  = dto.games1;
+      match.games2  = dto.games2;
+    }
+
     match.points1 = dto.points1;
     match.points2 = dto.points2;
 
@@ -127,10 +185,17 @@ export class MatchesService {
     const match = await this.findOne(id);
     match.winnerId = winnerId;
     match.status = MatchStatus.WO;
-    match.sets1 = winnerId === match.player1Id ? 2 : 0;
-    match.sets2 = winnerId === match.player2Id ? 2 : 0;
-    match.games1 = winnerId === match.player1Id ? 12 : 0;
-    match.games2 = winnerId === match.player2Id ? 12 : 0;
+
+    // Respetar el formato del partido: sets necesarios para ganar
+    const totalSets   = (match.gameFormat as any)?.sets      ?? 3;
+    const gamesPerSet = (match.gameFormat as any)?.gamesPerSet ?? 6;
+    const setsToWin   = Math.ceil(totalSets / 2);
+
+    match.sets1   = winnerId === match.player1Id ? setsToWin : 0;
+    match.sets2   = winnerId === match.player2Id ? setsToWin : 0;
+    match.games1  = winnerId === match.player1Id ? setsToWin * gamesPerSet : 0;
+    match.games2  = winnerId === match.player2Id ? setsToWin * gamesPerSet : 0;
+
     await this.repo.save(match);
     await this.advanceWinner(match);
     return match;
@@ -377,79 +442,70 @@ export class MatchesService {
         }
       });
 
-      // ── ORDENAR CON DESEMPATE ITF ──────────────────────────────────────────
-      // 1. Victorias  2. H2H entre empatados  3. % sets  4. % games
-      const entries = [...standings.entries()];
+      // ── ORDENAR: 1. Victorias  2. ratio sets  3. ratio games  4. H2H (2-way)  5. Nombre (alfabético)
+      const ratio = (w: number, l: number) => l > 0 ? w / l : w > 0 ? Infinity : 0;
+      const completedM = gMatches.filter(
+        m => m.status === MatchStatus.COMPLETED || m.status === MatchStatus.WO,
+      );
 
-      const sortedEntries = entries.sort(([idA, a], [idB, b]) => {
+      // allEntries: snapshot estable — no se muta durante el sort
+      const allEntries = [...standings.entries()];
+
+      const cmpPlayers = (idA: string, a: any, idB: string, b: any): number => {
         if (b.wins !== a.wins) return b.wins - a.wins;
 
-        // H2H entre los empatados con el mismo número de victorias
-        const tiedIds = entries
-          .filter(([, s]) => s.wins === a.wins)
-          .map(([id]) => id);
+        const sA = ratio(a.setsWon, a.setsLost);
+        const sB = ratio(b.setsWon, b.setsLost);
+        if (Math.abs(sB - sA) > 0.0001) return sB - sA;
 
-        if (tiedIds.length === 2) {
-          // H2H directo entre los dos
-          const h2h = gMatches.find(m =>
-            (m.status === MatchStatus.COMPLETED || m.status === MatchStatus.WO) &&
-            ((m.player1Id === idA && m.player2Id === idB) ||
-             (m.player1Id === idB && m.player2Id === idA))
+        const gA = ratio(a.gamesWon, a.gamesLost);
+        const gB = ratio(b.gamesWon, b.gamesLost);
+        if (Math.abs(gB - gA) > 0.0001) return gB - gA;
+
+        // H2H solo si exactamente 2 jugadores comparten todas las métricas anteriores
+        const tiedGroup = allEntries.filter(([, s]) =>
+          s.wins === a.wins &&
+          Math.abs(ratio(s.setsWon, s.setsLost)  - sA) <= 0.0001 &&
+          Math.abs(ratio(s.gamesWon, s.gamesLost) - gA) <= 0.0001,
+        );
+        if (tiedGroup.length === 2) {
+          const h2h = completedM.find(m =>
+            (m.player1Id === idA && m.player2Id === idB) ||
+            (m.player1Id === idB && m.player2Id === idA),
           );
           if (h2h?.winnerId === idA) return -1;
           if (h2h?.winnerId === idB) return  1;
         }
 
-        // % sets entre empatados
-        const tiedMatches = gMatches.filter(m =>
-          (m.status === MatchStatus.COMPLETED || m.status === MatchStatus.WO) &&
-          tiedIds.includes(m.player1Id) && tiedIds.includes(m.player2Id)
-        );
-        const calcSets = (id: string) => {
-          let w = 0, l = 0;
-          tiedMatches.forEach(m => {
-            if (m.player1Id === id) { w += m.sets1; l += m.sets2; }
-            if (m.player2Id === id) { w += m.sets2; l += m.sets1; }
-          });
-          return (w + l) > 0 ? w / (w + l) : 0;
+        // Empate circular o de 3+ jugadores → desempatar por nombre (determinístico)
+        return a.name.localeCompare(b.name);
+      };
+
+      const sortedEntries = [...allEntries].sort(([idA, a], [idB, b]) => cmpPlayers(idA, a, idB, b));
+
+      // tiedForPosition: true solo cuando cmpPlayers devuelve 0 para el par adyacente
+      // (con el desempate alfabético final, esto prácticamente nunca ocurre)
+      const sorted = sortedEntries.map(([playerId, s], idx) => {
+        const [prevId, prev] = sortedEntries[idx - 1] ?? [];
+        const [nextId, next] = sortedEntries[idx + 1] ?? [];
+        const tiedForPosition =
+          (prev && cmpPlayers(playerId, s, prevId, prev) === 0) ||
+          (next && cmpPlayers(playerId, s, nextId, next) === 0);
+        return {
+          position: idx + 1,
+          playerId,
+          playerName: s.name,
+          wins: s.wins,
+          losses: s.losses,
+          setsWon: s.setsWon,
+          setsLost: s.setsLost,
+          gamesWon: s.gamesWon,
+          gamesLost: s.gamesLost,
+          tiedForPosition: !!tiedForPosition,
         };
-        const setPctDiff = calcSets(idB) - calcSets(idA);
-        if (Math.abs(setPctDiff) > 0.0001) return setPctDiff;
-
-        // % games entre empatados
-        const calcGames = (id: string) => {
-          let w = 0, l = 0;
-          tiedMatches.forEach(m => {
-            if (m.player1Id === id) { w += m.games1; l += m.games2; }
-            if (m.player2Id === id) { w += m.games2; l += m.games1; }
-          });
-          return (w + l) > 0 ? w / (w + l) : 0;
-        };
-        const gamePctDiff = calcGames(idB) - calcGames(idA);
-        if (Math.abs(gamePctDiff) > 0.0001) return gamePctDiff;
-
-        // % sets general
-        const setsA = (a.setsWon + a.setsLost) > 0 ? a.setsWon / (a.setsWon + a.setsLost) : 0;
-        const setsB = (b.setsWon + b.setsLost) > 0 ? b.setsWon / (b.setsWon + b.setsLost) : 0;
-        if (Math.abs(setsB - setsA) > 0.0001) return setsB - setsA;
-
-        // % games general
-        const gamesA = (a.gamesWon + a.gamesLost) > 0 ? a.gamesWon / (a.gamesWon + a.gamesLost) : 0;
-        const gamesB = (b.gamesWon + b.gamesLost) > 0 ? b.gamesWon / (b.gamesWon + b.gamesLost) : 0;
-        return gamesB - gamesA;
       });
 
-      const sorted = sortedEntries.map(([playerId, s], idx) => ({
-        position: idx + 1,
-        playerId,
-        playerName: s.name,
-        wins: s.wins,
-        losses: s.losses,
-        setsWon: s.setsWon,
-        setsLost: s.setsLost,
-        gamesWon: s.gamesWon,
-        gamesLost: s.gamesLost,
-      }));
+      const hasTie = sorted.some(s => s.tiedForPosition);
 
       groups.push({
         groupLabel,
@@ -457,6 +513,7 @@ export class MatchesService {
         finished,
         complete: finished === total,
         standings: sorted,
+        hasTie,
       });
     });
 
@@ -476,6 +533,20 @@ export class MatchesService {
       throw new Error('No todos los partidos del Round Robin están terminados');
     }
 
+    // Bloquear si hay empates irresolvables en posiciones de clasificación
+    const tiedGroups = status.groups.filter((g: any) => {
+      if (!g.hasTie) return false;
+      const advancers = g.standings.slice(0, advancingPerGroup);
+      return advancers.some((p: any) => p.tiedForPosition);
+    });
+    if (tiedGroups.length > 0) {
+      const labels = tiedGroups.map((g: any) => `Grupo ${g.groupLabel}`).join(', ');
+      throw new HttpException(
+        `Empate irresolvable en ${labels}. Se requiere decisión del árbitro antes de generar el Main Draw.`,
+        HttpStatus.CONFLICT,
+      );
+    }
+
     // Clasificados: PRIMERO todos los 1ros (máxima prioridad de siembra = BYE),
     // LUEGO todos los 2dos. Así los primeros siempre tienen BYE antes que los segundos.
     const firstPlacers: string[] = [];
@@ -489,11 +560,24 @@ export class MatchesService {
     if (qualifiers.length < 2)
       throw new Error('Se necesitan al menos 2 clasificados para generar el Main Draw');
 
+    const drawSize_check   = this.nextPowerOfTwo(qualifiers.length);
+    const firstRound_check = this.getFirstRound(drawSize_check);
     const existing = await this.repo.find({
-      where: { tournamentId, category, round: 'QF' as any },
+      where: { tournamentId, category, round: firstRound_check as any },
     });
-    if (existing.length > 0)
+    // Bloquear solo si ya existen partidos reales (con jugadores), no placeholders
+    const realMatches = existing.filter(m => m.player1Id != null || m.player2Id != null);
+    if (realMatches.length > 0)
       throw new Error('El Main Draw ya fue generado para esta categoría');
+    // Limpiar placeholders (sin jugadores) creados al generar el cuadro RR
+    if (existing.length > 0) {
+      const mainRounds = ['QF', 'SF', 'F'] as any[];
+      const allPlaceholders = await this.repo.find({
+        where: { tournamentId, category, round: In(mainRounds) },
+      });
+      const pureNull = allPlaceholders.filter(m => m.player1Id == null && m.player2Id == null);
+      if (pureNull.length > 0) await this.repo.remove(pureNull);
+    }
 
     const drawSize   = this.nextPowerOfTwo(qualifiers.length);
     const byeCount   = drawSize - qualifiers.length;
@@ -525,6 +609,29 @@ export class MatchesService {
     }
 
     await this.repo.save(matches);
+
+    // ── Pre-crear rondas siguientes con jugadores nulos ─────────────────────
+    const ROUND_SEQ: Record<string, string> = { R32: 'R16', R16: 'QF', QF: 'SF', SF: 'F' };
+    let prevRound = [...matches];
+    let curRound  = firstRound as string;
+    while (ROUND_SEQ[curRound]) {
+      const nextRound   = ROUND_SEQ[curRound];
+      const nextMatches = [];
+      for (let i = 0; i < prevRound.length; i += 2) {
+        const m1 = prevRound[i];
+        const m2 = prevRound[i + 1];
+        nextMatches.push(this.repo.create({
+          tournamentId, category,
+          round:     nextRound as any,
+          player1Id: m1?.status === MatchStatus.COMPLETED ? m1.winnerId : null,
+          player2Id: m2?.status === MatchStatus.COMPLETED ? m2.winnerId : null,
+          status:    MatchStatus.PENDING,
+        }));
+      }
+      await this.repo.save(nextMatches);
+      prevRound = nextMatches;
+      curRound  = nextRound;
+    }
 
     return {
       qualifiers: qualifiers.length,
@@ -1225,46 +1332,25 @@ export class MatchesService {
 
   // ── PARTIDOS PENDIENTES SIN PROGRAMAR ────────────────────────────────────
   async getPendingUnscheduled(tournamentId: string) {
-    // Traer todos los pendientes del torneo
     const all = await this.repo.find({
       where: { tournamentId, status: MatchStatus.PENDING },
     });
 
-    // Filtrar los que NO tienen scheduledAt
-    const unscheduled = all.filter((m) => !(m as any).scheduledAt);
+    const now = new Date();
+    const unscheduled = all.filter((m) => {
+      const sAt = (m as any).scheduledAt as Date | null;
+      // Sin hora asignada
+      if (!sAt) return true;
+      // Jugadores aún por definir (rondas futuras)
+      if (!m.player1Id || !m.player2Id) return true;
+      // Hora ya pasó pero el partido no se jugó → debe reprogramarse
+      if (sAt < now) return true;
+      return false;
+    });
 
     if (unscheduled.length === 0) return [];
 
-    // Enriquecer con nombres de jugadores
-    const playerIds = [
-      ...new Set(
-        [
-          ...unscheduled.map((m) => m.player1Id),
-          ...unscheduled.map((m) => m.player2Id),
-        ].filter(Boolean),
-      ),
-    ];
-
-    const users =
-      playerIds.length > 0
-        ? await this.userRepo
-            .createQueryBuilder('u')
-            .where('u.id IN (:...ids)', { ids: playerIds })
-            .getMany()
-        : [];
-
-    const userMap = new Map(
-      users.map((u) => [
-        u.id,
-        `${u.nombres || ''} ${u.apellidos || ''}`.trim() || u.email,
-      ]),
-    );
-
-    return unscheduled.map((m) => ({
-      ...m,
-      player1Name: m.player1Id ? (userMap.get(m.player1Id) || 'Jugador') : 'BYE',
-      player2Name: m.player2Id ? (userMap.get(m.player2Id) || 'Jugador') : 'BYE',
-    }));
+    return this.enrichWithNames(unscheduled);
   }
 
   // ── RESUMEN DEL CUADRO POR CATEGORÍA ─────────────────────────────────────
@@ -1304,7 +1390,17 @@ export class MatchesService {
           : [...RR_ROUNDS, ...MAIN_ROUNDS];
 
     const all = await this.repo.find({ where: { tournamentId, category } });
-    const toDelete = all.filter((m) => rounds.includes(m.round as string));
+    let toDelete = all.filter((m) => rounds.includes(m.round as string));
+
+    // Al eliminar el cuadro RR, también eliminar placeholders del main draw
+    // (los que se pre-crean sin jugadores al generar el RR)
+    if (drawType === 'rr') {
+      const mainPlaceholders = all.filter(
+        (m) => ['QF', 'SF', 'F'].includes(m.round as string)
+             && m.player1Id == null && m.player2Id == null,
+      );
+      toDelete = [...toDelete, ...mainPlaceholders];
+    }
 
     if (toDelete.length === 0) {
       throw new Error('No hay partidos para eliminar en esa selección');

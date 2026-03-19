@@ -4,6 +4,7 @@ import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Users, Trophy, Calendar, Settings, UserPlus } from 'lucide-react';
 import AlternateManager from '../components/AlternateManager';
+import CategoryMergeModal from '../components/CategoryMergeModal';
 import { tournamentsApi } from '../api/tournaments.api';
 import { enrollmentsApi } from '../api/enrollments.api';
 import { matchesApi } from '../api/matches.api';
@@ -40,6 +41,9 @@ export default function TournamentDetail() {
   // ── Tabs ──────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<'info' | 'enrollments' | 'matches' | 'draw' | 'bracket' | 'alternos'>('info');
 
+  // ── Modals ────────────────────────────────────────────────────────────
+  const [showMergeModal, setShowMergeModal] = useState(false);
+
   // ── Draw config ───────────────────────────────────────────────────────
   const [selectedCategory,  setSelectedCategory]  = useState('');
   const [drawType,          setDrawType]          = useState('elimination');
@@ -59,6 +63,7 @@ export default function TournamentDetail() {
   const [rrStatus,          setRrStatus]          = useState<any>(null);
   const [showMainDrawModal,       setShowMainDrawModal]       = useState(false);
   const [showExportBracketModal,  setShowExportBracketModal]  = useState(false);
+  const [exportModality, setExportModality] = useState<'all' | 'singles' | 'doubles'>('all');
   const [mdCategory,        setMdCategory]        = useState('');
   const [mdAdvancing,       setMdAdvancing]       = useState(1);
   const [rrCategories,      setRrCategories]      = useState<string[]>([]);
@@ -81,9 +86,31 @@ export default function TournamentDetail() {
   const [inscribirError,     setInscribirError]     = useState<string | null>(null);
   const [inscribirLoading,   setInscribirLoading]   = useState(false);
 
+  // ── Filtros sección inscritos ─────────────────────────────────────────
+  const [enrollSearch,    setEnrollSearch]    = useState('');
+  const [enrollCategory,  setEnrollCategory]  = useState('');
+  const [enrollModality,  setEnrollModality]  = useState('');
+
+  // ── Modal preparar rondas (crear placeholders main draw) ─────────────
+  const [prepRondasModal, setPrepRondasModal] = useState(false);
+  const [prepRondasCat,   setPrepRondasCat]   = useState('');
+  const [prepRondasAdv,   setPrepRondasAdv]   = useState(2);
+  const [prepRondasMsg,   setPrepRondasMsg]   = useState('');
+  const [prepRondasErr,   setPrepRondasErr]   = useState('');
+
   // ── Modal cambiar forma de pago ───────────────────────────────────────
   const [cambiarPagoModal, setCambiarPagoModal] = useState<{ open: boolean; enrollment: any | null }>({ open: false, enrollment: null });
   const [cambiarPagoLoading, setCambiarPagoLoading] = useState(false);
+
+  // ── Modal cambiar categoría de inscripción ────────────────────────────
+  const [changeCatModal, setChangeCatModal] = useState<{ open: boolean; enrollment: any | null; newCat: string }>({ open: false, enrollment: null, newCat: '' });
+  const [changeCatLoading, setChangeCatLoading] = useState(false);
+  const [changeCatError, setChangeCatError] = useState('');
+
+  // ── Modal renombrar categoría ─────────────────────────────────────────
+  const [renameCatModal, setRenameCatModal] = useState<{ open: boolean; oldName: string; newName: string }>({ open: false, oldName: '', newName: '' });
+  const [renameCatLoading, setRenameCatLoading] = useState(false);
+  const [renameCatError, setRenameCatError] = useState('');
 
   // ── Queries ───────────────────────────────────────────────────────────
   const { data: tournament, isLoading } = useQuery({
@@ -174,6 +201,46 @@ export default function TournamentDetail() {
       queryClient.invalidateQueries({ queryKey: ['matches', id] });
     },
   });
+
+  // ── Editar grupos RR ──────────────────────────────────────────────────
+  const [editRRModal, setEditRRModal] = useState<{ open: boolean; category: string }>({ open: false, category: '' });
+  // groups: { groupLabel → playerIds[] } — se construye al abrir el modal
+  const [editRRGroups, setEditRRGroups] = useState<Record<string, string[]>>({});
+  // map playerId → name (para mostrar en el modal)
+  const [editRRNames, setEditRRNames] = useState<Record<string, string>>({});
+
+  const editRRGroupsMutation = useMutation({
+    mutationFn: ({ category, groups }: { category: string; groups: Record<string, string[]> }) =>
+      api.put(`/tournaments/${id}/draw/rr-groups`, { category, groups }).then(r => r.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bracket-matches', id] });
+      setEditRRModal({ open: false, category: '' });
+    },
+  });
+
+  const openEditRRModal = (category: string) => {
+    // Construir estado inicial de grupos desde bracketMatches
+    const rrMatches = (bracketMatches as any[]).filter(
+      (m: any) => m.category === category && m.round === 'RR',
+    );
+    const groups: Record<string, string[]> = {};
+    const names: Record<string, string> = {};
+    rrMatches.forEach((m: any) => {
+      const g = m.groupLabel || 'A';
+      if (!groups[g]) groups[g] = [];
+      if (m.player1Id && !groups[g].includes(m.player1Id)) {
+        groups[g].push(m.player1Id);
+        names[m.player1Id] = m.player1Name || m.player1Id;
+      }
+      if (m.player2Id && !groups[g].includes(m.player2Id)) {
+        groups[g].push(m.player2Id);
+        names[m.player2Id] = m.player2Name || m.player2Id;
+      }
+    });
+    setEditRRGroups(groups);
+    setEditRRNames(names);
+    setEditRRModal({ open: true, category });
+  };
 
   // ── Import CSV ────────────────────────────────────────────────────────
   const handleImportCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -437,11 +504,65 @@ export default function TournamentDetail() {
                 <div style={{ gridColumn: '1 / -1' }}>
                   <span className="text-gray-500">Categorías:</span>
                   <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '6px' }}>
-                    {normalizeCategories(tournament.categories).map((cat: string) => (
-                      <span key={cat} style={{ backgroundColor: '#DBEAFE', color: '#1D4ED8', padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '600' }}>
-                        {cat}
-                      </span>
-                    ))}
+                    {normalizeCategories(tournament.categories).map((cat: string) => {
+                      const hasDraw = (matches as any[]).some(m => m.category === cat);
+                      return (
+                        <div key={cat} style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                          <span style={{ backgroundColor: '#DBEAFE', color: '#1D4ED8', padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '600' }}>
+                            {cat}
+                          </span>
+                          {isAdmin && (
+                            <button
+                              onClick={() => !hasDraw && setRenameCatModal({ open: true, oldName: cat, newName: cat })}
+                              disabled={hasDraw}
+                              title={hasDraw ? 'Elimina el cuadro para renombrar' : `Renombrar "${cat}"`}
+                              style={{ background: 'none', border: 'none', cursor: hasDraw ? 'not-allowed' : 'pointer', color: hasDraw ? '#D1D5DB' : '#6B7280', fontSize: '12px', padding: '1px 3px', lineHeight: 1 }}
+                            >
+                              ✏️
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Árbitro y Director */}
+              {(tournament.refereeName || tournament.directorName) && (
+                <div style={{ gridColumn: '1 / -1', marginTop: '8px' }}>
+                  <div style={{ height: '1px', backgroundColor: '#F3F4F6', margin: '4px 0 14px' }} />
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    {tournament.refereeName && (
+                      <div style={{ backgroundColor: '#F0FDF4', border: '1px solid #86EFAC', borderRadius: '10px', padding: '12px 14px' }}>
+                        <p style={{ margin: 0, fontSize: '11px', fontWeight: '700', color: '#166534', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                          🧑‍⚖️ Árbitro (Referee)
+                        </p>
+                        <p style={{ margin: '4px 0 0', fontSize: '14px', fontWeight: '700', color: '#1B3A1B' }}>
+                          {tournament.refereeName}
+                        </p>
+                        {tournament.refereePhone && (
+                          <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#374151' }}>
+                            📞 {tournament.refereePhone}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {tournament.directorName && (
+                      <div style={{ backgroundColor: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: '10px', padding: '12px 14px' }}>
+                        <p style={{ margin: 0, fontSize: '11px', fontWeight: '700', color: '#1E40AF', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                          👔 Director del torneo
+                        </p>
+                        <p style={{ margin: '4px 0 0', fontSize: '14px', fontWeight: '700', color: '#1B3A1B' }}>
+                          {tournament.directorName}
+                        </p>
+                        {tournament.directorPhone && (
+                          <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#374151' }}>
+                            📞 {tournament.directorPhone}
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -473,8 +594,13 @@ export default function TournamentDetail() {
                     {/* 📥 Descargar plantilla CSV */}
                     <button
                       onClick={() => {
-                        const headers = 'nombres,apellidos,email,telefono,docNumber,birthDate,gender,category,modality,seeding,ranking,adminNotes\n';
-                        const example = 'Juan,García,juan@email.com,3001234567,12345678,1990-05-15,M,TERCERA,singles,1,100,\n';
+                        // Obligatorios: nombres, apellidos, email
+                        // Opcionales: telefono, docNumber, birthDate, gender, categoryGender, seeding, ranking, adminNotes
+                        const headers = 'nombres,apellidos,email,telefono,docNumber,birthDate,gender,category,categoryGender,modality,seeding,ranking,adminNotes\n';
+                        const example1 = 'Juan,García,juan@email.com,3001234567,12345678,1990-05-15,M,TERCERA,M,singles,1,100,\n';
+                        const example2 = 'María,López,maria@email.com,3009876543,87654321,1995-08-20,F,TERCERA,F,singles,2,80,\n';
+                        const example3 = 'Carlos,Pérez,carlos@email.com,,,,M,CUARTA,,singles,,,\n';
+                        const example = example1 + example2 + example3;
                         const blob = new Blob([headers + example], { type: 'text/csv;charset=utf-8;' });
                         const url  = URL.createObjectURL(blob);
                         const a    = document.createElement('a');
@@ -564,6 +690,86 @@ export default function TournamentDetail() {
               </div>
             )}
 
+            {/* ── Filtros inscritos ─────────────────────────────────── */}
+            {(enrollments as any[]).length > 0 && (() => {
+              const enrollCats = [...new Set((enrollments as any[]).map((e: any) => e.category).filter(Boolean))].sort();
+              const hasEnrollFilters = enrollSearch.trim() || enrollCategory || enrollModality;
+              return (
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '14px', padding: '10px 12px', backgroundColor: '#F9FAFB', borderRadius: '10px', border: '1px solid #E5E7EB' }}>
+                  <span style={{ fontSize: '12px', color: '#6B7280', fontWeight: '600', whiteSpace: 'nowrap' }}>🔍 Filtrar:</span>
+
+                  {/* Texto libre */}
+                  <input
+                    type="text"
+                    placeholder="Nombre, documento, correo o teléfono..."
+                    value={enrollSearch}
+                    onChange={e => setEnrollSearch(e.target.value)}
+                    style={{
+                      flex: 1, minWidth: '200px', maxWidth: '320px',
+                      border: '1.5px solid #E5E7EB', borderRadius: '8px',
+                      padding: '6px 10px', fontSize: '12px', outline: 'none',
+                      backgroundColor: enrollSearch ? '#F0FDF4' : 'white',
+                      borderColor: enrollSearch ? '#86EFAC' : '#E5E7EB',
+                    }}
+                  />
+
+                  {/* Categoría */}
+                  <select
+                    value={enrollCategory}
+                    onChange={e => setEnrollCategory(e.target.value)}
+                    style={{
+                      border: '1.5px solid #E5E7EB', borderRadius: '8px', padding: '6px 10px',
+                      fontSize: '12px', outline: 'none', cursor: 'pointer',
+                      backgroundColor: enrollCategory ? '#F0FDF4' : 'white',
+                      borderColor: enrollCategory ? '#86EFAC' : '#E5E7EB',
+                    }}
+                  >
+                    <option value="">Todas las categorías</option>
+                    {enrollCats.map((c: string) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+
+                  {/* Modalidad */}
+                  <select
+                    value={enrollModality}
+                    onChange={e => setEnrollModality(e.target.value)}
+                    style={{
+                      border: '1.5px solid #E5E7EB', borderRadius: '8px', padding: '6px 10px',
+                      fontSize: '12px', outline: 'none', cursor: 'pointer',
+                      backgroundColor: enrollModality ? '#F0FDF4' : 'white',
+                      borderColor: enrollModality ? '#86EFAC' : '#E5E7EB',
+                    }}
+                  >
+                    <option value="">Todas las modalidades</option>
+                    <option value="singles">Singles</option>
+                    <option value="doubles">Dobles</option>
+                  </select>
+
+                  {/* Limpiar */}
+                  {hasEnrollFilters && (
+                    <button
+                      onClick={() => { setEnrollSearch(''); setEnrollCategory(''); setEnrollModality(''); }}
+                      style={{ padding: '6px 12px', borderRadius: '8px', border: '1.5px solid #FECACA', backgroundColor: '#FFF5F5', color: '#DC2626', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
+                    >
+                      ✕ Limpiar
+                    </button>
+                  )}
+
+                  {/* Contador */}
+                  {hasEnrollFilters && (() => {
+                    const q = enrollSearch.trim().toLowerCase();
+                    const filtered = (enrollments as any[]).filter((e: any) => {
+                      const textMatch = !q || [e.playerName, e.playerEmail, e.playerPhone, e.playerDocNumber]
+                        .some(v => v?.toLowerCase().includes(q));
+                      const catMatch  = !enrollCategory || e.category === enrollCategory;
+                      const modMatch  = !enrollModality || (e.modality || 'singles') === enrollModality;
+                      return textMatch && catMatch && modMatch;
+                    });
+                    return <span style={{ fontSize: '12px', color: '#6B7280', marginLeft: 'auto' }}>{filtered.length} resultado{filtered.length !== 1 ? 's' : ''}</span>;
+                  })()}
+                </div>
+              );
+            })()}
+
             {(enrollments as any[]).length === 0 ? (
               <p className="text-gray-400 text-center py-8">No hay inscritos aún.</p>
             ) : (
@@ -576,7 +782,14 @@ export default function TournamentDetail() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(enrollments as any[]).map((e: any, i: number) => {
+                  {((enrollments as any[]).filter((e: any) => {
+                      const q = enrollSearch.trim().toLowerCase();
+                      const textMatch = !q || [e.playerName, e.playerEmail, e.playerPhone, e.playerDocNumber]
+                        .some((v: any) => v?.toLowerCase().includes(q));
+                      const catMatch  = !enrollCategory || e.category === enrollCategory;
+                      const modMatch  = !enrollModality || (e.modality || 'singles') === enrollModality;
+                      return textMatch && catMatch && modMatch;
+                    })).map((e: any, i: number) => {
                     // ── Helper: mapea e.status → color + label
                     const statusCfg: Record<string, { bg: string; color: string; label: string }> = {
                       approved:  { bg: '#DCFCE7', color: '#15803D', label: '✓ Aprobado'    },
@@ -650,6 +863,20 @@ export default function TournamentDetail() {
                               💳 Pago
                             </button>
                           )}
+                          {/* Cambiar categoría — solo si no hay cuadros generados */}
+                          {isAdmin && (() => {
+                            const hasDraw = (matches as any[]).some(m => m.category === e.category);
+                            return (
+                              <button
+                                onClick={() => !hasDraw && setChangeCatModal({ open: true, enrollment: e, newCat: e.category })}
+                                disabled={hasDraw}
+                                title={hasDraw ? 'Elimina el cuadro antes de cambiar la categoría' : 'Cambiar categoría'}
+                                style={{ backgroundColor: hasDraw ? '#F9FAFB' : '#FFF7ED', color: hasDraw ? '#9CA3AF' : '#C2410C', border: `1px solid ${hasDraw ? '#E5E7EB' : '#FDBA74'}`, borderRadius: '6px', padding: '3px 9px', fontSize: '11px', cursor: hasDraw ? 'not-allowed' : 'pointer', fontWeight: '600' }}
+                              >
+                                📂 Cat.
+                              </button>
+                            );
+                          })()}
                           {isAdmin && (
                             <button
                               onClick={async () => {
@@ -776,7 +1003,22 @@ export default function TournamentDetail() {
         {/* ══════════════════════════════════════════════════════════════ */}
         {activeTab === 'draw' && isAdmin && (
           <div className="bg-white rounded-xl shadow-sm p-6">
-            <h2 className="text-lg font-bold text-lat-dark mb-6">Generar Draw / Cuadro</h2>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
+              <h2 className="text-lg font-bold text-lat-dark" style={{ margin: 0 }}>Generar Draw / Cuadro</h2>
+              {(normalizeCategories(tournament?.categories?.length > 0 ? tournament.categories : CATEGORIES)).length > 1 && (
+                <button
+                  onClick={() => setShowMergeModal(true)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '6px',
+                    padding: '7px 14px', borderRadius: '8px',
+                    border: '1.5px solid #FDE68A', backgroundColor: '#FFFBEB',
+                    color: '#92400E', fontSize: '12px', fontWeight: '700', cursor: 'pointer',
+                  }}
+                >
+                  ⚡ Unificar categorías
+                </button>
+              )}
+            </div>
             <div style={{ maxWidth: '440px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
               {/* Categoría */}
@@ -1054,7 +1296,7 @@ export default function TournamentDetail() {
               )}
               {drawMutation.isError && (
                 <div style={{ backgroundColor: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', padding: '12px', fontSize: '13px', color: '#DC2626' }}>
-                  ❌ Error al generar draw. Verifica que haya mínimo 6 jugadores inscritos.
+                  ❌ {(drawMutation.error as any)?.response?.data?.message || (drawMutation.error as any)?.message || 'Error al generar el draw.'}
                 </div>
               )}
             </div>
@@ -1088,6 +1330,26 @@ export default function TournamentDetail() {
                 >
                   📄 Exportar PDF
                 </button>
+
+                {/* Preparar Rondas Siguientes (crear placeholders para grupo único) */}
+                {isAdmin && (
+                  <button
+                    onClick={() => {
+                      const rrCats = [...new Set((bracketMatches as any[])
+                        .filter((m: any) => ['RR','RR_A','RR_B'].includes(m.round))
+                        .map((m: any) => m.category)
+                      )] as string[];
+                      setPrepRondasCat(rrCats[0] || '');
+                      setPrepRondasAdv(2);
+                      setPrepRondasMsg('');
+                      setPrepRondasErr('');
+                      setPrepRondasModal(true);
+                    }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '7px', backgroundColor: '#7C3AED', color: 'white', padding: '8px 14px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: '600' }}
+                  >
+                    📋 Preparar Rondas
+                  </button>
+                )}
 
                 {/* Generar Main Draw (solo si hay RR) */}
                 {isAdmin && (bracketMatches as any[]).some((m: any) => ['RR','RR_A','RR_B'].includes(m.round)) && (
@@ -1126,8 +1388,10 @@ export default function TournamentDetail() {
               <BracketView
                 matches={bracketMatches as any[]}
                 isAdmin={isAdmin}
+                advancingPerGroup={mdAdvancing || advancingPerGroup}
                 onSuspendMatch={(match) => setSuspendModal({ open: true, match })}
                 onResumeMatch={(match) => resumeMatchMutation.mutate(match.id)}
+                onEditRRGroups={isAdmin ? openEditRRModal : undefined}
               />
             )}
           </div>
@@ -1314,12 +1578,22 @@ export default function TournamentDetail() {
       {/* ══════════════════════════════════════════════════════════════════ */}
       {/* MODAL: Admin cambia forma de pago de una inscripción              */}
       {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* Modal: Unificar categorías */}
+      {showMergeModal && (
+        <CategoryMergeModal
+          tournamentId={id!}
+          categories={normalizeCategories(tournament?.categories?.length > 0 ? tournament.categories : CATEGORIES)}
+          onClose={() => setShowMergeModal(false)}
+        />
+      )}
+
       {/* Tab: Alternos */}
       {activeTab === 'alternos' && (
         <div className="bg-white rounded-xl shadow-sm p-6">
           <AlternateManager
             tournamentId={id!}
             isAdmin={isAdmin}
+            categories={normalizeCategories(tournament?.categories?.length > 0 ? tournament.categories : CATEGORIES)}
           />
         </div>
       )}
@@ -1331,6 +1605,195 @@ export default function TournamentDetail() {
         onCancel={() => setCambiarPagoModal({ open: false, enrollment: null })}
         isLoading={cambiarPagoLoading}
       />
+
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* MODAL: Cambiar categoría de inscripción (singles)                 */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {changeCatModal.open && changeCatModal.enrollment && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}
+          onClick={() => setChangeCatModal({ open: false, enrollment: null, newCat: '' })}>
+          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '380px', maxWidth: '95vw' }}
+            onClick={e => e.stopPropagation()}>
+            <h3 style={{ fontSize: '17px', fontWeight: '700', color: '#1B3A1B', marginBottom: '6px' }}>Cambiar categoría</h3>
+            <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '16px' }}>
+              Jugador: <strong style={{ color: '#1B3A1B' }}>{changeCatModal.enrollment.playerName}</strong>
+            </p>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '6px' }}>Nueva categoría</label>
+            <select
+              value={changeCatModal.newCat}
+              onChange={e => setChangeCatModal({ ...changeCatModal, newCat: e.target.value })}
+              style={{ width: '100%', border: '1.5px solid #D1D5DB', borderRadius: '8px', padding: '9px 12px', fontSize: '13px', marginBottom: '12px' }}
+            >
+              {normalizeCategories(tournament?.categories?.length > 0 ? tournament.categories : CATEGORIES).map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+            {changeCatError && (
+              <p style={{ fontSize: '12px', color: '#DC2626', backgroundColor: '#FEF2F2', padding: '8px', borderRadius: '6px', marginBottom: '12px' }}>⚠️ {changeCatError}</p>
+            )}
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button onClick={() => { setChangeCatModal({ open: false, enrollment: null, newCat: '' }); setChangeCatError(''); }}
+                style={{ flex: 1, padding: '9px', borderRadius: '8px', border: '1.5px solid #E5E7EB', background: 'white', cursor: 'pointer', fontWeight: '600', fontSize: '13px', color: '#374151' }}>
+                Cancelar
+              </button>
+              <button
+                disabled={changeCatLoading || changeCatModal.newCat === changeCatModal.enrollment.category}
+                onClick={async () => {
+                  setChangeCatLoading(true); setChangeCatError('');
+                  try {
+                    await api.patch(`/enrollments/${changeCatModal.enrollment.id}/change-category`, { newCategory: changeCatModal.newCat });
+                    queryClient.invalidateQueries({ queryKey: ['enrollments', id] });
+                    setChangeCatModal({ open: false, enrollment: null, newCat: '' });
+                  } catch (err: any) {
+                    setChangeCatError(err?.response?.data?.message || 'Error al cambiar la categoría.');
+                  } finally {
+                    setChangeCatLoading(false);
+                  }
+                }}
+                style={{ flex: 2, padding: '9px', borderRadius: '8px', border: 'none', background: changeCatLoading || changeCatModal.newCat === changeCatModal.enrollment.category ? '#D1D5DB' : 'linear-gradient(135deg, #C2410C, #9A3412)', color: 'white', cursor: changeCatLoading || changeCatModal.newCat === changeCatModal.enrollment.category ? 'not-allowed' : 'pointer', fontWeight: '700', fontSize: '13px' }}>
+                {changeCatLoading ? 'Guardando...' : 'Confirmar cambio'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* MODAL: Renombrar categoría del torneo                             */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {renameCatModal.open && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}
+          onClick={() => setRenameCatModal({ open: false, oldName: '', newName: '' })}>
+          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '380px', maxWidth: '95vw' }}
+            onClick={e => e.stopPropagation()}>
+            <h3 style={{ fontSize: '17px', fontWeight: '700', color: '#1B3A1B', marginBottom: '6px' }}>Renombrar categoría</h3>
+            <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '16px' }}>
+              Nombre actual: <strong style={{ color: '#1D4ED8' }}>{renameCatModal.oldName}</strong>
+            </p>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#374151', marginBottom: '6px' }}>Nuevo nombre</label>
+            <input
+              autoFocus
+              value={renameCatModal.newName}
+              onChange={e => setRenameCatModal({ ...renameCatModal, newName: e.target.value.toUpperCase() })}
+              style={{ width: '100%', border: '1.5px solid #D1D5DB', borderRadius: '8px', padding: '9px 12px', fontSize: '13px', marginBottom: '12px', boxSizing: 'border-box' }}
+              placeholder="Ej: TERCERA M"
+            />
+            <p style={{ fontSize: '11px', color: '#6B7280', marginBottom: '12px' }}>
+              Esto actualizará el nombre en todas las inscripciones de esta categoría.
+            </p>
+            {renameCatError && (
+              <p style={{ fontSize: '12px', color: '#DC2626', backgroundColor: '#FEF2F2', padding: '8px', borderRadius: '6px', marginBottom: '12px' }}>⚠️ {renameCatError}</p>
+            )}
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button onClick={() => { setRenameCatModal({ open: false, oldName: '', newName: '' }); setRenameCatError(''); }}
+                style={{ flex: 1, padding: '9px', borderRadius: '8px', border: '1.5px solid #E5E7EB', background: 'white', cursor: 'pointer', fontWeight: '600', fontSize: '13px', color: '#374151' }}>
+                Cancelar
+              </button>
+              <button
+                disabled={renameCatLoading || !renameCatModal.newName.trim() || renameCatModal.newName.trim() === renameCatModal.oldName}
+                onClick={async () => {
+                  setRenameCatLoading(true); setRenameCatError('');
+                  try {
+                    await api.patch(`/tournaments/${id}/rename-category`, { oldName: renameCatModal.oldName, newName: renameCatModal.newName.trim() });
+                    queryClient.invalidateQueries({ queryKey: ['tournament', id] });
+                    queryClient.invalidateQueries({ queryKey: ['enrollments', id] });
+                    setRenameCatModal({ open: false, oldName: '', newName: '' });
+                  } catch (err: any) {
+                    setRenameCatError(err?.response?.data?.message || 'Error al renombrar la categoría.');
+                  } finally {
+                    setRenameCatLoading(false);
+                  }
+                }}
+                style={{ flex: 2, padding: '9px', borderRadius: '8px', border: 'none', background: renameCatLoading || !renameCatModal.newName.trim() || renameCatModal.newName.trim() === renameCatModal.oldName ? '#D1D5DB' : 'linear-gradient(135deg, #1D4ED8, #1E40AF)', color: 'white', cursor: 'pointer', fontWeight: '700', fontSize: '13px' }}>
+                {renameCatLoading ? 'Guardando...' : 'Guardar nombre'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* MODAL: Editar grupos Round Robin                                  */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {editRRModal.open && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}
+          onClick={() => setEditRRModal({ open: false, category: '' })}>
+          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '600px', maxWidth: '95vw', maxHeight: '85vh', overflowY: 'auto' }}
+            onClick={e => e.stopPropagation()}>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <div>
+                <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#1B3A1B', margin: 0 }}>✏️ Editar grupos RR</h3>
+                <p style={{ fontSize: '12px', color: '#6B7280', margin: '4px 0 0' }}>{editRRModal.category}</p>
+              </div>
+              <button onClick={() => setEditRRModal({ open: false, category: '' })}
+                style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#9CA3AF' }}>×</button>
+            </div>
+
+            <p style={{ fontSize: '12px', color: '#6B7280', marginBottom: '16px', backgroundColor: '#FEF3C7', padding: '8px 12px', borderRadius: '6px' }}>
+              ⚠️ Reasignar jugadores borrará los resultados RR existentes. Los partidos del Main Draw no se modifican.
+            </p>
+
+            {/* Grupos */}
+            {Object.entries(editRRGroups).sort().map(([groupLabel, playerIds]) => (
+              <div key={groupLabel} style={{ marginBottom: '20px' }}>
+                <div style={{ backgroundColor: '#1B3A1B', color: 'white', borderRadius: '8px 8px 0 0', padding: '8px 14px', fontWeight: '700', fontSize: '13px' }}>
+                  Grupo {groupLabel}
+                  <span style={{ opacity: 0.6, fontWeight: '400', marginLeft: '8px' }}>{playerIds.length} jugadores</span>
+                </div>
+                <div style={{ border: '1px solid #E5E7EB', borderTop: 'none', borderRadius: '0 0 8px 8px' }}>
+                  {playerIds.map(pid => (
+                    <div key={pid} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px', borderBottom: '1px solid #F3F4F6' }}>
+                      <span style={{ fontSize: '13px', color: '#1F2937' }}>{editRRNames[pid] || pid}</span>
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        {/* Mover a otro grupo */}
+                        {Object.keys(editRRGroups).sort().filter(g => g !== groupLabel).map(targetGroup => (
+                          <button key={targetGroup}
+                            onClick={() => {
+                              setEditRRGroups(prev => {
+                                const next = { ...prev };
+                                next[groupLabel] = next[groupLabel].filter(p => p !== pid);
+                                next[targetGroup] = [...next[targetGroup], pid];
+                                return next;
+                              });
+                            }}
+                            style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '4px', border: '1px solid #3B82F6', backgroundColor: '#EFF6FF', color: '#1D4ED8', cursor: 'pointer', fontWeight: '600' }}
+                          >
+                            → {targetGroup}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  {playerIds.length === 0 && (
+                    <div style={{ padding: '12px 14px', color: '#9CA3AF', fontSize: '12px', fontStyle: 'italic' }}>Grupo vacío</div>
+                  )}
+                </div>
+              </div>
+            ))}
+
+            {/* Acciones */}
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '8px' }}>
+              <button onClick={() => setEditRRModal({ open: false, category: '' })}
+                style={{ padding: '8px 18px', borderRadius: '8px', border: '1px solid #E5E7EB', backgroundColor: 'white', color: '#374151', cursor: 'pointer', fontWeight: '600' }}>
+                Cancelar
+              </button>
+              <button
+                disabled={editRRGroupsMutation.isPending || Object.values(editRRGroups).some(g => g.length < 2)}
+                onClick={() => editRRGroupsMutation.mutate({ category: editRRModal.category, groups: editRRGroups })}
+                style={{ padding: '8px 18px', borderRadius: '8px', border: 'none', backgroundColor: editRRGroupsMutation.isPending ? '#9CA3AF' : '#1B3A1B', color: 'white', cursor: editRRGroupsMutation.isPending ? 'not-allowed' : 'pointer', fontWeight: '600' }}
+              >
+                {editRRGroupsMutation.isPending ? 'Guardando...' : '💾 Guardar grupos'}
+              </button>
+            </div>
+            {editRRGroupsMutation.isError && (
+              <p style={{ color: '#EF4444', fontSize: '12px', marginTop: '8px', textAlign: 'right' }}>
+                Error al guardar. Verifica que cada grupo tenga al menos 2 jugadores.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ══════════════════════════════════════════════════════════════════ */}
       {/* MODAL: Editar resultado de partido                                */}
@@ -1461,6 +1924,77 @@ export default function TournamentDetail() {
       )}
 
       {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* MODAL: Preparar Rondas Siguientes                                */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {prepRondasModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}
+          onClick={() => setPrepRondasModal(false)}>
+          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '400px', maxWidth: '95vw' }}
+            onClick={e => e.stopPropagation()}>
+            <h3 style={{ fontSize: '17px', fontWeight: '700', color: '#1B3A1B', marginBottom: '6px' }}>📋 Preparar Rondas Siguientes</h3>
+            <p style={{ fontSize: '12px', color: '#6B7280', marginBottom: '18px' }}>
+              Crea los partidos placeholder de Semifinal/Final para categorías de grupo único, así puedes pre-asignarles horario antes de que se determinen los jugadores.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: '600', color: '#374151', display: 'block', marginBottom: '5px' }}>Categoría</label>
+                <select
+                  value={prepRondasCat}
+                  onChange={e => setPrepRondasCat(e.target.value)}
+                  style={{ width: '100%', border: '1.5px solid #D1D5DB', borderRadius: '8px', padding: '8px 10px', fontSize: '13px' }}
+                >
+                  <option value="">— Selecciona —</option>
+                  {[...new Set((bracketMatches as any[]).map((m: any) => m.category).filter(Boolean))].sort().map((c: string) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: '600', color: '#374151', display: 'block', marginBottom: '5px' }}>Jugadores que avanzan al main draw</label>
+                <input
+                  type="number" min={2} max={16}
+                  value={prepRondasAdv}
+                  onChange={e => setPrepRondasAdv(Number(e.target.value))}
+                  style={{ width: '100%', border: '1.5px solid #D1D5DB', borderRadius: '8px', padding: '8px 10px', fontSize: '13px' }}
+                />
+              </div>
+
+              {prepRondasMsg && <p style={{ fontSize: '12px', color: '#15803D', backgroundColor: '#F0FDF4', padding: '10px', borderRadius: '8px' }}>✅ {prepRondasMsg}</p>}
+              {prepRondasErr && <p style={{ fontSize: '12px', color: '#DC2626', backgroundColor: '#FEF2F2', padding: '10px', borderRadius: '8px' }}>❌ {prepRondasErr}</p>}
+
+              <button
+                disabled={!prepRondasCat || prepRondasAdv < 2}
+                onClick={async () => {
+                  try {
+                    setPrepRondasErr('');
+                    setPrepRondasMsg('');
+                    const res = await api.post(`/tournaments/${id}/draw/create-placeholders`, {
+                      category: prepRondasCat,
+                      advancingCount: prepRondasAdv,
+                    });
+                    setPrepRondasMsg(res.data.message);
+                    queryClient.invalidateQueries({ queryKey: ['matches', id] });
+                  } catch (err: any) {
+                    setPrepRondasErr(err?.response?.data?.message || 'Error al crear placeholders');
+                  }
+                }}
+                style={{ backgroundColor: '#7C3AED', color: 'white', border: 'none', borderRadius: '8px', padding: '10px', fontSize: '14px', fontWeight: '700', cursor: 'pointer', opacity: (!prepRondasCat || prepRondasAdv < 2) ? 0.5 : 1 }}
+              >
+                Crear partidos placeholder
+              </button>
+            </div>
+
+            <button onClick={() => setPrepRondasModal(false)}
+              style={{ marginTop: '14px', width: '100%', padding: '9px', borderRadius: '8px', border: '1px solid #E5E7EB', backgroundColor: 'white', cursor: 'pointer', fontSize: '13px', color: '#6B7280' }}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════ */}
       {/* MODAL: Selección tipo de exportación PDF del bracket             */}
       {/* ══════════════════════════════════════════════════════════════════ */}
       {showExportBracketModal && (
@@ -1475,9 +2009,27 @@ export default function TournamentDetail() {
             <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#1B3A1B', marginBottom: '6px' }}>
               📄 Exportar PDF
             </h3>
-            <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '20px' }}>
+            <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '16px' }}>
               ¿Qué deseas exportar?
             </p>
+
+            {/* Modalidad: Todos / Singles / Dobles */}
+            <div style={{ display: 'flex', gap: '6px', marginBottom: '16px' }}>
+              {(['all', 'singles', 'doubles'] as const).map(m => (
+                <button
+                  key={m}
+                  onClick={() => setExportModality(m)}
+                  style={{
+                    flex: 1, padding: '7px 4px', borderRadius: '8px', fontSize: '12px', fontWeight: '600', cursor: 'pointer',
+                    border: exportModality === m ? '2px solid #2D6A2D' : '1.5px solid #D1D5DB',
+                    backgroundColor: exportModality === m ? '#F0FDF4' : 'white',
+                    color: exportModality === m ? '#2D6A2D' : '#6B7280',
+                  }}
+                >
+                  {m === 'all' ? 'Todos' : m === 'singles' ? '🎾 Singles' : '🤝 Dobles'}
+                </button>
+              ))}
+            </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {[
@@ -1492,6 +2044,7 @@ export default function TournamentDetail() {
                       tournamentName: tournament?.name || 'Torneo',
                       matches: bracketMatches as any[],
                       mode: mode as any,
+                      modality: exportModality,
                     });
                     setShowExportBracketModal(false);
                   }}

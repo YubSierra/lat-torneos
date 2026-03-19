@@ -192,6 +192,36 @@ export class TournamentsService {
     }
   }
 
+  // ── RENOMBRAR CATEGORÍA ──────────────────────────
+  async renameCategory(tournamentId: string, oldName: string, newName: string) {
+    const tournament = await this.findOne(tournamentId);
+
+    const matchCount: number = await this.repo.manager
+      .getRepository('matches')
+      .count({ where: { tournamentId, category: oldName } });
+    if (matchCount > 0) {
+      throw new BadRequestException(
+        'Esta categoría ya tiene cuadros generados. Elimina el cuadro antes de renombrar.',
+      );
+    }
+
+    const cats: any[] = tournament.categories || [];
+    const newCats = cats.map((c) => {
+      const name = typeof c === 'string' ? c : c.name;
+      if (name !== oldName) return c;
+      return typeof c === 'string' ? newName : { ...c, name: newName };
+    });
+
+    await this.repo.manager
+      .getRepository('enrollments')
+      .update({ tournamentId, category: oldName }, { category: newName });
+
+    tournament.categories = newCats;
+    await this.repo.save(tournament);
+
+    return { ok: true, oldName, newName };
+  }
+
   // ── ASIGNACIONES DE ÁRBITRO ──────────────────────
   async getAssignmentsByReferee(refereeId: string) {
     return this.assignmentRepo.find({ where: { refereeId } });

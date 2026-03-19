@@ -9,7 +9,7 @@ import { UserPlus, AlertTriangle, CheckCircle, Search, ChevronDown, ChevronUp } 
 import { matchesApi } from '../api/matches.api';
 import api from '../api/axios';
 
-const CATEGORIES = ['INTERMEDIA', 'SEGUNDA', 'TERCERA', 'CUARTA', 'QUINTA'];
+const DEFAULT_CATEGORIES = ['INTERMEDIA', 'SEGUNDA', 'TERCERA', 'CUARTA', 'QUINTA'];
 
 const ROUND_LABEL: Record<string, string> = {
   R64: '64avos', R32: '32avos', R16: '16avos',
@@ -21,13 +21,16 @@ const ROUND_LABEL: Record<string, string> = {
 interface Props {
   tournamentId: string;
   isAdmin: boolean;
+  categories?: string[];
 }
 
-export default function AlternateManager({ tournamentId, isAdmin }: Props) {
+export default function AlternateManager({ tournamentId, isAdmin, categories: propCategories }: Props) {
   const queryClient = useQueryClient();
 
+  const CATEGORIES = propCategories?.length ? propCategories : DEFAULT_CATEGORIES;
+
   // Categoría seleccionada para operar
-  const [category, setCategory] = useState(CATEGORIES[0]);
+  const [category, setCategory] = useState(() => CATEGORIES[0]);
 
   // Modo activo: 'bye' | 'retire'
   const [mode, setMode] = useState<'bye' | 'retire'>('bye');

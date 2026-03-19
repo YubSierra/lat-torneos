@@ -22,6 +22,8 @@ import { CourtsModule } from './courts/courts.module';
 import { UsersModule } from './users/users.module';
 import { DoublesModule } from './doubles/doubles.module';
 import { RankingHistory } from './rankings/ranking-history.entity';
+import { CircuitLine } from './circuit-lines/circuit-line.entity';
+import { CircuitLinesModule } from './circuit-lines/circuit-lines.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -41,6 +43,7 @@ import { RankingHistory } from './rankings/ranking-history.entity';
           Court, CourtSchedule, Match,
           Ranking, RankingHistory,
           DoublesTeam,
+          CircuitLine,
         ],
         synchronize: true,
         logging: true,
@@ -57,6 +60,7 @@ import { RankingHistory } from './rankings/ranking-history.entity';
     CourtsModule,
     UsersModule,
     DoublesModule,
+    CircuitLinesModule,
   ],
 })
 export class AppModule {}

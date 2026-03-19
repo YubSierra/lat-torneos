@@ -4,6 +4,8 @@ import { Ranking } from './ranking.entity';
 import { RankingHistory } from './ranking-history.entity';
 import { Match } from '../matches/match.entity';
 import { Enrollment } from '../enrollments/enrollment.entity';
+import { Tournament } from '../tournaments/tournament.entity';
+import { CircuitLine } from '../circuit-lines/circuit-line.entity';
 import { RankingsService } from './rankings.service';
 import { RankingsController } from './rankings.controller';
 
@@ -14,6 +16,8 @@ import { RankingsController } from './rankings.controller';
       RankingHistory,
       Match,
       Enrollment,
+      Tournament,
+      CircuitLine,
     ]),
   ],
   controllers: [RankingsController],

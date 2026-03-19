@@ -14,6 +14,42 @@ export class EnrollmentsService {
     private tournamentsService: TournamentsService,
   ) {}
 
+  // ── UNIFICAR CATEGORÍAS ──────────────────────────────────────────────────────
+  // Mueve todas las inscripciones de `from` → `to` y actualiza tournament.categories.
+  // Requiere que no existan partidos generados para la categoría origen.
+  async mergeCategories(tournamentId: string, from: string, to: string) {
+    const tournament = await this.tournamentsService.findOne(tournamentId);
+
+    // Verificar que ambas categorías existen en el torneo
+    const cats: any[] = tournament.categories || [];
+    const toCatExists = cats.some((c: any) => (typeof c === 'string' ? c : c.name) === to);
+    if (!toCatExists) throw new BadRequestException(`La categoría destino "${to}" no existe en el torneo`);
+
+    // Verificar que no haya partidos generados para la categoría origen
+    const matchCount: number = await this.repo.manager
+      .getRepository('matches')
+      .count({ where: { tournamentId, category: from } });
+    if (matchCount > 0) {
+      throw new BadRequestException(
+        `La categoría "${from}" ya tiene ${matchCount} partido(s) generado(s). Elimina el cuadro antes de unificar.`,
+      );
+    }
+
+    // Mover inscripciones
+    const updated = await this.repo.update({ tournamentId, category: from }, { category: to });
+
+    // Quitar la categoría origen de tournament.categories
+    const newCats = cats.filter((c: any) => (typeof c === 'string' ? c : c.name) !== from);
+    await this.tournamentsService.update(tournamentId, { categories: newCats } as any);
+
+    return {
+      moved: updated.affected ?? 0,
+      from,
+      to,
+      message: `${updated.affected ?? 0} inscripciones movidas de "${from}" a "${to}"`,
+    };
+  }
+
   // ── CREAR INSCRIPCIÓN ───────────────────────────
   async create(dto: CreateEnrollmentDto) {
     // Verificar que el torneo existe
@@ -65,16 +101,19 @@ export class EnrollmentsService {
       .find({ where: { id: In(playerIds) } });
 
     const userMap = new Map(
-      users.map((u: any) => [
-        u.id,
-        `${u.nombres || ''} ${u.apellidos || ''}`.trim() || u.email,
-      ])
+      users.map((u: any) => [u.id, u])
     );
 
-    return enrollments.map(e => ({
-      ...e,
-      playerName: userMap.get(e.playerId) || e.playerId,
-    }));
+    return enrollments.map(e => {
+      const u = userMap.get(e.playerId) as any;
+      return {
+        ...e,
+        playerName:      u ? `${u.nombres || ''} ${u.apellidos || ''}`.trim() || u.email : e.playerId,
+        playerEmail:     u?.email     || null,
+        playerPhone:     u?.telefono  || null,
+        playerDocNumber: u?.docNumber || null,
+      };
+    });
   }
 
   // ── LISTAR POR JUGADOR ──────────────────────────
@@ -154,7 +193,7 @@ export class EnrollmentsService {
 
         // ── 2. CREAR USUARIO SI NO EXISTE ───────────
         if (!user) {
-          // Verificar que tenga los datos mínimos para crearlo
+          // Verificar datos mínimos para crear el usuario
           const required = ['nombres', 'apellidos', 'email', 'docNumber', 'telefono'];
           const missing = required.filter(f => !row[f]?.trim());
 
@@ -166,7 +205,7 @@ export class EnrollmentsService {
             continue;
           }
 
-          // Generar contraseña temporal: 4 letras apellido + 4 últimos del doc
+          // Contraseña temporal: 4 letras apellido + 4 últimos del documento
           const passBase = row.apellidos.slice(0, 4).toLowerCase();
           const passDoc  = row.docNumber.slice(-4);
           const hashed   = await bcrypt.hash(`${passBase}${passDoc}`, 12);
@@ -177,8 +216,8 @@ export class EnrollmentsService {
             role:               'player',
             nombres:            row.nombres.trim(),
             apellidos:          row.apellidos.trim(),
-            telefono:           row.telefono?.trim(),
-            direccion:          row.direccion?.trim(),
+            telefono:           row.telefono.trim(),
+            direccion:          row.direccion?.trim() || null,
             docNumber:          row.docNumber.trim(),
             birthDate:          row.birthDate?.trim() ? new Date(row.birthDate) : null,
             gender:             row.gender?.trim() || 'M',
@@ -191,29 +230,34 @@ export class EnrollmentsService {
           results.existing++;
         }
 
-        // ── 3. VERIFICAR INSCRIPCIÓN DUPLICADA ──────
+        // ── 3. RESOLVER CATEGORÍA (base + género de categoría) ──────────
+        const catBase   = row.category?.trim() || '';
+        const catGender = row.categoryGender?.trim().toUpperCase();
+        const fullCategory = catGender ? `${catBase} ${catGender}` : catBase;
+
+        // ── 4. VERIFICAR INSCRIPCIÓN DUPLICADA ──────
         const exists = await this.repo.findOne({
           where: {
             tournamentId,
             playerId: user.id,
-            category: row.category?.trim(),
+            category: fullCategory,
           },
         });
 
         if (exists) {
           results.skipped++;
           results.errors.push(
-            `Fila ${i + 2}: ${row.email || row.docNumber} ya inscrito en ${row.category}`
+            `Fila ${i + 2}: ${row.email || row.docNumber} ya inscrito en ${fullCategory}`
           );
           continue;
         }
 
-        // ── 4. CREAR INSCRIPCIÓN ─────────────────────
+        // ── 5. CREAR INSCRIPCIÓN ─────────────────────
         const enrollment = this.repo.create({
           tournamentId,
           playerId:      user.id,
           modality:      (row.modality?.trim() || 'singles') as any,
-          category:      row.category?.trim(),
+          category:      fullCategory,
           seeding:       row.seeding?.trim() ? Number(row.seeding) : null,
           status:        enrollStatus as any,
           paymentMethod: paymentMethod as any,
@@ -223,7 +267,7 @@ export class EnrollmentsService {
 
         await this.repo.save(enrollment);
 
-        // ── 5. GUARDAR RANKING PREVIO SI VIENE ──────
+        // ── 6. GUARDAR RANKING PREVIO SI VIENE ──────
         // Solo aplica si es primer torneo del año del circuito
         if (row.ranking?.trim()) {
           const rankingRepo = userRepo.manager.getRepository('rankings');
@@ -232,7 +276,7 @@ export class EnrollmentsService {
           const existingRanking = await rankingRepo.findOne({
             where: {
               playerId: user.id,
-              category: row.category?.trim(),
+              category: fullCategory,
               season,
             },
           });
@@ -240,7 +284,7 @@ export class EnrollmentsService {
           if (!existingRanking) {
             await rankingRepo.save({
               playerId:          user.id,
-              category:          row.category?.trim(),
+              category:          fullCategory,
               circuitLine:       'departamental',
               totalPoints:       Number(row.ranking),
               meritPoints:       0,
@@ -294,7 +338,7 @@ export class EnrollmentsService {
       user = await userRepo.findOne({ where: { email: data.email } });
     }
 
-    // 2. Crear usuario si no existe
+    // 2. Crear usuario si no existe; si existe, actualizar datos faltantes
     if (!user) {
       const tempPass = `${data.apellidos.slice(0, 4).toLowerCase()}${(data.docNumber || '0000').slice(-4)}`;
       const hashed   = await bcrypt.hash(tempPass, 10);
@@ -305,6 +349,23 @@ export class EnrollmentsService {
         password: hashed, mustChangePassword: true,
         role: 'player', isActive: true,
       }));
+    } else {
+      // Si el usuario existe pero tiene nombre vacío, actualizarlo con los datos del formulario
+      const needsUpdate =
+        (!user.nombres?.trim() && data.nombres?.trim()) ||
+        (!user.apellidos?.trim() && data.apellidos?.trim()) ||
+        (!user.telefono?.trim() && data.telefono?.trim()) ||
+        (!user.docNumber?.trim() && data.docNumber?.trim());
+
+      if (needsUpdate) {
+        await userRepo.update(user.id, {
+          nombres:   user.nombres?.trim()   || data.nombres   || user.nombres,
+          apellidos: user.apellidos?.trim() || data.apellidos || user.apellidos,
+          telefono:  user.telefono?.trim()  || data.telefono  || user.telefono,
+          docNumber: user.docNumber?.trim() || data.docNumber || user.docNumber,
+        });
+        user = await userRepo.findOne({ where: { id: user.id } });
+      }
     }
 
     // 3. Verificar duplicado
@@ -390,6 +451,24 @@ export class EnrollmentsService {
       });
     }
     return result;
+  }
+
+  // ── CAMBIAR CATEGORÍA DE INSCRIPCIÓN ────────────
+  async changeEnrollmentCategory(enrollmentId: string, newCategory: string) {
+    const enrollment = await this.repo.findOne({ where: { id: enrollmentId } });
+    if (!enrollment) throw new NotFoundException('Inscripción no encontrada');
+
+    const matchCount: number = await this.repo.manager
+      .getRepository('matches')
+      .count({ where: { tournamentId: enrollment.tournamentId, category: enrollment.category } });
+    if (matchCount > 0) {
+      throw new BadRequestException(
+        'Esta categoría ya tiene cuadros generados. Elimina el cuadro antes de cambiar.',
+      );
+    }
+
+    enrollment.category = newCategory;
+    return this.repo.save(enrollment);
   }
 
   // ── ELIMINAR INSCRIPCIÓN ─────────────────────────

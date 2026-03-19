@@ -18,12 +18,15 @@ interface Match {
   groupLabel?: string;
   sets1?: number;
   sets2?: number;
+  games1?: number;
+  games2?: number;
 }
 
 export interface ExportOptions {
   tournamentName: string;
   matches: Match[];
   mode?: 'both' | 'rr' | 'maindraw';
+  modality?: 'all' | 'singles' | 'doubles';
 }
 
 // ── Constantes ─────────────────────────────────────────────────────────────
@@ -299,19 +302,45 @@ function renderRR(
     gY += 7;
 
     // Standings
-    const standings: Record<string, { name: string; wins: number; losses: number }> = {};
+    const standings: Record<string, { name: string; wins: number; losses: number; setsWon: number; setsLost: number; gamesWon: number; gamesLost: number }> = {};
     gMatches.forEach(m => {
       [[m.player1Id, m.player1Name],[m.player2Id, m.player2Name]].forEach(([pid, name]) => {
         if (!pid) return;
-        if (!standings[pid]) standings[pid] = { name: name || '', wins: 0, losses: 0 };
+        if (!standings[pid]) standings[pid] = { name: name || '', wins: 0, losses: 0, setsWon: 0, setsLost: 0, gamesWon: 0, gamesLost: 0 };
       });
       if (m.winnerId && (m.status === 'completed' || m.status === 'wo')) {
         if (standings[m.winnerId]) standings[m.winnerId].wins++;
         const loserId = m.winnerId === m.player1Id ? m.player2Id : m.player1Id;
         if (loserId && standings[loserId]) standings[loserId].losses++;
+        const p1 = m.player1Id; const p2 = m.player2Id;
+        if (p1 && standings[p1]) { standings[p1].setsWon += m.sets1 || 0; standings[p1].setsLost += m.sets2 || 0; standings[p1].gamesWon += m.games1 || 0; standings[p1].gamesLost += m.games2 || 0; }
+        if (p2 && standings[p2]) { standings[p2].setsWon += m.sets2 || 0; standings[p2].setsLost += m.sets1 || 0; standings[p2].gamesWon += m.games2 || 0; standings[p2].gamesLost += m.games1 || 0; }
       }
     });
-    const sorted = Object.entries(standings).sort(([,a],[,b]) => b.wins - a.wins);
+    const gRpdf = (w: number, l: number) => l > 0 ? w / l : w > 0 ? Infinity : 0;
+    const completedPdf = gMatches.filter(m => m.status === 'completed' || m.status === 'wo');
+    const standingEntriesPdf = Object.entries(standings);
+    const sorted = standingEntriesPdf.sort(([idA, a], [idB, b]) => {
+      if (b.wins !== a.wins) return b.wins - a.wins;
+      const sA = gRpdf(a.setsWon, a.setsLost);  const sB = gRpdf(b.setsWon, b.setsLost);
+      if (Math.abs(sB - sA) > 0.0001) return sB - sA;
+      const gA = gRpdf(a.gamesWon, a.gamesLost); const gBv = gRpdf(b.gamesWon, b.gamesLost);
+      if (Math.abs(gBv - gA) > 0.0001) return gBv - gA;
+      const tiedGrp = standingEntriesPdf.filter(([, s]) =>
+        s.wins === a.wins &&
+        Math.abs(gRpdf(s.setsWon, s.setsLost)  - sA) <= 0.0001 &&
+        Math.abs(gRpdf(s.gamesWon, s.gamesLost) - gA) <= 0.0001,
+      );
+      if (tiedGrp.length === 2) {
+        const h2h = completedPdf.find(m =>
+          (m.player1Id === idA && m.player2Id === idB) ||
+          (m.player1Id === idB && m.player2Id === idA)
+        );
+        if (h2h?.winnerId === idA) return -1;
+        if (h2h?.winnerId === idB) return  1;
+      }
+      return 0;
+    });
 
     autoTable(doc, {
       head: [['#', 'Jugador', 'V', 'D']],
@@ -339,21 +368,38 @@ function renderRR(
 }
 
 // ── FUNCIÓN PRINCIPAL ───────────────────────────────────────────────────────
-export function exportBracketPdf({ tournamentName, matches, mode = 'both' }: ExportOptions) {
+export function exportBracketPdf({ tournamentName, matches, mode = 'both', modality = 'all' }: ExportOptions) {
   const doc    = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   const pageW  = doc.internal.pageSize.getWidth();
   const pageH  = doc.internal.pageSize.getHeight();
   const MARGIN = 12;
   const FOOTER = 12; // espacio reservado para footer
 
+  // Filtrar partidos por modalidad
+  const filteredMatches = modality === 'singles'
+    ? matches.filter(m => !m.category?.endsWith('_DOBLES'))
+    : modality === 'doubles'
+      ? matches.filter(m => m.category?.endsWith('_DOBLES'))
+      : matches;
+
+  // Para la vista de dobles, limpiar el sufijo _DOBLES del nombre de categoría en pantalla
+  const displayMatches = filteredMatches.map(m => ({
+    ...m,
+    category: modality === 'doubles'
+      ? m.category.replace(/_DOBLES$/, ' — DOBLES')
+      : m.category,
+  }));
+
+  const modalityLabel = modality === 'doubles' ? ' DOBLES' : modality === 'singles' ? ' SINGLES' : '';
+
   const drawHeader = () => {
     doc.setFillColor(27, 58, 27);
     doc.rect(0, 0, pageW, 20, 'F');
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(16); doc.setFont('helvetica', 'bold');
-    const title = mode === 'rr'       ? 'LAT — ROUND ROBIN'
-                : mode === 'maindraw' ? 'LAT — CUADRO DE ELIMINACION DIRECTA'
-                :                       'LAT — CUADRO DE LLAVES';
+    const title = mode === 'rr'       ? `LAT — ROUND ROBIN${modalityLabel}`
+                : mode === 'maindraw' ? `LAT — CUADRO ELIMINACION DIRECTA${modalityLabel}`
+                :                       `LAT — CUADRO DE LLAVES${modalityLabel}`;
     doc.text(title, pageW / 2, 9, { align: 'center' });
     doc.setFontSize(10); doc.setFont('helvetica', 'normal');
     doc.text(tournamentName.toUpperCase(), pageW / 2, 16, { align: 'center' });
@@ -372,7 +418,7 @@ export function exportBracketPdf({ tournamentName, matches, mode = 'both' }: Exp
 
   // Agrupar por categoría
   const byCategory: Record<string, Record<string, Match[]>> = {};
-  matches.forEach(m => {
+  displayMatches.forEach(m => {
     if (!byCategory[m.category])          byCategory[m.category] = {};
     if (!byCategory[m.category][m.round]) byCategory[m.category][m.round] = [];
     byCategory[m.category][m.round].push(m);
@@ -466,6 +512,7 @@ export function exportBracketPdf({ tournamentName, matches, mode = 'both' }: Exp
   const totalPages = doc.getNumberOfPages();
   for (let p = 1; p <= totalPages; p++) { doc.setPage(p); drawFooter(p, totalPages); }
 
-  const modeStr = mode === 'rr' ? 'RR' : mode === 'maindraw' ? 'MainDraw' : 'Cuadro';
-  doc.save(`${modeStr}_${tournamentName.replace(/\s+/g,'_')}.pdf`);
+  const modeStr     = mode === 'rr' ? 'RR' : mode === 'maindraw' ? 'MainDraw' : 'Cuadro';
+  const modalityStr = modality === 'doubles' ? '_Dobles' : modality === 'singles' ? '_Singles' : '';
+  doc.save(`${modeStr}${modalityStr}_${tournamentName.replace(/\s+/g,'_')}.pdf`);
 }

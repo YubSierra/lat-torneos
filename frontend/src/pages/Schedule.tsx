@@ -1,12 +1,14 @@
 // frontend/src/pages/Schedule.tsx
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, Play, Calendar, X, AlertTriangle, CheckCircle, Clock } from 'lucide-react';
+import { Plus, Trash2, Play, Calendar, X, AlertTriangle, CheckCircle, Clock, CloudRain } from 'lucide-react';
 import { tournamentsApi } from '../api/tournaments.api';
 import { courtsApi } from '../api/courts.api';
 import Sidebar from '../components/Sidebar';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
+import { matchesApi } from '../api/matches.api';
+import SuspendModal from '../components/SuspendModal';
 import { exportSchedulePdf } from '../utils/exportSchedulePdf';
 
 // ── Constantes ────────────────────────────────────────────────────────────────
@@ -58,14 +60,16 @@ function AssignModal({
   onClose,
   onAssigned,
   flatSchedule,
+  preselectedMatch,
 }: {
-  tournamentId : string;
-  courts       : any[];
-  onClose      : () => void;
-  onAssigned   : () => void;
-  flatSchedule : any[];   // programación ya cargada — para calcular slots ocupados
+  tournamentId      : string;
+  courts            : any[];
+  onClose           : () => void;
+  onAssigned        : () => void;
+  flatSchedule      : any[];
+  preselectedMatch ?: { id: string; label: string };  // suspended / specific match
 }) {
-  const [matchId,  setMatchId]  = useState('');
+  const [matchId,  setMatchId]  = useState(preselectedMatch?.id ?? '');
   const [date,     setDate]     = useState('');
   const [slotKey,  setSlotKey]  = useState('');   // "courtId|||HH:MM"
   const [duration, setDuration] = useState<string>('90');
@@ -180,10 +184,10 @@ function AssignModal({
             </div>
             <div>
               <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#111827' }}>
-                Asignar Partido Pendiente
+                {preselectedMatch ? 'Reprogramar Partido Suspendido' : 'Asignar Partido Pendiente'}
               </h2>
               <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: '#6B7280' }}>
-                {loadingPending ? 'Cargando...' : `${pending.length} partido${pending.length !== 1 ? 's' : ''} sin programar`}
+                {preselectedMatch ? 'Elige nueva fecha, cancha y hora' : loadingPending ? 'Cargando...' : `${pending.length} partido${pending.length !== 1 ? 's' : ''} sin programar`}
               </p>
             </div>
           </div>
@@ -200,7 +204,13 @@ function AssignModal({
             <label style={labelStyle}>
               <span style={stepBadge}>1</span> Partido *
             </label>
-            {loadingPending ? (
+            {preselectedMatch ? (
+              /* Modo reprogramar suspendido: partido ya fijado */
+              <div style={{ background: '#FFF7ED', border: '1.5px solid #FDE68A', borderRadius: '8px', padding: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '18px' }}>⛈</span>
+                <span style={{ fontWeight: 600, fontSize: '0.9rem', color: '#92400E' }}>{preselectedMatch.label}</span>
+              </div>
+            ) : loadingPending ? (
               <p style={{ color: '#6B7280', fontSize: '0.85rem' }}>Cargando partidos...</p>
             ) : pending.length === 0 ? (
               <div style={{ background: '#F0FDF4', border: '1px solid #86EFAC', borderRadius: '8px', padding: '12px', textAlign: 'center', color: '#16A34A', fontWeight: 600, fontSize: '0.85rem' }}>
@@ -213,11 +223,13 @@ function AssignModal({
                 style={selectStyle}
               >
                 <option value="">— Selecciona el partido —</option>
-                {(pending as any[]).map((m: any) => (
-                  <option key={m.id} value={m.id}>
-                    [{m.category}] {ROUND_LABELS[m.round] ?? m.round} · {m.player1Name} vs {m.player2Name}
-                  </option>
-                ))}
+                {(pending as any[])
+                  .filter((m: any) => m.player1Name !== 'BYE' || m.player2Name !== 'BYE')
+                  .map((m: any) => (
+                    <option key={m.id} value={m.id}>
+                      [{m.category}] {ROUND_LABELS[m.round] ?? m.round} · {m.player1Name || 'Por definir'} vs {m.player2Name || 'Por definir'}
+                    </option>
+                  ))}
               </select>
             )}
           </div>
@@ -325,7 +337,7 @@ function AssignModal({
         </div>
 
         {/* ── Footer ── */}
-        {pending.length > 0 && (
+        {(pending.length > 0 || preselectedMatch) && (
           <div style={{
             padding: '1rem 1.5rem', borderTop: '1px solid #E5E7EB',
             display: 'flex', justifyContent: 'flex-end', gap: '10px', flexShrink: 0,
@@ -391,7 +403,11 @@ export default function Schedule() {
   const [observations,         setObservations]         = useState('');
   const [referee,              setReferee]              = useState('');
   const [director,             setDirector]             = useState('');
+  const [withLed,              setWithLed]              = useState(false);
   const [maxMatchesPerPlayer,  setMaxMatchesPerPlayer]  = useState(2);
+  const [customMaxMatches,     setCustomMaxMatches]     = useState('4');
+  const [maxMatchesMode,       setMaxMatchesMode]       = useState<'preset'|'unlimited'|'custom'>('preset');
+  const [restTimeBetweenMatches, setRestTimeBetweenMatches] = useState(0);
   const [showAssignModal,      setShowAssignModal]      = useState(false);
   const [filterDate,           setFilterDate]           = useState('');
   const [selectedCategories,   setSelectedCategories]   = useState<string[]>([]);
@@ -400,6 +416,8 @@ export default function Schedule() {
   const [modalDeleteDate,      setModalDeleteDate]       = useState('');
   const [modalExportDate,      setModalExportDate]       = useState('');
   const [selectedRounds,       setSelectedRounds]        = useState<string[]>([]);
+  const [suspendModal,         setSuspendModal]          = useState<{ isOpen: boolean; match: any | null }>({ isOpen: false, match: null });
+  const [rescheduleMatch,      setRescheduleMatch]       = useState<{ id: string; label: string } | null>(null);
 
   // ── Queries ────────────────────────────────────────────────────────────────
   const { data: tournaments = [] } = useQuery({
@@ -452,18 +470,30 @@ export default function Schedule() {
     enabled: !!selectedTournament,
   });
 
-  const refetchAll = () => { refetchSchedule(); refetchPending(); };
+  // Partidos suspendidos
+  const { data: suspendedMatches = [], refetch: refetchSuspended } = useQuery<any[]>({
+    queryKey: ['suspended-schedule', selectedTournament],
+    queryFn: () => matchesApi.getSuspended(selectedTournament),
+    enabled: !!selectedTournament,
+  });
+
+  const refetchAll = () => { refetchSchedule(); refetchPending(); refetchSuspended(); };
 
   // ── Generar programación automática ───────────────────────────────────────
+  const effectiveMaxMatches = maxMatchesMode === 'unlimited' ? 0
+    : maxMatchesMode === 'custom' ? (parseInt(customMaxMatches) || 2)
+    : maxMatchesPerPlayer;
+
   const generateMutation = useMutation({
     mutationFn: async () => {
       const res = await api.post(`/tournaments/${selectedTournament}/schedule`, {
         date: selectedDate,
         courts: courtConfigs,
         roundDurations,
-        maxMatchesPerPlayer,
+        maxMatchesPerPlayer: effectiveMaxMatches,
         categories: selectedCategories.length > 0 ? selectedCategories : undefined,
         roundFilter: selectedRounds.length > 0 ? selectedRounds : undefined,
+        restTimeBetweenMatches,
       });
       return res.data;
     },
@@ -477,6 +507,17 @@ export default function Schedule() {
   const unscheduleMutation = useMutation({
     mutationFn: (matchId: string) => api.patch(`/matches/${matchId}/unschedule`),
     onSuccess: () => { refetchAll(); queryClient.invalidateQueries({ queryKey: ['pending-unscheduled', selectedTournament] }); },
+  });
+
+  // ── Suspender partido individual ──────────────────────────────────────────
+  const suspendMutation = useMutation({
+    mutationFn: ({ matchId, reason, resumeDate }: { matchId: string; reason: string; resumeDate?: string }) =>
+      matchesApi.suspendMatch(matchId, reason, resumeDate),
+    onSuccess: () => {
+      setSuspendModal({ isOpen: false, match: null });
+      refetchAll();
+      queryClient.invalidateQueries({ queryKey: ['pending-unscheduled', selectedTournament] });
+    },
   });
   
   // ── Declarar W.O. (gana un jugador) ──────────────────────────────────────
@@ -650,6 +691,65 @@ export default function Schedule() {
           </div>
         )}
 
+        {/* ── Partidos suspendidos ──────────────────────────────────────── */}
+        {selectedTournament && isAdmin && suspendedMatches.length > 0 && (
+          <div className="bg-white rounded-xl shadow-sm p-4 mb-6" style={{ border: '1.5px solid #FDE68A' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+              <CloudRain size={16} color="#92400E" />
+              <h2 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#92400E' }}>
+                Partidos Suspendidos
+              </h2>
+              <span style={{ backgroundColor: '#FEF3C7', color: '#92400E', fontSize: '11px', fontWeight: 700, padding: '1px 9px', borderRadius: '999px' }}>
+                {suspendedMatches.length}
+              </span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {(suspendedMatches as any[]).map((m: any) => (
+                <div key={m.id} style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '10px 14px', borderRadius: '10px', gap: '10px', flexWrap: 'wrap',
+                  backgroundColor: '#FFFBEB', border: '1px solid #FDE68A',
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span style={{ padding: '1px 7px', borderRadius: '999px', fontSize: '11px', fontWeight: 600, backgroundColor: '#DBEAFE', color: '#1D4ED8' }}>
+                        {m.category}
+                      </span>
+                      <span style={{ padding: '1px 7px', borderRadius: '999px', fontSize: '11px', fontWeight: 600, backgroundColor: '#F3E8FF', color: '#6B21A8' }}>
+                        {ROUND_LABELS[m.round] ?? m.round}
+                      </span>
+                      <span style={{ fontSize: '13px', color: '#374151', fontWeight: 600 }}>
+                        {m.player1Name} <span style={{ color: '#9CA3AF', fontWeight: 400 }}>vs</span> {m.player2Name}
+                      </span>
+                    </div>
+                    {m.suspendReason && (
+                      <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#92400E' }}>⛈ {m.suspendReason}</p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => {
+                      setRescheduleMatch({
+                        id: m.id,
+                        label: `[${m.category}] ${ROUND_LABELS[m.round] ?? m.round} · ${m.player1Name} vs ${m.player2Name}`,
+                      });
+                      setShowAssignModal(true);
+                    }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '6px',
+                      background: '#EFF6FF', border: '1.5px solid #BFDBFE',
+                      color: '#1D4ED8', borderRadius: '8px',
+                      padding: '6px 12px', cursor: 'pointer',
+                      fontSize: '12px', fontWeight: 700, whiteSpace: 'nowrap',
+                    }}
+                  >
+                    <Calendar size={13} /> Reprogramar
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* ── Programación existente ────────────────────────────────────── */}
         {selectedTournament && flatSchedule.length > 0 && (
           <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
@@ -707,7 +807,7 @@ export default function Schedule() {
                         await Promise.all(
                           matchIds.map(id => api.patch(`/matches/${id}/suspend`))
                         );
-                        refetch();
+                        refetchAll();
                         alert(`✅ ${matchIds.length} partidos suspendidos.`);
                       } catch {
                         alert('❌ Error al suspender');
@@ -904,6 +1004,30 @@ export default function Schedule() {
                                           )}
                                           {!isDone && (
                                             <button
+                                              title="Suspender partido"
+                                              onClick={() => setSuspendModal({
+                                                isOpen: true,
+                                                match: {
+                                                  id: row.matchId || row.id,
+                                                  player1Name: row.player1Name || row.player1 || 'Jugador 1',
+                                                  player2Name: row.player2Name || row.player2 || 'Jugador 2',
+                                                  round: row.round,
+                                                  category: row.category,
+                                                },
+                                              })}
+                                              style={{
+                                                background: '#FEF3C7', border: '1px solid #FDE68A',
+                                                borderRadius: '6px', padding: '4px 8px',
+                                                cursor: 'pointer', color: '#92400E',
+                                                display: 'inline-flex', alignItems: 'center', gap: '4px',
+                                                fontSize: '11px', fontWeight: 600,
+                                              }}
+                                            >
+                                              <CloudRain size={12} /> Susp.
+                                            </button>
+                                          )}
+                                          {!isDone && (
+                                            <button
                                               title="W.O. — gana jugador 1"
                                               onClick={() => {
                                                 if (confirm('¿Declarar W.O.? El jugador 1 gana 6-0 6-0')) {
@@ -987,20 +1111,28 @@ export default function Schedule() {
                           {ROUND_LABELS[m.round] ?? m.round}
                         </span>
                       </td>
-                      <td style={{ padding: '8px 12px', fontWeight: 500, color: '#111827' }}>{m.player1Name || 'BYE'}</td>
-                      <td style={{ padding: '8px 12px', fontWeight: 500, color: '#111827' }}>{m.player2Name || 'BYE'}</td>
+                      <td style={{ padding: '8px 12px', fontWeight: 500, color: '#111827' }}>
+                        {m.player1Name && m.player1Name !== 'BYE' ? m.player1Name : <span style={{ color: '#9CA3AF', fontStyle: 'italic', fontSize: '11px' }}>Por definir</span>}
+                      </td>
+                      <td style={{ padding: '8px 12px', fontWeight: 500, color: '#111827' }}>
+                        {m.player2Name && m.player2Name !== 'BYE' ? m.player2Name : <span style={{ color: '#9CA3AF', fontStyle: 'italic', fontSize: '11px' }}>Por definir</span>}
+                      </td>
                       <td style={{ padding: '8px 12px' }}>
-                        {isAdmin && (
+                        {isAdmin ? (
                           <button
                             onClick={() => setShowAssignModal(true)}
                             style={{
                               padding: '5px 12px', borderRadius: '6px', border: 'none',
-                              background: '#1B3A1B', color: '#fff', cursor: 'pointer',
+                              background: (!m.player1Name || !m.player2Name) ? '#6B7280' : '#1B3A1B',
+                              color: '#fff', cursor: 'pointer',
                               fontSize: '12px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '5px',
                             }}
+                            title={(!m.player1Name || !m.player2Name) ? 'Pre-programar ronda (jugadores por definir)' : ''}
                           >
-                            <Plus size={11} /> Asignar
+                            <Plus size={11} /> {(!m.player1Name || !m.player2Name) ? 'Pre-asignar' : 'Asignar'}
                           </button>
+                        ) : (
+                          <span style={{ fontSize: '11px', color: '#9CA3AF', fontStyle: 'italic' }}>En espera</span>
                         )}
                       </td>
                     </tr>
@@ -1092,13 +1224,73 @@ export default function Schedule() {
                 <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: '#1B3A1B', marginBottom: '8px' }}>
                   Máximo de partidos por jugador por día
                 </label>
-                <div style={{ display: 'flex', gap: '8px' }}>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                   {[1, 2, 3].map(n => (
-                    <button key={n} onClick={() => setMaxMatchesPerPlayer(n)} style={{ padding: '8px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '14px', background: maxMatchesPerPlayer === n ? '#2D6A2D' : '#F3F4F6', color: maxMatchesPerPlayer === n ? 'white' : '#374151' }}>
+                    <button key={n}
+                      onClick={() => { setMaxMatchesMode('preset'); setMaxMatchesPerPlayer(n); }}
+                      style={{ padding: '8px 18px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '14px',
+                        background: maxMatchesMode === 'preset' && maxMatchesPerPlayer === n ? '#2D6A2D' : '#F3F4F6',
+                        color:      maxMatchesMode === 'preset' && maxMatchesPerPlayer === n ? 'white' : '#374151' }}>
                       {n} {n === 1 ? 'partido' : 'partidos'}
                     </button>
                   ))}
+                  <button
+                    onClick={() => setMaxMatchesMode('unlimited')}
+                    style={{ padding: '8px 18px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '14px',
+                      background: maxMatchesMode === 'unlimited' ? '#1D4ED8' : '#F3F4F6',
+                      color:      maxMatchesMode === 'unlimited' ? 'white'   : '#374151' }}>
+                    ∞ Sin restricción
+                  </button>
+                  <button
+                    onClick={() => setMaxMatchesMode('custom')}
+                    style={{ padding: '8px 18px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '14px',
+                      background: maxMatchesMode === 'custom' ? '#7C3AED' : '#F3F4F6',
+                      color:      maxMatchesMode === 'custom' ? 'white'   : '#374151' }}>
+                    Personalizado
+                  </button>
+                  {maxMatchesMode === 'custom' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <input
+                        type="number" min={1} max={10}
+                        value={customMaxMatches}
+                        onChange={e => setCustomMaxMatches(e.target.value)}
+                        style={{ width: '60px', padding: '7px 10px', borderRadius: '8px', border: '1.5px solid #7C3AED', fontSize: '14px', fontWeight: 700, textAlign: 'center' }}
+                      />
+                      <span style={{ fontSize: '13px', color: '#6B7280' }}>partidos</span>
+                    </div>
+                  )}
                 </div>
+                {maxMatchesMode === 'unlimited' && (
+                  <p style={{ fontSize: '12px', color: '#1D4ED8', marginTop: '6px', fontWeight: 600 }}>
+                    Sin restricción: el sistema asigna todos los partidos posibles sin límite por jugador
+                  </p>
+                )}
+              </div>
+
+              {/* Tiempo de descanso entre partidos */}
+              <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #E5E7EB' }}>
+                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: '#1B3A1B', marginBottom: '4px' }}>
+                  Tiempo de descanso entre partidos del mismo jugador
+                </label>
+                <p style={{ fontSize: '12px', color: '#6B7280', marginBottom: '10px' }}>
+                  Minutos mínimos de espera entre un partido y el siguiente del mismo jugador en el mismo día
+                </p>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  {[0, 15, 20, 30, 45, 60].map(n => (
+                    <button key={n}
+                      onClick={() => setRestTimeBetweenMatches(n)}
+                      style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '13px',
+                        background: restTimeBetweenMatches === n ? '#2D6A2D' : '#F3F4F6',
+                        color:      restTimeBetweenMatches === n ? 'white'   : '#374151' }}>
+                      {n === 0 ? 'Sin espera' : `${n} min`}
+                    </button>
+                  ))}
+                </div>
+                {restTimeBetweenMatches > 0 && (
+                  <p style={{ fontSize: '12px', color: '#2D6A2D', marginTop: '6px', fontWeight: 600 }}>
+                    El sistema dejará al menos {restTimeBetweenMatches} min libres entre partidos del mismo jugador
+                  </p>
+                )}
               </div>
             </div>
 
@@ -1164,6 +1356,37 @@ export default function Schedule() {
                   <input value={director} onChange={e => setDirector(e.target.value)} placeholder="Nombre del director" style={{ width: '100%', border: '1px solid #D1D5DB', borderRadius: '8px', padding: '8px 12px', fontSize: '14px', boxSizing: 'border-box' as any }} />
                 </div>
               </div>
+              {/* Toggle LED */}
+              <div
+                onClick={() => setWithLed(v => !v)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer',
+                  padding: '10px 14px', borderRadius: 10, marginBottom: 12,
+                  border: `2px solid ${withLed ? '#F59E0B' : '#E5E7EB'}`,
+                  background: withLed ? '#FFFBEB' : '#F9FAFB',
+                  transition: 'all 0.15s',
+                }}
+              >
+                <div style={{
+                  width: 40, height: 22, borderRadius: 999, position: 'relative', flexShrink: 0,
+                  background: withLed ? '#F59E0B' : '#D1D5DB', transition: 'background 0.2s',
+                }}>
+                  <span style={{
+                    position: 'absolute', top: 3, width: 16, height: 16, borderRadius: '50%',
+                    background: '#fff', transition: 'left 0.2s',
+                    left: withLed ? 20 : 3, display: 'block',
+                  }} />
+                </div>
+                <div>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: withLed ? '#92400E' : '#374151' }}>
+                    ⚡ Sistema de juego LED
+                  </span>
+                  <span style={{ fontSize: 11, color: '#6B7280', display: 'block' }}>
+                    Si el saque toca la red y cae en el cuadro, se juega el punto (no se repite)
+                  </span>
+                </div>
+              </div>
+
               <textarea
                 value={observations}
                 onChange={e => setObservations(e.target.value)}
@@ -1264,7 +1487,7 @@ export default function Schedule() {
               )}
               {generateMutation.isError && (
                 <div style={{ marginTop: '16px', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', padding: '14px', fontSize: '13px', color: '#DC2626' }}>
-                  ❌ Error al generar. Verifica que el torneo tenga partidos pendientes y canchas activas.
+                  ❌ {(generateMutation.error as any)?.response?.data?.message || 'Error al generar. Verifica que el torneo tenga partidos pendientes y canchas activas.'}
                 </div>
               )}
               {generateMutation.isSuccess && scheduleResult && (
@@ -1281,7 +1504,7 @@ export default function Schedule() {
                   <button
                     onClick={() => {
                       const t = (tournaments as any[]).find((t: any) => t.id === selectedTournament);
-                      exportSchedulePdf({ tournamentName: t?.name || 'Torneo', date: scheduleResult.date, city: 'Medellín', referee, director, observations, schedule: scheduleResult.schedule });
+                      exportSchedulePdf({ tournamentName: t?.name || 'Torneo', date: scheduleResult.date, city: 'Medellín', referee, director, observations, withLed, schedule: scheduleResult.schedule });
                     }}
                     style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#1D4ED8', color: 'white', padding: '10px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontSize: '14px', fontWeight: 600 }}
                   >
@@ -1468,6 +1691,7 @@ export default function Schedule() {
                     referee,
                     director,
                     observations,
+                    withLed,
                     schedule: rowsForDay,
                   });
                   setShowExportModal(false);
@@ -1487,16 +1711,35 @@ export default function Schedule() {
         </div>
       )}
 
-      {/* ── Modal Asignar partido pendiente ────────────────────────────── */}
+      {/* ── Modal Asignar / Reprogramar partido ────────────────────────── */}
       {showAssignModal && (
         <AssignModal
           tournamentId={selectedTournament}
           courts={courts as any[]}
-          onClose={() => setShowAssignModal(false)}
-          onAssigned={() => { refetchAll(); queryClient.invalidateQueries({ queryKey: ['pending-unscheduled', selectedTournament] }); }}
+          onClose={() => { setShowAssignModal(false); setRescheduleMatch(null); }}
+          onAssigned={() => {
+            setRescheduleMatch(null);
+            refetchAll();
+            queryClient.invalidateQueries({ queryKey: ['pending-unscheduled', selectedTournament] });
+            queryClient.invalidateQueries({ queryKey: ['suspended-schedule', selectedTournament] });
+          }}
           flatSchedule={flatSchedule}
+          preselectedMatch={rescheduleMatch ?? undefined}
         />
       )}
+
+      {/* ── Modal Suspender partido individual ──────────────────────────── */}
+      <SuspendModal
+        isOpen={suspendModal.isOpen}
+        mode="match"
+        match={suspendModal.match}
+        onConfirm={(reason, resumeDate) => {
+          if (!suspendModal.match) return;
+          suspendMutation.mutate({ matchId: suspendModal.match.id, reason, resumeDate });
+        }}
+        onCancel={() => setSuspendModal({ isOpen: false, match: null })}
+        isLoading={suspendMutation.isPending}
+      />
     </div>
   );
 }

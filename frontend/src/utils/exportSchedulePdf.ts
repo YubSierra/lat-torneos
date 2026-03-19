@@ -1,19 +1,32 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
+interface GameFormat {
+  sets: number;
+  gamesPerSet: number;
+  withAd: boolean;
+  tiebreakAtDeuce: boolean;
+  tiebreakPoints: number;
+  finalSetTiebreak: boolean;
+  finalSetPoints: number;
+  playByPoints?: boolean;
+  pointsPerSet?: number;
+}
+
 interface MatchRow {
-  time:       string;
-  court:      string;
-  courtId?:   string;
-  sede:       string;
-  round:      string;
-  category:   string;
-  player1:    string;
-  player2:    string;
-  duration:   string;
+  time:        string;
+  court:       string;
+  courtId?:    string;
+  sede:        string;
+  round:       string;
+  category:    string;
+  player1:     string;
+  player2:     string;
+  duration:    string;
   gameSystem?: string;
-  matchId?:   string;
-  status?:    string;
+  gameFormat?: GameFormat | null;
+  matchId?:    string;
+  status?:     string;
 }
 
 interface ExportOptions {
@@ -23,6 +36,7 @@ interface ExportOptions {
   referee?:       string;
   director?:      string;
   observations?:  string;
+  withLed?:       boolean;
   schedule:       MatchRow[];
 }
 
@@ -33,13 +47,36 @@ const ROUND_LABELS: Record<string, string> = {
   SF_M: 'SF Máster', F_M: 'Final Máster',
 };
 
+/** Convierte un gameFormat a texto compacto para el PDF */
+function describeFormat(fmt: GameFormat | null | undefined): string {
+  if (!fmt) return '';
+  const parts: string[] = [];
+
+  if (fmt.playByPoints) {
+    // Modo por puntos (categorías infantiles)
+    const pts = fmt.pointsPerSet ?? 11;
+    parts.push(fmt.sets === 1 ? `1 set a ${pts} pts` : `${fmt.sets} sets a ${pts} pts`);
+    parts.push(fmt.withAd ? 'Con ventaja' : 'Sin ventaja');
+    if (fmt.tiebreakAtDeuce) parts.push(`TB ${fmt.tiebreakPoints}pts`);
+    if (fmt.finalSetTiebreak && fmt.sets > 1) parts.push(`MTB ${fmt.finalSetPoints}pts`);
+  } else {
+    // Modo tradicional por games
+    parts.push(fmt.sets === 1 ? `1 set a ${fmt.gamesPerSet} jgs` : `${fmt.sets} sets a ${fmt.gamesPerSet}`);
+    parts.push(fmt.withAd ? 'Con Ad' : 'Sin Ad');
+    if (fmt.tiebreakAtDeuce) parts.push(`TB ${fmt.tiebreakPoints}pts`);
+    if (fmt.finalSetTiebreak && fmt.sets > 1) parts.push(`FS TB ${fmt.finalSetPoints}pts`);
+  }
+
+  return parts.join(' · ');
+}
+
 export function exportSchedulePdf(options: ExportOptions) {
   const {
     tournamentName, date, city = 'Medellín',
-    referee, director, observations, schedule,
+    referee, director, observations, withLed = false, schedule,
   } = options;
 
-  // ── NORMALIZAR: garantizar court y sede válidos ────────────
+  // ── NORMALIZAR ────────────────────────────────────
   const normalizedRows: MatchRow[] = schedule.map(row => ({
     ...row,
     court: (row.court && row.court !== '—') ? row.court
@@ -56,7 +93,6 @@ export function exportSchedulePdf(options: ExportOptions) {
   const doc   = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
 
-  // Fecha legible sin bug de timezone (+T12:00:00 evita desfase UTC)
   const dateFormatted = new Date(date + 'T12:00:00')
     .toLocaleDateString('es-CO', {
       weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
@@ -80,14 +116,26 @@ export function exportSchedulePdf(options: ExportOptions) {
 
   drawHeader();
 
-  // ── AGRUPAR POR SEDE ──────────────────────────────────────
+  let yPos = 28;
+
+  // ── BANNER LED (si aplica) ─────────────────────────────────────────────
+  if (withLed) {
+    doc.setFillColor(251, 191, 36);
+    doc.rect(10, yPos - 1, pageW - 20, 8, 'F');
+    doc.setTextColor(120, 53, 15);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.text('SISTEMA LED: SAQUE QUE TOCA LA RED Y CAE EN EL CUADRO SE JUEGA EL PUNTO', pageW / 2, yPos + 4, { align: 'center' });
+    yPos += 11;
+  }
+
+  // ── AGRUPAR POR SEDE ──────────────────────────────────────────────────
   const bySede: Record<string, MatchRow[]> = {};
   normalizedRows.forEach(row => {
     if (!bySede[row.sede]) bySede[row.sede] = [];
     bySede[row.sede].push(row);
   });
 
-  let yPos       = 28;
   let isFirstSede = true;
 
   for (const [sede, rows] of Object.entries(bySede)) {
@@ -95,6 +143,15 @@ export function exportSchedulePdf(options: ExportOptions) {
       doc.addPage();
       drawHeader();
       yPos = 28;
+      if (withLed) {
+        doc.setFillColor(251, 191, 36);
+        doc.rect(10, yPos - 1, pageW - 20, 8, 'F');
+        doc.setTextColor(120, 53, 15);
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'bold');
+        doc.text('SISTEMA LED: SAQUE QUE TOCA LA RED Y CAE EN EL CUADRO SE JUEGA EL PUNTO', pageW / 2, yPos + 4, { align: 'center' });
+        yPos += 11;
+      }
     }
     isFirstSede = false;
 
@@ -111,10 +168,8 @@ export function exportSchedulePdf(options: ExportOptions) {
     );
     yPos += 8;
 
-    // ── CLAVES DE CANCHA: mismo valor para head Y body ──────
     const allCourtLabels = [...new Set(rows.map(r => r.court))].sort();
 
-    // byTime[time][court] → array de filas
     const byTime: Record<string, Record<string, MatchRow[]>> = {};
     rows.forEach(row => {
       if (!byTime[row.time])             byTime[row.time] = {};
@@ -124,10 +179,8 @@ export function exportSchedulePdf(options: ExportOptions) {
 
     const times = Object.keys(byTime).sort();
 
-    // HEAD: usa allCourtLabels (misma clave que byTime)
     const head = [['#', 'Hora', ...allCourtLabels.map(c => c.toUpperCase())]];
 
-    // BODY: itera allCourtLabels para buscar en byTime
     const body = times.map((time, idx) => {
       const tableRow: string[] = [String(idx + 1), time];
       allCourtLabels.forEach(courtLabel => {
@@ -139,12 +192,18 @@ export function exportSchedulePdf(options: ExportOptions) {
             matches.map(m => {
               const roundLabel = ROUND_LABELS[m.round] || m.round;
               const cat = m.category || '';
-              const p1 = m.player1 && m.player1 !== 'BYE' ? m.player1 : `Ganador ${ROUND_LABELS[m.round] || m.round}`;
-              const p2 = m.player2 && m.player2 !== 'BYE' ? m.player2 : `Por definir`;
+              const p1  = m.player1 && m.player1 !== 'BYE' ? m.player1 : `Ganador ${ROUND_LABELS[m.round] || m.round}`;
+              const p2  = m.player2 && m.player2 !== 'BYE' ? m.player2 : 'Por definir';
+
+              // Sistema de juego: preferir gameFormat sobre gameSystem string
+              const sysText = describeFormat(m.gameFormat) || m.gameSystem || '';
+              const ledTag  = withLed ? ' · LED' : '';
+              const infoLine = [m.duration, sysText, ledTag].filter(Boolean).join(' · ');
+
               return (
                 `${cat} — ${roundLabel}\n` +
                 `${p1}\nvs.\n${p2}\n` +
-                `(${m.duration || ''}${m.gameSystem ? ' · ' + m.gameSystem : ''})`
+                `(${infoLine})`
               );
             }).join('\n\n')
           );
@@ -153,7 +212,6 @@ export function exportSchedulePdf(options: ExportOptions) {
       return tableRow;
     });
 
-    // Ancho de columnas
     const courtColW = Math.max(28, Math.floor((pageW - 20 - 22) / allCourtLabels.length));
     const columnStyles: Record<number, any> = {
       0: { cellWidth: 8,  halign: 'center', fontStyle: 'bold', fillColor: [240, 253, 244] },
@@ -200,7 +258,7 @@ export function exportSchedulePdf(options: ExportOptions) {
     yPos = (doc as any).lastAutoTable.finalY + 6;
   }
 
-  // ── OBSERVACIONES ─────────────────────────────────────────
+  // ── OBSERVACIONES ─────────────────────────────────────────────────────
   if (observations?.trim()) {
     if (yPos > 165) { doc.addPage(); drawHeader(); yPos = 28; }
     doc.setFillColor(254, 249, 195);
@@ -219,7 +277,7 @@ export function exportSchedulePdf(options: ExportOptions) {
     yPos += 22;
   }
 
-  // ── FOOTER EN TODAS LAS PÁGINAS ──────────────────────────
+  // ── FOOTER EN TODAS LAS PÁGINAS ──────────────────────────────────────
   const totalPages = doc.getNumberOfPages();
   for (let p = 1; p <= totalPages; p++) {
     doc.setPage(p);
@@ -238,7 +296,6 @@ export function exportSchedulePdf(options: ExportOptions) {
     );
   }
 
-  // ── GUARDAR ───────────────────────────────────────────────
   const safeName = tournamentName.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
   doc.save(`Programacion_${safeName}_${date}.pdf`);
 }

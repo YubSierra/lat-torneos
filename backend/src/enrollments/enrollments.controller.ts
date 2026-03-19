@@ -1,5 +1,5 @@
 // backend/src/enrollments/enrollments.controller.ts  ← REEMPLAZA COMPLETO
-import { Controller, Get, Post, Delete, Body,
+import { Controller, Get, Post, Patch, Delete, Body,
          Param, UseGuards, UploadedFile,
          UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -85,6 +85,7 @@ export class EnrollmentsController {
   async importCsv(
     @Param('tournamentId') tournamentId: string,
     @UploadedFile() file: Express.Multer.File,
+    @Body('paymentMethod') paymentMethod: string,
   ) {
     if (!file) throw new Error('No se recibió archivo CSV');
 
@@ -92,17 +93,31 @@ export class EnrollmentsController {
     const allRows = parseCSV(content);
     if (allRows.length < 2) throw new Error('CSV vacío o sin datos');
 
-    const headers = allRows[0].map(h =>
-      h.trim().toLowerCase().replace(/^\uFEFF/, '')
-    );
+    // Normalizar headers: lowercase → camelCase esperado por el servicio
+    const HEADER_MAP: Record<string, string> = {
+      docnumber:       'docNumber',
+      birthdate:       'birthDate',
+      adminnotes:      'adminNotes',
+      categorygender:  'categoryGender',
+    };
+
+    const headers = allRows[0].map(h => {
+      const lower = h.trim().toLowerCase().replace(/^\uFEFF/, '');
+      return HEADER_MAP[lower] ?? lower;
+    });
 
     const rows = allRows.slice(1).map(values => {
       const row: any = {};
-      headers.forEach((h, idx) => { row[h] = values[idx]?.trim() || ''; });
+      headers.forEach((h, idx) => { row[h] = values[idx]?.trim() ?? ''; });
       return row;
     });
 
-    return this.enrollmentsService.importFromCsv(tournamentId, rows, this.userRepo);
+    return this.enrollmentsService.importFromCsv(
+      tournamentId,
+      rows,
+      this.userRepo,
+      paymentMethod || 'manual',
+    );
   }
 
   // POST /enrollments/enroll-single/:tournamentId
@@ -137,6 +152,27 @@ export class EnrollmentsController {
   @UseGuards(JwtAuthGuard)
   countByCategory(@Param('id') id: string, @Param('cat') cat: string) {
     return this.enrollmentsService.countByCategory(id, cat);
+  }
+
+  // POST /enrollments/tournament/:id/merge-categories
+  // Unifica inscripciones de la categoría `from` → `to` y actualiza el torneo
+  @Post('tournament/:id/merge-categories')
+  @UseGuards(JwtAuthGuard)
+  mergeCategories(
+    @Param('id') id: string,
+    @Body() body: { from: string; to: string },
+  ) {
+    return this.enrollmentsService.mergeCategories(id, body.from, body.to);
+  }
+
+  // PATCH /enrollments/:id/change-category
+  @Patch(':id/change-category')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  changeCategory(
+    @Param('id') id: string,
+    @Body() body: { newCategory: string },
+  ) {
+    return this.enrollmentsService.changeEnrollmentCategory(id, body.newCategory);
   }
 
   // DELETE /enrollments/:id

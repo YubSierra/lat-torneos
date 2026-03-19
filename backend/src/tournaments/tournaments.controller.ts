@@ -62,6 +62,16 @@ export class TournamentsController {
     return this.tournamentsService.update(id, dto);
   }
 
+  // PATCH /tournaments/:id/rename-category
+  @Patch(':id/rename-category')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  renameCategory(
+    @Param('id') id: string,
+    @Body() body: { oldName: string; newName: string },
+  ) {
+    return this.tournamentsService.renameCategory(id, body.oldName, body.newName);
+  }
+
   // DELETE /tournaments/:id
   @Delete(':id')
   @UseGuards(JwtAuthGuard)

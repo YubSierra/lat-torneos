@@ -57,6 +57,55 @@ export class DrawService {
     }
   }
 
+  // ── EDITAR GRUPOS RR (reasignar jugadores entre grupos) ────────────────────
+  async editRRGroups(
+    tournamentId: string,
+    category: string,
+    groups: Record<string, string[]>,   // { "A": [playerId,...], "B": [...] }
+  ) {
+    // Obtener todas las inscripciones para leer seedings y gameFormat existente
+    const enrollments = await this.enrollmentRepo.find({
+      where: { tournamentId, category, status: EnrollmentStatus.APPROVED },
+    });
+
+    // Leer gameFormat del primer partido RR existente (para preservarlo)
+    const existingMatch = await this.matchRepo.findOne({
+      where: { tournamentId, category, round: MatchRound.RR },
+    });
+    const gameFormat = existingMatch?.gameFormat ?? null;
+
+    // Eliminar SOLO los partidos RR de la categoría (NO el Main Draw)
+    await this.matchRepo.delete({ tournamentId, category, round: MatchRound.RR });
+
+    // Recrear partidos con los nuevos grupos
+    const matches = [];
+    for (const [groupLabel, playerIds] of Object.entries(groups)) {
+      for (let i = 0; i < playerIds.length; i++) {
+        for (let j = i + 1; j < playerIds.length; j++) {
+          matches.push(this.matchRepo.create({
+            tournamentId,
+            category,
+            round:     MatchRound.RR,
+            player1Id: playerIds[i],
+            player2Id: playerIds[j],
+            status:    MatchStatus.PENDING,
+            groupLabel,
+            seeding1:  this.getSeedingForPlayer(playerIds[i], enrollments),
+            seeding2:  this.getSeedingForPlayer(playerIds[j], enrollments),
+            gameFormat,
+          } as any));
+        }
+      }
+    }
+    await this.matchRepo.save(matches);
+
+    return {
+      success: true,
+      totalMatches: matches.length,
+      groups: Object.entries(groups).map(([g, ids]) => ({ group: `Grupo ${g}`, players: ids.length })),
+    };
+  }
+
   // ── ROUND ROBIN POR GRUPOS ──────────────────────────────────────────────────
   private async generateRoundRobinGroups(
     tournamentId: string,
@@ -66,14 +115,21 @@ export class DrawService {
     roundGameFormats: Record<string, any> = {},
     minPlayersPerGroup: number = 3,
   ) {
-    const players     = enrollments.map(e => e.playerId);
+    // Excluir inscripciones sin playerId válido
+    const validEnrollments = enrollments.filter(e => !!e.playerId);
+    const invalidCount = enrollments.length - validEnrollments.length;
+    if (invalidCount > 0) {
+      console.warn(`[Draw] ${invalidCount} inscripción(es) sin playerId válido fueron ignoradas en categoría ${category}`);
+    }
+
+    const players     = validEnrollments.map(e => e.playerId);
     const totalPlayers = players.length;
 
     // ── Calcular estructura de grupos ──────────────────────────────────────
     const groupStructure = this.calcGroupStructure(totalPlayers, minPlayersPerGroup);
 
     // ── Distribuir jugadores respetando siembras ────────────────────────────
-    const groups = this.distributePlayersIntoGroups(enrollments, groupStructure);
+    const groups = this.distributePlayersIntoGroups(validEnrollments, groupStructure);
 
     const matches      = [];
     const groupSummary = [];
@@ -111,6 +167,50 @@ export class DrawService {
 
     const totalAdvancing = groups.reduce((sum, g) => sum + Math.min(advancingPerGroup, g.length), 0);
     const isSingleGroup = groups.length === 1;
+
+    // ── Pre-crear rondas del cuadro principal con jugadores nulos ───────────
+    // Aparecen como "pendientes" desde el inicio del torneo.
+    // generateMainDrawFromRR las reemplaza con los clasificados reales.
+    // También se crean para grupo único si avanzan ≥2 jugadores al main draw.
+    if (totalAdvancing >= 2 && (!isSingleGroup || advancingPerGroup >= 2)) {
+      const ROUND_SEQ: Record<string, string> = { R32: 'R16', R16: 'QF', QF: 'SF', SF: 'F' };
+      const drawSize    = this.nextPowerOfTwo(totalAdvancing);
+      const firstRound  = this.getFirstRound(drawSize);
+      let prevRound: any[] = [];
+      let curRound  = firstRound as string;
+
+      // Crear primera ronda del main draw
+      for (let i = 0; i < drawSize / 2; i++) {
+        prevRound.push(this.matchRepo.create({
+          tournamentId, category,
+          round:      firstRound as any,
+          player1Id:  null,
+          player2Id:  null,
+          status:     MatchStatus.PENDING,
+          gameFormat: roundGameFormats[firstRound] || roundGameFormats['default'] || null,
+        }));
+      }
+      await this.matchRepo.save(prevRound);
+
+      // Crear rondas siguientes
+      while (ROUND_SEQ[curRound]) {
+        const nextRound   = ROUND_SEQ[curRound];
+        const nextMatches = [];
+        for (let i = 0; i < prevRound.length; i += 2) {
+          nextMatches.push(this.matchRepo.create({
+            tournamentId, category,
+            round:      nextRound as any,
+            player1Id:  null,
+            player2Id:  null,
+            status:     MatchStatus.PENDING,
+            gameFormat: roundGameFormats[nextRound] || roundGameFormats['default'] || null,
+          }));
+        }
+        await this.matchRepo.save(nextMatches);
+        prevRound = nextMatches;
+        curRound  = nextRound;
+      }
+    }
 
     return {
       type: 'round_robin_groups',
@@ -176,29 +276,36 @@ export class DrawService {
   ): string[][] {
     const groups: string[][] = groupSizes.map(() => []);
 
-    const seeded   = enrollments.filter(e => e.seeding > 0).sort((a, b) => a.seeding - b.seeding);
+    // Filtrar inscripciones sin playerId válido antes de distribuir
+    const validEnrollments = enrollments.filter(e => !!e.playerId);
+
+    const seeded   = validEnrollments.filter(e => e.seeding > 0).sort((a, b) => a.seeding - b.seeding);
     const unseeded = this.shuffle(
-      enrollments.filter(e => !(e.seeding > 0)).map(e => e.playerId)
+      validEnrollments.filter(e => !(e.seeding > 0)).map(e => e.playerId)
     );
 
-    // Distribución serpentina de sembrados
-    // 0→1→2→...→n-1→n-1→...→1→0→0→...
+    // Distribución serpentina de sembrados: 0→1→2→...→n-1→n-2→...→1→0→1→...
+    // Corrección: al rebotar en el límite, avanzar en la dirección inversa (no repetir el extremo)
     const numGroups = groups.length;
-    let dir         = 1;
-    let gIdx        = 0;
+    let dir  = 1;
+    let gIdx = 0;
 
     seeded.forEach(e => {
       groups[gIdx].push(e.playerId);
-      // Siguiente posición serpentina
       const next = gIdx + dir;
-      if (next >= numGroups) { dir = -1; gIdx = numGroups - 1; }
-      else if (next < 0)     { dir =  1; gIdx = 0; }
-      else                    { gIdx = next; }
+      if (next >= numGroups) {
+        dir  = -1;
+        gIdx = numGroups - 2;   // retroceder uno desde el extremo
+      } else if (next < 0) {
+        dir  = 1;
+        gIdx = 1;               // avanzar uno desde el extremo
+      } else {
+        gIdx = next;
+      }
     });
 
     // Distribuir no sembrados: llenar grupos más vacíos primero
     unseeded.forEach(playerId => {
-      // Busca el grupo con menos jugadores que aún tenga espacio según groupSizes
       const target = groups
         .map((g, i) => ({ i, len: g.length, cap: groupSizes[i] }))
         .filter(({ len, cap }) => len < cap)
@@ -260,6 +367,34 @@ export class DrawService {
     }
 
     await this.matchRepo.save(matches);
+
+    // ── Pre-crear rondas siguientes con jugadores nulos ─────────────────────
+    // Así aparecen como "pendientes" desde el inicio aunque los jugadores
+    // aún no estén definidos. advanceWinner las rellena conforme avanza el torneo.
+    const ROUND_SEQUENCE: Record<string, string> = {
+      R64: 'R32', R32: 'R16', R16: 'QF', QF: 'SF', SF: 'F',
+    };
+    let prevRound = [...matches];
+    let curRound  = firstRound as string;
+    while (ROUND_SEQUENCE[curRound]) {
+      const nextRound   = ROUND_SEQUENCE[curRound];
+      const nextMatches = [];
+      for (let i = 0; i < prevRound.length; i += 2) {
+        const m1 = prevRound[i];
+        const m2 = prevRound[i + 1];
+        nextMatches.push(this.matchRepo.create({
+          tournamentId, category,
+          round:     nextRound as any,
+          player1Id: m1?.status === MatchStatus.COMPLETED ? m1.winnerId : null,
+          player2Id: m2?.status === MatchStatus.COMPLETED ? m2.winnerId : null,
+          status:    MatchStatus.PENDING,
+          gameFormat: roundGameFormats[nextRound] || roundGameFormats['default'] || null,
+        }));
+      }
+      await this.matchRepo.save(nextMatches);
+      prevRound = nextMatches;
+      curRound  = nextRound;
+    }
 
     return {
       drawSize, playerCount, byeCount, firstRound,
@@ -341,17 +476,20 @@ export class DrawService {
     advancingPerGroup: number,
     minPlayersPerGroup: number = 3,
   ) {
-    const teams = await this.matchRepo.manager
-      .getRepository('doubles_teams')
-      .find({
-        where:  { tournamentId, category, status: 'approved' },
-        order:  { seeding: 'ASC' },
-      });
+    // Incluir parejas aprobadas O con pago confirmado (paymentStatus='approved'/'manual')
+    // para cubrir equipos creados antes del fix de auto-aprobación
+    const repo = this.matchRepo.manager.getRepository('doubles_teams');
+    let teams = await repo.find({ where: { tournamentId, category, status: 'approved' }, order: { seeding: 'ASC' } });
+    if (teams.length < 2) {
+      // fallback: incluir también equipos pendientes con pago aprobado/gratuito
+      const allTeams = await repo.find({ where: { tournamentId, category }, order: { seeding: 'ASC' } });
+      teams = allTeams.filter((t: any) => t.paymentStatus === 'approved' || t.paymentStatus === 'manual');
+    }
 
     if (teams.length < 2) {
       throw new Error(
-        `Dobles categoría ${category}: mínimo 2 parejas aprobadas. ` +
-        `Actualmente hay ${teams.length}.`
+        `Dobles categoría ${category}: mínimo 2 parejas con pago confirmado. ` +
+        `Actualmente hay ${teams.length}. Aprueba los pagos de las parejas antes de generar el cuadro.`
       );
     }
 
@@ -391,6 +529,7 @@ export class DrawService {
     const rounds: Record<number, MatchRound> = {
       64: MatchRound.R64, 32: MatchRound.R32,
       16: MatchRound.R16,  8: MatchRound.QF,
+       4: MatchRound.SF,   2: MatchRound.F,
     };
     return rounds[drawSize] || MatchRound.R32;
   }
@@ -427,5 +566,67 @@ export class DrawService {
   private getSeedingForPlayer(playerId: string, enrollments: Enrollment[]): number {
     if (!playerId || playerId === 'BYE') return null;
     return enrollments.find(e => e.playerId === playerId)?.seeding || null;
+  }
+
+  // ── CREAR PLACEHOLDERS DE MAIN DRAW (para categorías ya generadas sin ellos) ──
+  async createMainDrawPlaceholders(
+    tournamentId: string,
+    category: string,
+    advancingCount: number,
+  ) {
+    const existing = await this.matchRepo.find({ where: { tournamentId, category } });
+    // Only block if subsequent rounds (QF/SF/F) already exist — R16/R32 may be the first elimination round
+    const hasSubsequentRounds = existing.some(m => ['QF', 'SF', 'F'].includes(m.round as string));
+    if (hasSubsequentRounds) {
+      return { created: 0, message: 'Los cuartos/semis/final ya existen para esta categoría' };
+    }
+
+    const ROUND_SEQ: Record<string, string> = { R32: 'R16', R16: 'QF', QF: 'SF', SF: 'F' };
+    const drawSize   = this.nextPowerOfTwo(advancingCount);
+    const firstRound = this.getFirstRound(drawSize);
+    let totalCreated = 0;
+
+    // Check if firstRound already has matches (e.g. R16 created by draw but QF/SF/F missing)
+    const existingFirstRound = existing.filter(m => m.round === firstRound);
+    let prevRound: any[];
+    let curRound: string;
+
+    if (existingFirstRound.length > 0) {
+      // Reuse existing first-round matches, skip creating duplicates
+      prevRound = existingFirstRound;
+      curRound = firstRound as string;
+    } else {
+      prevRound = [];
+      curRound = firstRound as string;
+      for (let i = 0; i < drawSize / 2; i++) {
+        prevRound.push(this.matchRepo.create({
+          tournamentId, category,
+          round: firstRound as any,
+          player1Id: null, player2Id: null,
+          status: MatchStatus.PENDING,
+        }));
+      }
+      await this.matchRepo.save(prevRound);
+      totalCreated += prevRound.length;
+    }
+
+    while (ROUND_SEQ[curRound]) {
+      const nextRound = ROUND_SEQ[curRound];
+      const nextMatches = [];
+      for (let i = 0; i < prevRound.length; i += 2) {
+        nextMatches.push(this.matchRepo.create({
+          tournamentId, category,
+          round: nextRound as any,
+          player1Id: null, player2Id: null,
+          status: MatchStatus.PENDING,
+        }));
+      }
+      await this.matchRepo.save(nextMatches);
+      totalCreated += nextMatches.length;
+      prevRound = nextMatches;
+      curRound = nextRound;
+    }
+
+    return { created: totalCreated, message: `${totalCreated} partidos placeholder creados para ${category}` };
   }
 }

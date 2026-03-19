@@ -1,24 +1,40 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { rankingsApi } from '../api/rankings.api';
+import { circuitLinesApi } from '../api/circuitLines.api';
+import type { CircuitLineItem } from '../api/circuitLines.api';
 import Sidebar from '../components/Sidebar';
 
-const CIRCUIT_LINES = [
-  'departamental', 'senior', 'infantil', 'inter_escuelas', 'edades_fct'
+const BASE_CATEGORIES = [
+  'INTERMEDIA', 'SEGUNDA', 'TERCERA', 'CUARTA', 'QUINTA', '10 AÑOS',
 ];
 
-const CATEGORIES = [
-  'INTERMEDIA', 'SEGUNDA', 'TERCERA', 'CUARTA', 'QUINTA'
+const GENDER_OPTIONS = [
+  { value: '',  label: 'Mixto / Sin género' },
+  { value: 'M', label: '♂ Masculino' },
+  { value: 'F', label: '♀ Femenino' },
 ];
 
 export default function Rankings() {
   const [circuitLine, setCircuitLine] = useState('departamental');
-  const [category, setCategory]       = useState('TERCERA');
+  const [baseCategory, setBaseCategory] = useState('TERCERA');
+  const [gender, setGender] = useState('');
+
+  // Full category name sent to the API
+  const category = gender ? `${baseCategory} ${gender}` : baseCategory;
+
+  const { data: circuitLines = [] } = useQuery<CircuitLineItem[]>({
+    queryKey: ['circuit-lines'],
+    queryFn: circuitLinesApi.getAll,
+  });
 
   const { data: rankings = [], isLoading } = useQuery({
     queryKey: ['rankings', circuitLine, category],
     queryFn: () => rankingsApi.getByCategory(circuitLine, category),
   });
+
+  const circuitLabel = (slug: string) =>
+    circuitLines.find(c => c.slug === slug)?.label ?? slug;
 
   return (
     <div className="flex min-h-screen bg-lat-bg">
@@ -33,44 +49,84 @@ export default function Rankings() {
 
         {/* Filtros */}
         <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
-          <div className="flex gap-4 flex-wrap">
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+
+            {/* Línea de circuito */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Línea de Circuito
               </label>
               <select
                 value={circuitLine}
-                onChange={(e) => setCircuitLine(e.target.value)}
+                onChange={e => setCircuitLine(e.target.value)}
                 className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-lat-green"
               >
-                {CIRCUIT_LINES.map(cl => (
-                  <option key={cl} value={cl}>{cl}</option>
+                {circuitLines.map(cl => (
+                  <option key={cl.slug} value={cl.slug}>{cl.label}</option>
                 ))}
               </select>
             </div>
 
+            {/* Categoría base */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Categoría
               </label>
               <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
+                value={baseCategory}
+                onChange={e => setBaseCategory(e.target.value)}
                 className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-lat-green"
               >
-                {CATEGORIES.map(cat => (
+                {BASE_CATEGORIES.map(cat => (
                   <option key={cat} value={cat}>{cat}</option>
                 ))}
               </select>
+            </div>
+
+            {/* Género */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Género
+              </label>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {GENDER_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setGender(opt.value)}
+                    style={{
+                      padding: '7px 12px', borderRadius: 8, fontSize: 13, cursor: 'pointer',
+                      fontWeight: gender === opt.value ? 700 : 500,
+                      border: gender === opt.value ? '2px solid #2D6A2D' : '1.5px solid #D1D5DB',
+                      background: gender === opt.value ? '#F0FDF4' : '#fff',
+                      color: gender === opt.value ? '#15803D' : '#374151',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>
 
         {/* Tabla */}
         <div className="bg-white rounded-xl shadow-sm p-6">
-          <h2 className="text-lg font-bold text-lat-dark mb-4">
-            {circuitLine.toUpperCase()} — {category}
-          </h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+            <h2 className="text-lg font-bold text-lat-dark" style={{ margin: 0 }}>
+              {circuitLabel(circuitLine).toUpperCase()} — {category}
+            </h2>
+            {gender && (
+              <span style={{
+                fontSize: 12, fontWeight: 700, padding: '2px 10px', borderRadius: 999,
+                background: gender === 'M' ? '#DBEAFE' : '#FCE7F3',
+                color: gender === 'M' ? '#1D4ED8' : '#BE185D',
+              }}>
+                {gender === 'M' ? '♂ Masculino' : '♀ Femenino'}
+              </span>
+            )}
+          </div>
 
           {isLoading ? (
             <p className="text-gray-400 text-center py-8">Cargando...</p>
@@ -90,7 +146,7 @@ export default function Rankings() {
                 </tr>
               </thead>
               <tbody>
-                {rankings.map((r: any, i: number) => (
+                {(rankings as any[]).map((r: any, i: number) => (
                   <tr key={r.id}
                     className={`border-b border-gray-50 ${i % 2 === 0 ? '' : 'bg-gray-50/50'}`}
                   >

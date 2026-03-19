@@ -21,6 +21,8 @@ interface BracketMatch {
   suspensionReason?: string;
   sets1?: number;
   sets2?: number;
+  games1?: number;
+  games2?: number;
   partialResult?: {
     sets1: number; sets2: number;
     games1: number; games2: number;
@@ -31,8 +33,10 @@ interface BracketMatch {
 interface BracketViewProps {
   matches: BracketMatch[];
   isAdmin?: boolean;
+  advancingPerGroup?: number;
   onSuspendMatch?: (match: BracketMatch) => void;
   onResumeMatch?:  (match: BracketMatch) => void;
+  onEditRRGroups?: (category: string) => void;
 }
 
 // ── Constantes ─────────────────────────────────────────────────────────────
@@ -446,12 +450,14 @@ function ElimBracket({
 
 // ── Grupos Round Robin ─────────────────────────────────────────────────────
 function RRGroups({
-  rounds, isAdmin, onSuspendMatch, onResumeMatch,
+  rounds, isAdmin, advancingPerGroup = 1, onSuspendMatch, onResumeMatch, onEditGroups,
 }: {
   rounds: Record<string, BracketMatch[]>;
   isAdmin?: boolean;
+  advancingPerGroup?: number;
   onSuspendMatch?: (m: BracketMatch) => void;
   onResumeMatch?:  (m: BracketMatch) => void;
+  onEditGroups?: () => void;
 }) {
   const rrRounds = ROUND_ORDER.filter(r => ['RR','RR_A','RR_B'].includes(r) && rounds[r]);
   if (rrRounds.length === 0) return null;
@@ -467,23 +473,67 @@ function RRGroups({
   });
 
   return (
-    <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: '20px' }}>
+    <div>
+      {isAdmin && onEditGroups && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '10px' }}>
+          <button
+            onClick={onEditGroups}
+            style={{ fontSize: '12px', padding: '6px 14px', borderRadius: '6px', border: '1px solid #3B82F6', backgroundColor: '#EFF6FF', color: '#1D4ED8', cursor: 'pointer', fontWeight: '600' }}
+          >
+            ✏️ Editar grupos
+          </button>
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: '20px' }}>
       {Object.entries(groups).sort().map(([groupLabel, gMatches]) => {
         // Standings
-        const standings: Record<string, { name: string; wins: number; losses: number }> = {};
+        const standings: Record<string, { name: string; seeding?: number; wins: number; losses: number; setsWon: number; setsLost: number; gamesWon: number; gamesLost: number }> = {};
         gMatches.forEach(m => {
-          [[m.player1Id, m.player1Name], [m.player2Id, m.player2Name]].forEach(([pid, name]) => {
-            if (!pid) return;
-            if (!standings[pid]) standings[pid] = { name: name || '', wins: 0, losses: 0 };
-          });
+          if (m.player1Id && !standings[m.player1Id]) {
+            standings[m.player1Id] = { name: (m.player1Name?.trim()) ? m.player1Name : '(Sin nombre)', seeding: m.seeding1, wins: 0, losses: 0, setsWon: 0, setsLost: 0, gamesWon: 0, gamesLost: 0 };
+          }
+          if (m.player2Id && !standings[m.player2Id]) {
+            standings[m.player2Id] = { name: (m.player2Name?.trim()) ? m.player2Name : '(Sin nombre)', seeding: m.seeding2, wins: 0, losses: 0, setsWon: 0, setsLost: 0, gamesWon: 0, gamesLost: 0 };
+          }
           if (m.winnerId && (m.status === 'completed' || m.status === 'wo')) {
             const loserId = m.winnerId === m.player1Id ? m.player2Id : m.player1Id;
             if (standings[m.winnerId]) standings[m.winnerId].wins++;
             if (loserId && standings[loserId]) standings[loserId].losses++;
+            if (m.player1Id && standings[m.player1Id]) { standings[m.player1Id].setsWon += m.sets1 || 0; standings[m.player1Id].setsLost += m.sets2 || 0; standings[m.player1Id].gamesWon += m.games1 || 0; standings[m.player1Id].gamesLost += m.games2 || 0; }
+            if (m.player2Id && standings[m.player2Id]) { standings[m.player2Id].setsWon += m.sets2 || 0; standings[m.player2Id].setsLost += m.sets1 || 0; standings[m.player2Id].gamesWon += m.games2 || 0; standings[m.player2Id].gamesLost += m.games1 || 0; }
           }
         });
-        const sorted = Object.entries(standings).sort(([,a],[,b]) => b.wins - a.wins);
-        const done   = gMatches.filter(m => m.status === 'completed' || m.status === 'wo').length;
+        const gR = (w: number, l: number) => l > 0 ? w / l : w > 0 ? Infinity : 0;
+        const completedG = gMatches.filter((m: any) => m.status === 'completed' || m.status === 'wo');
+        // allEntries is a STABLE snapshot — never mutated — used for group-size checks inside cmpPlayers
+        const allEntries = Object.entries(standings);
+        type S = typeof standings[string];
+        const cmpPlayers = (idA: string, a: S, idB: string, b: S): number => {
+          if (b.wins !== a.wins) return b.wins - a.wins;
+          const sA = gR(a.setsWon, a.setsLost);  const sB = gR(b.setsWon, b.setsLost);
+          if (Math.abs(sB - sA) > 0.0001) return sB - sA;
+          const gA = gR(a.gamesWon, a.gamesLost); const gBv = gR(b.gamesWon, b.gamesLost);
+          if (Math.abs(gBv - gA) > 0.0001) return gBv - gA;
+          // H2H only when exactly 2 players share all metrics (stable snapshot)
+          const tiedGrp = allEntries.filter(([, s]) =>
+            s.wins === a.wins &&
+            Math.abs(gR(s.setsWon, s.setsLost)  - sA) <= 0.0001 &&
+            Math.abs(gR(s.gamesWon, s.gamesLost) - gA) <= 0.0001,
+          );
+          if (tiedGrp.length === 2) {
+            const h2h = completedG.find((m: any) =>
+              (m.player1Id === idA && m.player2Id === idB) ||
+              (m.player1Id === idB && m.player2Id === idA)
+            );
+            if ((h2h as any)?.winnerId === idA) return -1;
+            if ((h2h as any)?.winnerId === idB) return  1;
+          }
+          // Empate circular o 3+ jugadores → desempatar por nombre (determinístico)
+          return a.name.localeCompare(b.name);
+        };
+        // Sort a copy so allEntries stays pristine
+        const sorted = [...allEntries].sort(([idA, a], [idB, b]) => cmpPlayers(idA, a, idB, b));
+        const done = gMatches.filter(m => m.status === 'completed' || m.status === 'wo').length;
 
         return (
           <div key={groupLabel} style={{ flex: '1 1 280px', minWidth: '260px' }}>
@@ -494,30 +544,48 @@ function RRGroups({
             </div>
             <div style={{ border: '1px solid #E5E7EB', borderTop: 'none', borderRadius: '0 0 8px 8px', overflow: 'hidden' }}>
               {/* Standings */}
-              {sorted.map(([pid, s], pos) => (
-                <div key={pid} style={{ display: 'flex', alignItems: 'center', padding: '7px 12px', backgroundColor: pos === 0 ? '#F0FDF4' : 'white', borderBottom: '1px solid #F3F4F6' }}>
-                  <span style={{
-                    width: '20px', height: '20px', borderRadius: '50%',
-                    backgroundColor: pos === 0 ? '#22C55E' : pos === 1 ? '#3B82F6' : '#9CA3AF',
-                    color: 'white', fontSize: '10px', fontWeight: '800',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    marginRight: '8px', flexShrink: 0,
-                  }}>
-                    {pos + 1}
-                  </span>
-                  <span style={{ flex: 1, fontSize: '12px', fontWeight: pos === 0 ? '700' : '500', color: '#1F2937' }}>
-                    {lastName(s.name)}
-                  </span>
-                  <span style={{ fontSize: '11px', color: '#6B7280' }}>{s.wins}V {s.losses}D</span>
-                </div>
-              ))}
+              {sorted.map(([pid, s], pos) => {
+                // Find the contiguous cluster of tied players containing this position
+                // ARB only if the cluster spans the advancement cutoff (some advance, some don't)
+                let clusterStart = pos;
+                let clusterEnd = pos;
+                while (clusterStart > 0 && cmpPlayers(sorted[clusterStart][0], sorted[clusterStart][1], sorted[clusterStart-1][0], sorted[clusterStart-1][1]) === 0) clusterStart--;
+                while (clusterEnd < sorted.length-1 && cmpPlayers(sorted[clusterEnd][0], sorted[clusterEnd][1], sorted[clusterEnd+1][0], sorted[clusterEnd+1][1]) === 0) clusterEnd++;
+                const tied = clusterStart < clusterEnd && clusterStart < advancingPerGroup && clusterEnd >= advancingPerGroup;
+                const posColor = pos < advancingPerGroup ? (pos === 0 ? '#22C55E' : '#3B82F6') : '#9CA3AF';
+                return (
+                  <div key={pid} style={{ display: 'flex', alignItems: 'center', padding: '7px 12px', backgroundColor: tied ? '#FFFBEB' : pos < advancingPerGroup ? '#F0FDF4' : 'white', borderBottom: '1px solid #F3F4F6' }}>
+                    <span style={{
+                      width: '20px', height: '20px', borderRadius: '50%',
+                      backgroundColor: tied ? '#F59E0B' : posColor,
+                      color: 'white', fontSize: '10px', fontWeight: '800',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      marginRight: '8px', flexShrink: 0,
+                    }}>
+                      {tied ? '?' : pos + 1}
+                    </span>
+                    <span style={{ flex: 1, fontSize: '12px', fontWeight: pos === 0 ? '700' : '500', color: '#1F2937', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      {s.seeding && (
+                        <span style={{ fontSize: '9px', color: '#92400E', backgroundColor: '#FEF3C7', padding: '1px 3px', borderRadius: '3px', flexShrink: 0, fontWeight: '700' }}>
+                          [{s.seeding}]
+                        </span>
+                      )}
+                      {s.name}
+                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <span style={{ fontSize: '11px', color: '#6B7280' }}>{s.wins}V {s.losses}D</span>
+                      {tied && <span style={{ fontSize: '9px', backgroundColor: '#FEF3C7', color: '#92400E', padding: '1px 5px', borderRadius: '4px', fontWeight: '700' }}>⚖️ ARB</span>}
+                    </div>
+                  </div>
+                );
+              })}
               {/* Partidos */}
               <div style={{ padding: '8px 12px', backgroundColor: '#FAFAFA' }}>
                 {gMatches.map(m => {
                   const isSusp = m.status === 'suspended';
                   return (
                     <div key={m.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #F3F4F6', fontSize: '11px' }}>
-                      <span style={{ color: '#374151' }}>{lastName(m.player1Name)} vs {lastName(m.player2Name)}</span>
+                      <span style={{ color: '#374151' }}>{m.player1Name || '—'} vs {m.player2Name || '—'}</span>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                         <span style={{
                           color: m.status === 'completed' ? '#15803D' : m.status === 'wo' ? '#92400E' : isSusp ? '#F97316' : '#9CA3AF',
@@ -545,12 +613,13 @@ function RRGroups({
           </div>
         );
       })}
+      </div>
     </div>
   );
 }
 
 // ── Componente principal ───────────────────────────────────────────────────
-export default function BracketView({ matches, isAdmin, onSuspendMatch, onResumeMatch }: BracketViewProps) {
+export default function BracketView({ matches, isAdmin, advancingPerGroup = 1, onSuspendMatch, onResumeMatch, onEditRRGroups }: BracketViewProps) {
   const byCategory = useMemo(() => {
     const cat: Record<string, Record<string, BracketMatch[]>> = {};
     matches.forEach(m => {
@@ -583,7 +652,7 @@ export default function BracketView({ matches, isAdmin, onSuspendMatch, onResume
 
             {/* Grupos RR */}
             {hasRR && (
-              <RRGroups rounds={rounds} isAdmin={isAdmin} onSuspendMatch={onSuspendMatch} onResumeMatch={onResumeMatch} />
+              <RRGroups rounds={rounds} isAdmin={isAdmin} advancingPerGroup={advancingPerGroup} onSuspendMatch={onSuspendMatch} onResumeMatch={onResumeMatch} onEditGroups={onEditRRGroups ? () => onEditRRGroups(category) : undefined} />
             )}
 
             {/* Separador RR → Main Draw */}

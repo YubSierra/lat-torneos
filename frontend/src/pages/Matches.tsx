@@ -56,15 +56,75 @@ export default function Matches() {
   const [woModal,       setWoModal]       = useState<WOModalState>({ isOpen: false, match: null });
   const [suspendModal,  setSuspendModal]  = useState<{ isOpen: boolean; match: any | null }>({ isOpen: false, match: null });
   const [showSuspended, setShowSuspended] = useState(false);
-  const [editMatch,  setEditMatch]  = useState<any>(null);
-  const [editSets1,  setEditSets1]  = useState('');
-  const [editSets2,  setEditSets2]  = useState('');
-  const [editGames1, setEditGames1] = useState('');
-  const [editGames2, setEditGames2] = useState('');
+  const [editMatch,   setEditMatch]   = useState<any>(null);
+  const [editSets,    setEditSets]    = useState<{g1:string;g2:string;tb1:string;tb2:string}[]>([]);
+  const [detailMatch, setDetailMatch] = useState<any>(null);
+
+  // ── Helpers de edición ────────────────────────────────────────────────────
+  const openEditMatch = (m: any) => {
+    const raw = m.setsHistory;
+    const history: any[] = raw
+      ? (typeof raw === 'string' ? JSON.parse(raw) : raw)
+      : [];
+    const maxSets = m.gameFormat?.sets ?? 3;
+    setEditSets(Array.from({ length: maxSets }, (_, i) => ({
+      g1:  history[i]?.games1  != null ? String(history[i].games1)  : '',
+      g2:  history[i]?.games2  != null ? String(history[i].games2)  : '',
+      tb1: history[i]?.tiebreak1 != null ? String(history[i].tiebreak1) : '',
+      tb2: history[i]?.tiebreak2 != null ? String(history[i].tiebreak2) : '',
+    })));
+    setEditMatch({ ...m, _winnerId: m.winnerId || null });
+  };
+
+  const gf = (m: any) => ({
+    sets:             m?.gameFormat?.sets             ?? 3,
+    gamesPerSet:      m?.gameFormat?.gamesPerSet      ?? 6,
+    withAd:           m?.gameFormat?.withAd           ?? true,
+    tiebreakAtDeuce:  m?.gameFormat?.tiebreakAtDeuce  ?? true,
+    tiebreakPoints:   m?.gameFormat?.tiebreakPoints   ?? 7,
+    finalSetTiebreak: m?.gameFormat?.finalSetTiebreak ?? false,
+    finalSetPoints:   m?.gameFormat?.finalSetPoints   ?? 10,
+  });
+
+  const formatDesc = (fmt: ReturnType<typeof gf>) => {
+    const s = fmt.sets === 1 ? '1 set' : `Mejor de ${fmt.sets}`;
+    const g = `${fmt.gamesPerSet} games`;
+    const a = fmt.withAd ? 'con ventaja' : 'sin ventaja';
+    const f = fmt.finalSetTiebreak ? ` · Final: Super Tie a ${fmt.finalSetPoints}` : '';
+    return `${s} · ${g} · ${a}${f}`;
+  };
+
+  const validateSet = (g1: number, g2: number, fmt: ReturnType<typeof gf>, isFinal: boolean) => {
+    if (!g1 && !g2) return 'empty';
+    if (isFinal && fmt.finalSetTiebreak) {
+      const max = Math.max(g1, g2); const min = Math.min(g1, g2);
+      return max >= fmt.finalSetPoints && max - min >= 2 ? 'valid' : 'warn';
+    }
+    const max = Math.max(g1, g2); const min = Math.min(g1, g2);
+    if (max === fmt.gamesPerSet     && min <= fmt.gamesPerSet - 2) return 'valid';
+    if (max === fmt.gamesPerSet + 1 && min === fmt.gamesPerSet - 1) return 'valid'; // 7-5
+    if (max === fmt.gamesPerSet     && min === fmt.gamesPerSet - 1) return 'valid'; // 7-6 (tb)
+    if (max === fmt.gamesPerSet     && min === fmt.gamesPerSet && fmt.tiebreakAtDeuce) return 'tiebreak';
+    return 'warn';
+  };
+
+  const computeEditResult = () => {
+    const fmt = gf(editMatch);
+    let s1 = 0, s2 = 0;
+    editSets.forEach(s => {
+      const g1 = parseInt(s.g1) || 0; const g2 = parseInt(s.g2) || 0;
+      if (g1 > g2) s1++; else if (g2 > g1) s2++;
+    });
+    const needed = Math.ceil(fmt.sets / 2);
+    const winner = s1 >= needed ? editMatch?.player1Id : s2 >= needed ? editMatch?.player2Id : null;
+    return { s1, s2, winner };
+  };
 
   // ── Filtros de búsqueda ───────────────────────────────────────────────────
-  const [filterName, setFilterName] = useState('');
-  const [filterDate, setFilterDate] = useState('');
+  const [filterName,     setFilterName]     = useState('');
+  const [filterDate,     setFilterDate]     = useState('');
+  const [filterCategory, setFilterCategory] = useState('');
+  const [filterModality, setFilterModality] = useState('');
 
   // Panel lateral jugador
   const [playerPanel, setPlayerPanel] = useState<{
@@ -186,18 +246,36 @@ export default function Matches() {
     if (filterDate) {
       result = result.filter(m => {
         if (!m.scheduledAt) return false;
-        // Comparamos solo la parte de fecha YYYY-MM-DD
         return m.scheduledAt.slice(0, 10) === filterDate;
       });
+    }
+    if (filterCategory) {
+      result = result.filter(m => m.category === filterCategory);
+    }
+    if (filterModality) {
+      if (filterModality === 'doubles') result = result.filter(m => m.category?.endsWith('_DOBLES'));
+      if (filterModality === 'singles') result = result.filter(m => !m.category?.endsWith('_DOBLES'));
     }
     return result;
   };
 
-  const pendingMatches  = applyFilters((matches as any[]).filter(m => m.status === 'pending'));
-  const doneMatches     = applyFilters((matches as any[]).filter(m => m.status === 'completed' || m.status === 'wo'));
+  // "Sin programar": sin hora, jugadores TBD, o la hora ya pasó sin jugarse
+  const now = new Date();
+  const unscheduledMatches      = applyFilters((matches as any[]).filter(m => {
+    if (m.status !== 'pending') return false;
+    if (!m.scheduledAt) return true;
+    if (!m.player1Id || !m.player2Id) return true;
+    if (new Date(m.scheduledAt) < now) return true;
+    return false;
+  }));
+  // "Programados pendientes": tienen hora asignada Y ambos jugadores conocidos
+  const scheduledPendingMatches = applyFilters((matches as any[]).filter(m =>
+    m.status === 'pending' && m.scheduledAt && m.player1Id && m.player2Id
+  ));
+  const doneMatches             = applyFilters((matches as any[]).filter(m => m.status === 'completed' || m.status === 'wo'));
 
   // ¿Hay algún filtro activo?
-  const hasFilters = filterName.trim() !== '' || filterDate !== '';
+  const hasFilters = filterName.trim() !== '' || filterDate !== '' || filterCategory !== '' || filterModality !== '';
 
   // Partidos del jugador seleccionado en el torneo actual
   const playerMatches = (matches as any[]).filter(
@@ -290,45 +368,76 @@ export default function Matches() {
             <span style={{ fontSize: '13px', color: '#6B7280', fontWeight: '600', whiteSpace: 'nowrap' }}>🔍 Filtrar:</span>
 
             {/* Nombre */}
-            <div style={{ position: 'relative', flex: '1', minWidth: '180px', maxWidth: '280px' }}>
-              <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF', fontSize: '13px', pointerEvents: 'none' }}>👤</span>
-              <input
-                type="text"
-                placeholder="Buscar jugador..."
-                value={filterName}
-                onChange={e => setFilterName(e.target.value)}
-                style={{
-                  width: '100%', boxSizing: 'border-box',
-                  border: '1.5px solid #E5E7EB', borderRadius: '8px',
-                  padding: '7px 10px 7px 30px', fontSize: '13px',
-                  color: '#1B3A1B', outline: 'none',
-                  backgroundColor: filterName ? '#F0FDF4' : 'white',
-                  borderColor: filterName ? '#86EFAC' : '#E5E7EB',
-                }}
-              />
-            </div>
+            <input
+              type="text"
+              placeholder="Buscar jugador..."
+              value={filterName}
+              onChange={e => setFilterName(e.target.value)}
+              style={{
+                flex: 1, minWidth: '180px', maxWidth: '260px', boxSizing: 'border-box',
+                border: '1.5px solid #E5E7EB', borderRadius: '8px',
+                padding: '7px 10px', fontSize: '13px',
+                color: '#1B3A1B', outline: 'none',
+                backgroundColor: filterName ? '#F0FDF4' : 'white',
+                borderColor: filterName ? '#86EFAC' : '#E5E7EB',
+              }}
+            />
 
             {/* Fecha */}
-            <div style={{ position: 'relative' }}>
-              <input
-                type="date"
-                value={filterDate}
-                onChange={e => setFilterDate(e.target.value)}
-                style={{
-                  border: '1.5px solid #E5E7EB', borderRadius: '8px',
-                  padding: '7px 12px', fontSize: '13px',
-                  color: filterDate ? '#1B3A1B' : '#9CA3AF',
-                  outline: 'none', cursor: 'pointer',
-                  backgroundColor: filterDate ? '#F0FDF4' : 'white',
-                  borderColor: filterDate ? '#86EFAC' : '#E5E7EB',
-                }}
-              />
-            </div>
+            <input
+              type="date"
+              value={filterDate}
+              onChange={e => setFilterDate(e.target.value)}
+              style={{
+                border: '1.5px solid #E5E7EB', borderRadius: '8px',
+                padding: '7px 10px', fontSize: '13px',
+                color: filterDate ? '#1B3A1B' : '#9CA3AF',
+                outline: 'none', cursor: 'pointer',
+                backgroundColor: filterDate ? '#F0FDF4' : 'white',
+                borderColor: filterDate ? '#86EFAC' : '#E5E7EB',
+              }}
+            />
+
+            {/* Categoría */}
+            {(() => {
+              const cats = [...new Set((matches as any[]).map((m: any) => m.category).filter(Boolean))].sort();
+              return (
+                <select
+                  value={filterCategory}
+                  onChange={e => setFilterCategory(e.target.value)}
+                  style={{
+                    border: '1.5px solid #E5E7EB', borderRadius: '8px', padding: '7px 10px',
+                    fontSize: '13px', outline: 'none', cursor: 'pointer', maxWidth: '180px',
+                    backgroundColor: filterCategory ? '#F0FDF4' : 'white',
+                    borderColor: filterCategory ? '#86EFAC' : '#E5E7EB',
+                  }}
+                >
+                  <option value="">Todas las categorías</option>
+                  {cats.map((c: string) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              );
+            })()}
+
+            {/* Modalidad */}
+            <select
+              value={filterModality}
+              onChange={e => setFilterModality(e.target.value)}
+              style={{
+                border: '1.5px solid #E5E7EB', borderRadius: '8px', padding: '7px 10px',
+                fontSize: '13px', outline: 'none', cursor: 'pointer',
+                backgroundColor: filterModality ? '#F0FDF4' : 'white',
+                borderColor: filterModality ? '#86EFAC' : '#E5E7EB',
+              }}
+            >
+              <option value="">Todas las modalidades</option>
+              <option value="singles">Singles</option>
+              <option value="doubles">Dobles</option>
+            </select>
 
             {/* Limpiar */}
             {hasFilters && (
               <button
-                onClick={() => { setFilterName(''); setFilterDate(''); }}
+                onClick={() => { setFilterName(''); setFilterDate(''); setFilterCategory(''); setFilterModality(''); }}
                 style={{ padding: '7px 12px', borderRadius: '8px', border: '1.5px solid #FECACA', backgroundColor: '#FFF5F5', color: '#DC2626', fontSize: '12px', fontWeight: '600', cursor: 'pointer', whiteSpace: 'nowrap' }}
               >
                 ✕ Limpiar
@@ -338,7 +447,7 @@ export default function Matches() {
             {/* Contador de resultados */}
             {hasFilters && (
               <span style={{ fontSize: '12px', color: '#6B7280', marginLeft: 'auto' }}>
-                {pendingMatches.length + doneMatches.length} resultado{pendingMatches.length + doneMatches.length !== 1 ? 's' : ''}
+                {unscheduledMatches.length + scheduledPendingMatches.length + doneMatches.length} resultado{unscheduledMatches.length + scheduledPendingMatches.length + doneMatches.length !== 1 ? 's' : ''}
               </span>
             )}
           </div>
@@ -551,29 +660,28 @@ export default function Matches() {
                 );
               })()}
 
-              {/* ════════════════════════════════════════ PENDIENTES ══ */}
+              {/* ════════════════════════════════════════ PROGRAMADOS ══ */}
               <div className="bg-white rounded-xl shadow-sm overflow-hidden">
                 <div style={{ padding: '14px 20px', borderBottom: '1px solid #F3F4F6', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <h2 style={{ fontSize: '15px', fontWeight: '800', color: '#1B3A1B', margin: 0 }}>⏳ Pendientes</h2>
-                  <span style={{ backgroundColor: '#FEF9C3', color: '#92400E', fontSize: '11px', fontWeight: '700', padding: '1px 9px', borderRadius: '999px' }}>
-                    {pendingMatches.length}
+                  <h2 style={{ fontSize: '15px', fontWeight: '800', color: '#1B3A1B', margin: 0 }}>📅 Programados</h2>
+                  <span style={{ backgroundColor: '#DBEAFE', color: '#1D4ED8', fontSize: '11px', fontWeight: '700', padding: '1px 9px', borderRadius: '999px' }}>
+                    {scheduledPendingMatches.length}
                   </span>
                 </div>
-
                 <div>
-                  {pendingMatches.length === 0 ? (
-                    <p style={{ color: '#9CA3AF', textAlign: 'center', padding: '20px', fontSize: '13px' }}>Sin partidos pendientes</p>
+                  {scheduledPendingMatches.length === 0 ? (
+                    <p style={{ color: '#9CA3AF', textAlign: 'center', padding: '20px', fontSize: '13px' }}>Sin partidos programados</p>
                   ) : (
                     <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}>
                       <thead>
                         <tr style={{ backgroundColor: '#F9FAFB' }}>
-                          {['Ronda', 'Categoría', 'Jugador 1', 'Jugador 2', 'Fecha', 'Hora', ...(canAct ? ['Acciones'] : [])].map(h => (
+                          {['Ronda', 'Categoría', 'Jugador 1', 'Jugador 2', 'Fecha', 'Hora', 'Acciones'].map(h => (
                             <th key={h} style={{ textAlign: 'left', padding: '9px 14px', color: '#6B7280', fontWeight: '600', fontSize: '11px' }}>{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {pendingMatches.map((m: any, i: number) => (
+                        {scheduledPendingMatches.map((m: any, i: number) => (
                           <tr key={m.id} style={{ borderBottom: '1px solid #F3F4F6', backgroundColor: i % 2 === 0 ? 'white' : '#FAFAFA' }}>
                             <td style={{ padding: '9px 14px' }}>
                               <span style={{ padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '600', backgroundColor: '#F3E8FF', color: '#6B21A8' }}>
@@ -591,32 +699,69 @@ export default function Matches() {
                             <td style={{ padding: '9px 14px' }}>
                               <PlayerNameCell name={m.player2Name} photoUrl={m.player2PhotoUrl} playerId={m.player2Id} onClick={openPlayer} />
                             </td>
-                            {/* Fecha */}
                             <td style={{ padding: '9px 14px', whiteSpace: 'nowrap' }}>
-                              {m.scheduledAt ? (
-                                <span style={{ fontSize: '12px', color: '#374151', fontWeight: '500' }}>
-                                  📅 {new Date(m.scheduledAt).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
-                                </span>
-                              ) : (
-                                <span style={{ fontSize: '12px', color: '#D1D5DB' }}>—</span>
-                              )}
+                              <span style={{ fontSize: '12px', color: '#374151', fontWeight: '500' }}>
+                                📅 {new Date(m.scheduledAt).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
+                              </span>
                             </td>
-                            {/* Hora */}
                             <td style={{ padding: '9px 14px', color: '#6B7280', fontSize: '12px', whiteSpace: 'nowrap' }}>
-                              {m.scheduledAt
-                                ? new Date(m.scheduledAt).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
-                                : '—'}
+                              {new Date(m.scheduledAt).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
                             </td>
-                            {canAct && (
-                              <td style={{ padding: '9px 14px' }}>
-                                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                                  <button onClick={() => handleStartMatch(m.id)} style={btnStyle('#2D6A2D', 'white')}><Play size={11} />Iniciar</button>
-                                  <button onClick={() => navigate(`/scorer/${m.id}`)} style={btnStyle('#EF4444', 'white')}>📺</button>
-                                  <button onClick={() => setSuspendModal({ isOpen: true, match: m })} style={{ ...btnStyle('#FEF3C7', '#92400E'), border: '1px solid #FDE68A' }}><CloudRain size={11} /></button>
-                                  {isAdmin && <button onClick={() => handleWOClick(m)} style={btnStyle('#F3F4F6', '#374151')}>W.O.</button>}
-                                </div>
-                              </td>
-                            )}
+                            <td style={{ padding: '9px 14px' }}>
+                              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                                <button onClick={() => handleStartMatch(m.id)} style={btnStyle('#2D6A2D', 'white')}><Play size={11} />Iniciar</button>
+                                <button onClick={() => navigate(`/scorer/${m.id}`)} style={btnStyle('#EF4444', 'white')}>📺</button>
+                                <button onClick={() => setSuspendModal({ isOpen: true, match: m })} style={{ ...btnStyle('#FEF3C7', '#92400E'), border: '1px solid #FDE68A' }}><CloudRain size={11} /></button>
+                                {isAdmin && <button onClick={() => handleWOClick(m)} style={btnStyle('#F3F4F6', '#374151')}>W.O.</button>}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+
+              {/* ════════════════════════════════════════ PENDIENTES (sin programar) ══ */}
+              <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+                <div style={{ padding: '14px 20px', borderBottom: '1px solid #F3F4F6', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <h2 style={{ fontSize: '15px', fontWeight: '800', color: '#1B3A1B', margin: 0 }}>⏳ Sin programar</h2>
+                  <span style={{ backgroundColor: '#FEF9C3', color: '#92400E', fontSize: '11px', fontWeight: '700', padding: '1px 9px', borderRadius: '999px' }}>
+                    {unscheduledMatches.length}
+                  </span>
+                </div>
+                <div>
+                  {unscheduledMatches.length === 0 ? (
+                    <p style={{ color: '#9CA3AF', textAlign: 'center', padding: '20px', fontSize: '13px' }}>Todos los partidos tienen programación asignada</p>
+                  ) : (
+                    <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ backgroundColor: '#F9FAFB' }}>
+                          {['Ronda', 'Categoría', 'Jugador 1', 'Jugador 2'].map(h => (
+                            <th key={h} style={{ textAlign: 'left', padding: '9px 14px', color: '#6B7280', fontWeight: '600', fontSize: '11px' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {unscheduledMatches.map((m: any, i: number) => (
+                          <tr key={m.id} style={{ borderBottom: '1px solid #F3F4F6', backgroundColor: i % 2 === 0 ? 'white' : '#FAFAFA' }}>
+                            <td style={{ padding: '9px 14px' }}>
+                              <span style={{ padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '600', backgroundColor: '#F3E8FF', color: '#6B21A8' }}>
+                                {ROUND_LABELS[m.round] || m.round}
+                              </span>
+                            </td>
+                            <td style={{ padding: '9px 14px' }}>
+                              <span style={{ padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '600', backgroundColor: '#DBEAFE', color: '#1D4ED8' }}>
+                                {m.category}
+                              </span>
+                            </td>
+                            <td style={{ padding: '9px 14px' }}>
+                              <PlayerNameCell name={m.player1Name} photoUrl={m.player1PhotoUrl} playerId={m.player1Id} onClick={openPlayer} />
+                            </td>
+                            <td style={{ padding: '9px 14px' }}>
+                              <PlayerNameCell name={m.player2Name} photoUrl={m.player2PhotoUrl} playerId={m.player2Id} onClick={openPlayer} />
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -641,7 +786,7 @@ export default function Matches() {
                     <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}>
                       <thead>
                         <tr style={{ backgroundColor: '#F9FAFB' }}>
-                          {['Ronda', 'Cat.', 'Jugador 1', 'Jugador 2', 'Fecha', 'Resultado', 'Ganador', ...(isAdmin ? ['Acciones'] : [])].map(h => (
+                          {['Ronda', 'Cat.', 'Jugador 1', 'Jugador 2', 'Fecha', 'Resultado', 'Ganador', 'Acciones'].map(h => (
                             <th key={h} style={{ textAlign: 'left', padding: '9px 14px', color: '#6B7280', fontWeight: '600', fontSize: '11px' }}>{h}</th>
                           ))}
                         </tr>
@@ -697,27 +842,24 @@ export default function Matches() {
                                 {m.winnerName || '—'}
                               </span>
                               </td>
-                              {isAdmin && (
-                                <td style={{ padding: '9px 14px' }}>
+                              <td style={{ padding: '9px 14px' }}>
+                                <div style={{ display: 'flex', gap: '6px' }}>
                                   <button
-                                    onClick={() => {
-                                      setEditMatch(m);
-                                      setEditSets1(String(m.sets1 ?? ''));
-                                      setEditSets2(String(m.sets2 ?? ''));
-                                      setEditGames1(String(m.games1 ?? ''));
-                                      setEditGames2(String(m.games2 ?? ''));
-                                    }}
-                                    style={{
-                                      backgroundColor: '#EFF6FF', color: '#1D4ED8',
-                                      border: '1px solid #BFDBFE', borderRadius: '6px',
-                                      padding: '4px 8px', cursor: 'pointer',
-                                      fontSize: '11px', fontWeight: '600',
-                                    }}
+                                    onClick={() => setDetailMatch(m)}
+                                    style={{ backgroundColor: '#F3F4F6', color: '#374151', border: '1px solid #E5E7EB', borderRadius: '6px', padding: '4px 8px', cursor: 'pointer', fontSize: '11px', fontWeight: '600' }}
                                   >
-                                    ✏️ Editar
+                                    🔍 Ver
                                   </button>
-                                </td>
-                              )}
+                                  {isAdmin && (
+                                    <button
+                                      onClick={() => openEditMatch(m)}
+                                      style={{ backgroundColor: '#EFF6FF', color: '#1D4ED8', border: '1px solid #BFDBFE', borderRadius: '6px', padding: '4px 8px', cursor: 'pointer', fontSize: '11px', fontWeight: '600' }}
+                                    >
+                                      ✏️ Editar
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
                             </tr>
                           );
                         })}
@@ -772,139 +914,286 @@ export default function Matches() {
       />
 
       {/* ── Modal editar resultado ── */}
-      {editMatch && (
-        <div
-          style={{
-            position: 'fixed', inset: 0, zIndex: 9999,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
-          }}
-          onClick={() => setEditMatch(null)}
-        >
+      {editMatch && (() => {
+        const fmt      = gf(editMatch);
+        const { s1, s2, winner: autoWinner } = computeEditResult();
+        const needsManualWinner = !autoWinner;
+        const displayWinner = editMatch._winnerId;
+
+        return (
           <div
-            style={{
-              backgroundColor: 'white', borderRadius: '16px', padding: '28px',
-              width: '420px', maxWidth: '95vw',
-              maxHeight: '90vh', overflowY: 'auto',
-            }}
-            onClick={e => e.stopPropagation()}
+            style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
+            onClick={() => setEditMatch(null)}
           >
-            <h2 style={{ fontSize: '18px', fontWeight: '700', marginBottom: '4px' }}>✏️ Editar Resultado</h2>
-            <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '20px' }}>
-              {ROUND_LABELS[editMatch.round] || editMatch.round} · {editMatch.category}
-            </p>
-
-            {/* Sets */}
-            <div style={{ marginBottom: '20px' }}>
-              <p style={{ fontSize: '12px', fontWeight: '600', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>Sets</p>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <div style={{ flex: 1 }}>
-                  <p style={{ fontSize: '11px', color: '#9CA3AF', marginBottom: '4px' }}>{editMatch.player1Name}</p>
-                  <input
-                    type="number" min="0" max="3" value={editSets1}
-                    onChange={e => setEditSets1(e.target.value)}
-                    style={{ border: '2px solid #D1D5DB', borderRadius: '8px', padding: '10px', fontSize: '20px', fontWeight: '700', textAlign: 'center', width: '100%', maxWidth: '120px', boxSizing: 'border-box' }}
-                  />
-                </div>
-                <span style={{ fontSize: '20px', color: '#9CA3AF', marginTop: '18px' }}>-</span>
-                <div style={{ flex: 1 }}>
-                  <p style={{ fontSize: '11px', color: '#9CA3AF', marginBottom: '4px' }}>{editMatch.player2Name}</p>
-                  <input
-                    type="number" min="0" max="3" value={editSets2}
-                    onChange={e => setEditSets2(e.target.value)}
-                    style={{ border: '2px solid #D1D5DB', borderRadius: '8px', padding: '10px', fontSize: '20px', fontWeight: '700', textAlign: 'center', width: '100%', maxWidth: '120px', boxSizing: 'border-box' }}
-                  />
+            <div
+              style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '480px', maxWidth: '95vw', maxHeight: '92vh', overflowY: 'auto' }}
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div style={{ marginBottom: '16px' }}>
+                <h2 style={{ fontSize: '18px', fontWeight: '800', margin: 0 }}>✏️ Editar Resultado</h2>
+                <p style={{ fontSize: '12px', color: '#6B7280', margin: '4px 0 0' }}>
+                  {ROUND_LABELS[editMatch.round] || editMatch.round} · {editMatch.category}
+                </p>
+                <div style={{ marginTop: '6px', backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '8px', padding: '6px 10px', fontSize: '11px', color: '#15803D', fontWeight: '600' }}>
+                  📋 {formatDesc(fmt)}
                 </div>
               </div>
-            </div>
 
-            {/* Games último set */}
-            <div style={{ marginBottom: '20px' }}>
-              <p style={{ fontSize: '12px', fontWeight: '600', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>Games (último set)</p>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <div style={{ flex: 1 }}>
-                  <p style={{ fontSize: '11px', color: '#9CA3AF', marginBottom: '4px' }}>{editMatch.player1Name}</p>
-                  <input
-                    type="number" min="0" value={editGames1}
-                    onChange={e => setEditGames1(e.target.value)}
-                    style={{ border: '2px solid #D1D5DB', borderRadius: '8px', padding: '10px', fontSize: '20px', fontWeight: '700', textAlign: 'center', width: '100%', maxWidth: '120px', boxSizing: 'border-box' }}
-                  />
-                </div>
-                <span style={{ fontSize: '20px', color: '#9CA3AF', marginTop: '18px' }}>-</span>
-                <div style={{ flex: 1 }}>
-                  <p style={{ fontSize: '11px', color: '#9CA3AF', marginBottom: '4px' }}>{editMatch.player2Name}</p>
-                  <input
-                    type="number" min="0" value={editGames2}
-                    onChange={e => setEditGames2(e.target.value)}
-                    style={{ border: '2px solid #D1D5DB', borderRadius: '8px', padding: '10px', fontSize: '20px', fontWeight: '700', textAlign: 'center', width: '100%', maxWidth: '120px', boxSizing: 'border-box' }}
-                  />
-                </div>
+              {/* Cabecera jugadores */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 40px 1fr', gap: '8px', marginBottom: '12px' }}>
+                <div style={{ fontSize: '12px', fontWeight: '700', color: '#1F2937', textAlign: 'center', padding: '6px', backgroundColor: '#F9FAFB', borderRadius: '8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{editMatch.player1Name}</div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', color: '#9CA3AF', fontWeight: '700' }}>vs</div>
+                <div style={{ fontSize: '12px', fontWeight: '700', color: '#1F2937', textAlign: 'center', padding: '6px', backgroundColor: '#F9FAFB', borderRadius: '8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{editMatch.player2Name}</div>
               </div>
-            </div>
 
-            {/* Ganador */}
-            <div style={{ marginBottom: '20px' }}>
-              <p style={{ fontSize: '12px', fontWeight: '600', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>Ganador</p>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                {[
-                  { id: editMatch.player1Id, name: editMatch.player1Name },
-                  { id: editMatch.player2Id, name: editMatch.player2Name },
-                ].map(p => {
-                  const sel = editMatch._winnerId === p.id;
+              {/* Filas de sets */}
+              <div style={{ marginBottom: '16px' }}>
+                <p style={{ fontSize: '11px', fontWeight: '700', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px' }}>
+                  Marcador set a set
+                </p>
+                {editSets.map((s, idx) => {
+                  const isFinal    = idx === fmt.sets - 1;
+                  const isSuperTie = isFinal && fmt.finalSetTiebreak;
+                  const g1 = parseInt(s.g1) || 0;
+                  const g2 = parseInt(s.g2) || 0;
+                  const status = validateSet(g1, g2, fmt, isFinal);
+                  const needsTb = status === 'tiebreak';
+                  const indicator = status === 'valid' ? { icon: '✅', color: '#15803D' }
+                    : status === 'tiebreak'            ? { icon: '🔢', color: '#D97706' }
+                    : status === 'warn'                ? { icon: '⚠️', color: '#DC2626' }
+                    : { icon: '—', color: '#D1D5DB' };
+
                   return (
-                    <button
-                      key={p.id}
-                      onClick={() => setEditMatch({ ...editMatch, _winnerId: p.id })}
-                      style={{
-                        padding: '12px', borderRadius: '10px', textAlign: 'left', cursor: 'pointer',
-                        border: sel ? '2px solid #16A34A' : '2px solid #E5E7EB',
-                        backgroundColor: sel ? '#F0FDF4' : '#F9FAFB',
-                      }}
-                    >
-                      <div style={{ fontSize: '13px', fontWeight: '600', color: sel ? '#166534' : '#111827' }}>{p.name}</div>
-                      {sel && <div style={{ fontSize: '11px', color: '#16A34A', fontWeight: '700', marginTop: '4px' }}>🏆 GANA</div>}
-                    </button>
+                    <div key={idx} style={{ marginBottom: '10px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '11px', fontWeight: '700', color: '#6B7280', minWidth: '50px' }}>
+                          {isSuperTie ? 'S.Tie' : `Set ${idx + 1}`}
+                        </span>
+                        <input
+                          type="number" min="0" max={isSuperTie ? 99 : fmt.gamesPerSet + 2} value={s.g1}
+                          onChange={e => setEditSets(prev => prev.map((x, i) => i === idx ? { ...x, g1: e.target.value } : x))}
+                          style={{ width: '56px', border: '2px solid #D1D5DB', borderRadius: '8px', padding: '8px 4px', fontSize: '18px', fontWeight: '800', textAlign: 'center', boxSizing: 'border-box' }}
+                        />
+                        <span style={{ fontSize: '18px', color: '#9CA3AF', fontWeight: '700' }}>–</span>
+                        <input
+                          type="number" min="0" max={isSuperTie ? 99 : fmt.gamesPerSet + 2} value={s.g2}
+                          onChange={e => setEditSets(prev => prev.map((x, i) => i === idx ? { ...x, g2: e.target.value } : x))}
+                          style={{ width: '56px', border: '2px solid #D1D5DB', borderRadius: '8px', padding: '8px 4px', fontSize: '18px', fontWeight: '800', textAlign: 'center', boxSizing: 'border-box' }}
+                        />
+                        <span style={{ fontSize: '14px', color: indicator.color, minWidth: '20px' }}>{indicator.icon}</span>
+                        {isSuperTie && (
+                          <span style={{ fontSize: '10px', color: '#6B7280', marginLeft: '4px' }}>pts</span>
+                        )}
+                      </div>
+                      {/* Tiebreak regular (6-6) */}
+                      {needsTb && !isSuperTie && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', paddingLeft: '58px' }}>
+                          <span style={{ fontSize: '10px', color: '#D97706', fontWeight: '700', minWidth: '50px' }}>Tie ({fmt.tiebreakPoints}pts)</span>
+                          <input
+                            type="number" min="0" value={s.tb1}
+                            onChange={e => setEditSets(prev => prev.map((x, i) => i === idx ? { ...x, tb1: e.target.value } : x))}
+                            style={{ width: '48px', border: '2px solid #FDE68A', borderRadius: '6px', padding: '4px', fontSize: '14px', fontWeight: '700', textAlign: 'center', boxSizing: 'border-box' }}
+                          />
+                          <span style={{ fontSize: '14px', color: '#9CA3AF' }}>–</span>
+                          <input
+                            type="number" min="0" value={s.tb2}
+                            onChange={e => setEditSets(prev => prev.map((x, i) => i === idx ? { ...x, tb2: e.target.value } : x))}
+                            style={{ width: '48px', border: '2px solid #FDE68A', borderRadius: '6px', padding: '4px', fontSize: '14px', fontWeight: '700', textAlign: 'center', boxSizing: 'border-box' }}
+                          />
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>
-            </div>
 
-            {/* Botones */}
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <button
-                onClick={() => setEditMatch(null)}
-                style={{ flex: 1, padding: '10px', borderRadius: '10px', border: '2px solid #E5E7EB', backgroundColor: 'white', color: '#374151', fontWeight: '600', fontSize: '14px', cursor: 'pointer' }}
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={async () => {
-                  try {
-                    await api.patch(`/matches/${editMatch.id}/score`, {
-                      sets1:    Number(editSets1),
-                      sets2:    Number(editSets2),
-                      games1:   Number(editGames1),
-                      games2:   Number(editGames2),
-                      winnerId: editMatch._winnerId,
-                    });
-                    queryClient.invalidateQueries({ queryKey: ['matches'] });
-                    setEditMatch(null);
-                  } catch {
-                    alert('❌ Error al guardar resultado');
-                  }
-                }}
-                style={{
-                  flex: 1, padding: '10px', borderRadius: '10px', border: 'none',
-                  background: 'linear-gradient(135deg, #1D4ED8, #1E40AF)',
-                  color: 'white', fontWeight: '700', fontSize: '14px', cursor: 'pointer',
-                }}
-              >
-                Guardar
+              {/* Resultado calculado */}
+              <div style={{ backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '10px', padding: '12px 16px', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '13px', color: '#6B7280', fontWeight: '600' }}>Sets calculados:</span>
+                <span style={{ fontSize: '22px', fontWeight: '900', fontFamily: 'monospace', color: '#1B3A1B' }}>{s1} – {s2}</span>
+              </div>
+
+              {/* Ganador */}
+              <div style={{ marginBottom: '20px' }}>
+                <p style={{ fontSize: '11px', fontWeight: '700', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px' }}>
+                  Ganador {needsManualWinner ? <span style={{ color: '#D97706' }}>(seleccionar manualmente)</span> : <span style={{ color: '#15803D' }}>(calculado automáticamente)</span>}
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  {[
+                    { id: editMatch.player1Id, name: editMatch.player1Name },
+                    { id: editMatch.player2Id, name: editMatch.player2Name },
+                  ].map(p => {
+                    const isAuto = autoWinner === p.id;
+                    const isSel  = displayWinner === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => setEditMatch((prev: any) => ({ ...prev, _winnerId: p.id }))}
+                        style={{ padding: '12px', borderRadius: '10px', textAlign: 'left', cursor: 'pointer', border: isSel ? '2px solid #16A34A' : '2px solid #E5E7EB', backgroundColor: isSel ? '#F0FDF4' : '#F9FAFB' }}
+                      >
+                        <div style={{ fontSize: '13px', fontWeight: '600', color: isSel ? '#166534' : '#111827' }}>{p.name}</div>
+                        {isSel  && <div style={{ fontSize: '11px', color: '#16A34A', fontWeight: '700', marginTop: '2px' }}>🏆 GANA</div>}
+                        {isAuto && !isSel && <div style={{ fontSize: '10px', color: '#D97706', marginTop: '2px' }}>← sugerido</div>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Botones */}
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button onClick={() => setEditMatch(null)} style={{ flex: 1, padding: '10px', borderRadius: '10px', border: '2px solid #E5E7EB', backgroundColor: 'white', color: '#374151', fontWeight: '600', fontSize: '14px', cursor: 'pointer' }}>
+                  Cancelar
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!editMatch._winnerId) { alert('Selecciona el ganador antes de guardar'); return; }
+                    const setsHistory = editSets
+                      .filter(s => s.g1 !== '' || s.g2 !== '')
+                      .map(s => ({
+                        games1: parseInt(s.g1) || 0,
+                        games2: parseInt(s.g2) || 0,
+                        ...(s.tb1 !== '' ? { tiebreak1: parseInt(s.tb1) || 0 } : {}),
+                        ...(s.tb2 !== '' ? { tiebreak2: parseInt(s.tb2) || 0 } : {}),
+                      }));
+                    try {
+                      await api.patch(`/matches/${editMatch.id}/score`, {
+                        sets1: s1, sets2: s2,
+                        games1: setsHistory.reduce((sum, s) => sum + s.games1, 0),
+                        games2: setsHistory.reduce((sum, s) => sum + s.games2, 0),
+                        winnerId: editMatch._winnerId,
+                        setsHistory,
+                      });
+                      queryClient.invalidateQueries({ queryKey: ['matches'] });
+                      setEditMatch(null);
+                    } catch {
+                      alert('❌ Error al guardar resultado');
+                    }
+                  }}
+                  style={{ flex: 2, padding: '10px', borderRadius: '10px', border: 'none', background: 'linear-gradient(135deg, #1D4ED8, #1E40AF)', color: 'white', fontWeight: '700', fontSize: '14px', cursor: 'pointer' }}
+                >
+                  Guardar
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Modal detalles partido ── */}
+      {detailMatch && (() => {
+        const m   = detailMatch;
+        const fmt = gf(m);
+        const raw = m.setsHistory;
+        const history: any[] = raw
+          ? (typeof raw === 'string' ? JSON.parse(raw) : raw)
+          : [];
+        const p1Won = m.winnerId === m.player1Id;
+
+        return (
+          <div
+            style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
+            onClick={() => setDetailMatch(null)}
+          >
+            <div
+              style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '460px', maxWidth: '95vw', maxHeight: '92vh', overflowY: 'auto' }}
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+                <div>
+                  <h2 style={{ fontSize: '17px', fontWeight: '800', margin: 0 }}>🎾 Detalle del Partido</h2>
+                  <p style={{ fontSize: '12px', color: '#6B7280', margin: '4px 0 0' }}>
+                    {ROUND_LABELS[m.round] || m.round} · {m.category}
+                  </p>
+                  {m.scheduledAt && (
+                    <p style={{ fontSize: '11px', color: '#6B7280', margin: '2px 0 0' }}>
+                      📅 {new Date(m.scheduledAt).toLocaleDateString('es-CO', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                    </p>
+                  )}
+                </div>
+                <button onClick={() => setDetailMatch(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px', color: '#9CA3AF' }}>✕</button>
+              </div>
+
+              {/* Formato */}
+              <div style={{ backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '8px', padding: '8px 12px', fontSize: '11px', color: '#15803D', fontWeight: '600', marginBottom: '16px' }}>
+                📋 {formatDesc(fmt)}
+              </div>
+
+              {/* Resultado general */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: '12px', alignItems: 'center', marginBottom: '20px', padding: '16px', backgroundColor: '#F8FAFC', borderRadius: '12px', border: '1px solid #E2E8F0' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '12px', fontWeight: '700', color: p1Won ? '#166534' : '#374151', marginBottom: '4px' }}>{m.player1Name}</div>
+                  {p1Won && <div style={{ fontSize: '10px', color: '#16A34A', fontWeight: '700' }}>🏆 GANADOR</div>}
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '28px', fontWeight: '900', fontFamily: 'monospace', color: '#1B3A1B' }}>{m.sets1}–{m.sets2}</div>
+                  {m.status === 'wo' && <div style={{ fontSize: '10px', color: '#92400E', fontWeight: '700', backgroundColor: '#FEF3C7', padding: '2px 6px', borderRadius: '4px' }}>W.O.</div>}
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '12px', fontWeight: '700', color: !p1Won ? '#166534' : '#374151', marginBottom: '4px' }}>{m.player2Name}</div>
+                  {!p1Won && <div style={{ fontSize: '10px', color: '#16A34A', fontWeight: '700' }}>🏆 GANADOR</div>}
+                </div>
+              </div>
+
+              {/* Historial set a set */}
+              {history.length > 0 ? (
+                <div>
+                  <p style={{ fontSize: '11px', fontWeight: '700', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '10px' }}>Marcador por set</p>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#1B3A1B', color: 'white' }}>
+                        <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: '700', fontSize: '11px', borderRadius: '8px 0 0 0' }}>Set</th>
+                        <th style={{ padding: '8px 12px', textAlign: 'center', fontWeight: '700', fontSize: '11px' }}>{m.player1Name?.split(' ')[0]}</th>
+                        <th style={{ padding: '8px 12px', textAlign: 'center', fontWeight: '700', fontSize: '11px' }}>{m.player2Name?.split(' ')[0]}</th>
+                        <th style={{ padding: '8px 12px', textAlign: 'center', fontWeight: '700', fontSize: '11px', borderRadius: '0 8px 0 0' }}>Ganador set</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {history.map((s: any, i: number) => {
+                        const isFinal   = i === fmt.sets - 1 && fmt.finalSetTiebreak;
+                        const setWinner = s.games1 > s.games2 ? m.player1Name : s.games2 > s.games1 ? m.player2Name : '—';
+                        const hasTb     = s.tiebreak1 != null || s.tiebreak2 != null;
+                        return (
+                          <tr key={i} style={{ backgroundColor: i % 2 === 0 ? 'white' : '#F9FAFB', borderBottom: '1px solid #F3F4F6' }}>
+                            <td style={{ padding: '10px 12px', fontWeight: '700', color: '#374151' }}>
+                              {isFinal ? 'S. Tie' : `Set ${i + 1}`}
+                            </td>
+                            <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: '800', fontSize: '16px', color: s.games1 > s.games2 ? '#15803D' : '#374151', fontFamily: 'monospace' }}>
+                              {s.games1}{hasTb && !isFinal ? <sup style={{ fontSize: '9px', color: '#D97706' }}>{s.tiebreak1 ?? ''}</sup> : ''}
+                            </td>
+                            <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: '800', fontSize: '16px', color: s.games2 > s.games1 ? '#15803D' : '#374151', fontFamily: 'monospace' }}>
+                              {s.games2}{hasTb && !isFinal ? <sup style={{ fontSize: '9px', color: '#D97706' }}>{s.tiebreak2 ?? ''}</sup> : ''}
+                            </td>
+                            <td style={{ padding: '10px 12px', textAlign: 'center', fontSize: '11px', fontWeight: '600', color: '#6B7280' }}>{setWinner?.split(' ')[0]}</td>
+                          </tr>
+                        );
+                      })}
+                      {/* Totales */}
+                      <tr style={{ backgroundColor: '#F0FDF4', borderTop: '2px solid #BBF7D0' }}>
+                        <td style={{ padding: '8px 12px', fontSize: '11px', fontWeight: '700', color: '#15803D' }}>Total games</td>
+                        <td style={{ padding: '8px 12px', textAlign: 'center', fontWeight: '800', color: '#15803D' }}>{history.reduce((sum: number, s: any) => sum + (s.games1 || 0), 0)}</td>
+                        <td style={{ padding: '8px 12px', textAlign: 'center', fontWeight: '800', color: '#15803D' }}>{history.reduce((sum: number, s: any) => sum + (s.games2 || 0), 0)}</td>
+                        <td />
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div style={{ textAlign: 'center', padding: '20px', color: '#9CA3AF', fontSize: '13px', backgroundColor: '#F9FAFB', borderRadius: '10px' }}>
+                  No hay historial de sets registrado.<br/>
+                  <span style={{ fontSize: '11px' }}>El resultado fue ingresado sin detalle por set.</span>
+                </div>
+              )}
+
+              <button onClick={() => setDetailMatch(null)} style={{ width: '100%', marginTop: '20px', padding: '10px', borderRadius: '10px', border: '2px solid #E5E7EB', backgroundColor: 'white', color: '#374151', fontWeight: '600', fontSize: '14px', cursor: 'pointer' }}>
+                Cerrar
               </button>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
@@ -1125,7 +1414,7 @@ function ScoreRow({ name, photoUrl, sets, games, points, setsHistory, isWinning,
 
 // ── Celda de jugador clicable (en tablas) ─────────────────────────────────────
 function PlayerNameCell({ name, photoUrl, playerId, onClick, dim = false, winner = false }: any) {
-  if (!playerId) return <span style={{ color: '#9CA3AF' }}>BYE</span>;
+  if (!playerId) return <span style={{ color: '#9CA3AF', fontSize: '12px', fontStyle: 'italic' }}>{name || 'Por definir'}</span>;
   return (
     <button
       onClick={() => onClick(playerId, name, photoUrl)}

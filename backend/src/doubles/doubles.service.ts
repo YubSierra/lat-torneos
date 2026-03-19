@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DoublesTeam, DoublesTeamStatus } from './doubles-team.entity';
@@ -58,14 +58,16 @@ export class DoublesService {
     player1Id: string,
     player2Id?: string,
     teamName?: string,
+    isAdmin = false,
   ) {
     const tournament = await this.tournamentRepo.findOne({ where: { id: tournamentId } });
     if (!tournament) throw new BadRequestException('Torneo no encontrado');
     if (!tournament.hasDoubles) throw new BadRequestException('Este torneo no tiene modalidad de dobles');
 
     // Las inscripciones de dobles solo están abiertas mientras el admin
-    // no haya cerrado el período (doublesOpenForRegistration = true)
-    if (!(tournament as any).doublesOpenForRegistration) {
+    // no haya cerrado el período (doublesOpenForRegistration = true).
+    // Los administradores siempre pueden crear parejas directamente.
+    if (!isAdmin && !(tournament as any).doublesOpenForRegistration) {
       throw new BadRequestException(
         'Las inscripciones de dobles están cerradas. ' +
           'El administrador debe habilitarlas desde la configuración del torneo.',
@@ -126,7 +128,8 @@ export class DoublesService {
       player2PaymentStatus: p2Amount === 0 ? 'approved' : 'pending',
       paymentStatus: (p1Amount + p2Amount) === 0 ? 'approved' : 'pending',
       teamName: teamName || null,
-      status: DoublesTeamStatus.PENDING,
+      // Si ambos jugadores tienen monto $0 (torneo gratuito), la pareja queda aprobada automáticamente
+      status: (p1Amount + p2Amount) === 0 ? DoublesTeamStatus.APPROVED : DoublesTeamStatus.PENDING,
     });
 
     return this.teamRepo.save(team);
@@ -163,6 +166,11 @@ export class DoublesService {
       team.player2PaymentStatus !== 'pending';
     team.paymentStatus = allPaid ? 'manual' : 'pending';
 
+    // Si ambos montos son $0, auto-aprobar la pareja
+    if (allPaid && Number(team.amountCharged) === 0) {
+      team.status = DoublesTeamStatus.APPROVED;
+    }
+
     return this.teamRepo.save(team);
   }
 
@@ -191,6 +199,65 @@ export class DoublesService {
       team.paymentStatus = 'manual';
       team.status = DoublesTeamStatus.APPROVED;
     }
+    return this.teamRepo.save(team);
+  }
+
+  // ── ELIMINAR PAREJA ─────────────────────────────
+  async deleteTeam(teamId: string) {
+    const team = await this.teamRepo.findOne({ where: { id: teamId } });
+    if (!team) throw new NotFoundException('Pareja no encontrada');
+    await this.teamRepo.remove(team);
+    return { ok: true };
+  }
+
+  // ── EDITAR PAREJA ────────────────────────────────
+  async updateTeam(
+    teamId: string,
+    player1Id: string,
+    player2Id: string | null,
+    teamName: string | null,
+  ) {
+    const team = await this.teamRepo.findOne({ where: { id: teamId } });
+    if (!team) throw new NotFoundException('Pareja no encontrada');
+
+    const tournament = await this.tournamentRepo.findOne({ where: { id: team.tournamentId } });
+
+    const p1Singles = await this.enrollmentRepo.findOne({
+      where: { tournamentId: team.tournamentId, playerId: player1Id, status: EnrollmentStatus.APPROVED },
+    });
+    const p2Singles = player2Id
+      ? await this.enrollmentRepo.findOne({
+          where: { tournamentId: team.tournamentId, playerId: player2Id, status: EnrollmentStatus.APPROVED },
+        })
+      : null;
+
+    const p1Category = p1Singles?.category || null;
+    const p2Category = p2Singles?.category || null;
+    let finalCategory = team.category;
+    if (p1Category && p2Category) {
+      finalCategory = this.getHigherCategory(p1Category, p2Category);
+    } else if (p1Category) {
+      finalCategory = p1Category;
+    } else if (p2Category) {
+      finalCategory = p2Category;
+    }
+
+    const p1Amount = this.calcPlayerAmount(!!p1Singles, tournament);
+    const p2Amount = player2Id ? this.calcPlayerAmount(!!p2Singles, tournament) : 0;
+
+    team.player1Id              = player1Id;
+    team.player2Id              = player2Id || null;
+    team.teamName               = teamName || null;
+    team.category               = finalCategory;
+    team.player1HasSingles      = !!p1Singles;
+    team.player2HasSingles      = !!p2Singles;
+    team.player1AmountCharged   = p1Amount;
+    team.player2AmountCharged   = p2Amount;
+    team.amountCharged          = p1Amount + p2Amount;
+    team.player1PaymentStatus   = p1Amount === 0 ? 'approved' : 'pending';
+    team.player2PaymentStatus   = p2Amount === 0 ? 'approved' : 'pending';
+    team.paymentStatus          = (p1Amount + p2Amount) === 0 ? 'approved' : 'pending';
+
     return this.teamRepo.save(team);
   }
 
@@ -233,6 +300,51 @@ export class DoublesService {
       player1Name: userMap.get(t.player1Id) || t.player1Id,
       player2Name: t.player2Id ? (userMap.get(t.player2Id) || t.player2Id) : null,
     }));
+  }
+
+  // ── CAMBIAR CATEGORÍA DE PAREJA ──────────────────
+  async changeTeamCategory(teamId: string, newCategory: string) {
+    const team = await this.teamRepo.findOne({ where: { id: teamId } });
+    if (!team) throw new NotFoundException('Pareja no encontrada');
+
+    // Los partidos de dobles se guardan como `${category}_DOBLES`, no como la categoría base
+    const doublesCategory = `${team.category}_DOBLES`;
+    const matchCount: number = await this.teamRepo.manager
+      .getRepository('matches')
+      .count({ where: { tournamentId: team.tournamentId, category: doublesCategory } });
+    if (matchCount > 0) {
+      throw new BadRequestException('Esta categoría ya tiene cuadros de dobles generados. Elimina el cuadro antes de cambiar.');
+    }
+
+    team.category = newCategory;
+    return this.teamRepo.save(team);
+  }
+
+  // ── UNIFICAR CATEGORÍAS EN DOBLES ───────────────
+  async mergeCategories(tournamentId: string, from: string, to: string) {
+    // Verificar que no existan cuadros generados para la categoría origen
+    const doublesCategory = `${from}_DOBLES`;
+    const matchCount: number = await this.teamRepo.manager
+      .getRepository('matches')
+      .count({ where: { tournamentId, category: doublesCategory } });
+    if (matchCount > 0) {
+      throw new BadRequestException(
+        `La categoría "${from}" ya tiene cuadros de dobles generados. Elimina el cuadro antes de unificar.`,
+      );
+    }
+
+    // Mover todas las parejas de `from` → `to`
+    const result = await this.teamRepo.update(
+      { tournamentId, category: from },
+      { category: to },
+    );
+
+    return {
+      moved: result.affected ?? 0,
+      from,
+      to,
+      message: `${result.affected ?? 0} pareja(s) movida(s) de "${from}" a "${to}"`,
+    };
   }
 
   // ── JUGADORES SIN PAREJA ────────────────────────
