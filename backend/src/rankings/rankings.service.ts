@@ -7,6 +7,7 @@ import { Match, MatchStatus, MatchRound } from '../matches/match.entity';
 import { Enrollment } from '../enrollments/enrollment.entity';
 import { Tournament } from '../tournaments/tournament.entity';
 import { CircuitLine, CircuitRankingPoints, DEFAULT_LAT_RANKING_POINTS } from '../circuit-lines/circuit-line.entity';
+import { formatPlayerName } from '../common/name-format.util';
 
 @Injectable()
 export class RankingsService {
@@ -317,7 +318,7 @@ export class RankingsService {
       .findByIds(playerIds);
 
     const userMap = new Map(
-      users.map((u: any) => [u.id, `${u.nombres || ''} ${u.apellidos || ''}`.trim() || u.email])
+      users.map((u: any) => [u.id, formatPlayerName(u.nombres, u.apellidos, u.email)])
     );
 
     return rankings.map(r => ({

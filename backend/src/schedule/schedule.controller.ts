@@ -86,6 +86,7 @@ export class ScheduleController {
       categories?: string[];
       roundFilter?: string[];
       restTimeBetweenMatches?: number;
+      singlesDoublesGap?: number;
     },
   ) {
     return this.schedulingService.generateSchedule(
@@ -99,6 +100,7 @@ export class ScheduleController {
       true,
       true,
       body.restTimeBetweenMatches ?? 0,
+      body.singlesDoublesGap ?? 0,
     );
   }
 

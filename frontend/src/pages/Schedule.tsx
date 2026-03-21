@@ -408,14 +408,17 @@ export default function Schedule() {
   const [customMaxMatches,     setCustomMaxMatches]     = useState('4');
   const [maxMatchesMode,       setMaxMatchesMode]       = useState<'preset'|'unlimited'|'custom'>('preset');
   const [restTimeBetweenMatches, setRestTimeBetweenMatches] = useState(0);
+  const [singlesDoublesGap,      setSinglesDoublesGap]      = useState(0);
   const [showAssignModal,      setShowAssignModal]      = useState(false);
   const [filterDate,           setFilterDate]           = useState('');
   const [selectedCategories,   setSelectedCategories]   = useState<string[]>([]);
   const [showDeleteModal,      setShowDeleteModal]       = useState(false);
   const [showExportModal,      setShowExportModal]       = useState(false);
   const [modalDeleteDate,      setModalDeleteDate]       = useState('');
-  const [modalExportDate,      setModalExportDate]       = useState('');
+  const [modalDeleteModality,  setModalDeleteModality]   = useState<'all' | 'singles' | 'doubles'>('all');
+  const [modalExportDates,     setModalExportDates]      = useState<string[]>([]);
   const [selectedRounds,       setSelectedRounds]        = useState<string[]>([]);
+  const [roundModality,        setRoundModality]         = useState<'all' | 'singles' | 'doubles'>('all');
   const [suspendModal,         setSuspendModal]          = useState<{ isOpen: boolean; match: any | null }>({ isOpen: false, match: null });
   const [rescheduleMatch,      setRescheduleMatch]       = useState<{ id: string; label: string } | null>(null);
 
@@ -486,14 +489,26 @@ export default function Schedule() {
 
   const generateMutation = useMutation({
     mutationFn: async () => {
+      // Si hay filtro de rondas con modalidad específica, restringir categorías
+      let effectiveCategories: string[] | undefined = selectedCategories.length > 0 ? selectedCategories : undefined;
+      if (selectedRounds.length > 0 && roundModality !== 'all') {
+        const base = selectedCategories.length > 0 ? selectedCategories : tournamentCategories;
+        if (roundModality === 'singles') {
+          effectiveCategories = base.filter((c: string) => !c.endsWith('_DOBLES'));
+        } else {
+          effectiveCategories = base.filter((c: string) => c.endsWith('_DOBLES'));
+        }
+        if (effectiveCategories.length === 0) effectiveCategories = undefined;
+      }
       const res = await api.post(`/tournaments/${selectedTournament}/schedule`, {
         date: selectedDate,
         courts: courtConfigs,
         roundDurations,
         maxMatchesPerPlayer: effectiveMaxMatches,
-        categories: selectedCategories.length > 0 ? selectedCategories : undefined,
+        categories: effectiveCategories,
         roundFilter: selectedRounds.length > 0 ? selectedRounds : undefined,
         restTimeBetweenMatches,
+        singlesDoublesGap,
       });
       return res.data;
     },
@@ -763,7 +778,6 @@ export default function Schedule() {
                 {filteredSchedule.length > 0 && (
                   <button
                     onClick={() => {
-                      setModalExportDate(availableDates[0] || '');
                       setShowExportModal(true);
                     }}
                     style={{
@@ -961,11 +975,11 @@ export default function Schedule() {
                                       </span>
                                     </td>
                                     <td style={{ padding: '9px 12px', fontWeight: 500, color: '#111827' }}>
-                                      {row.player1Name || row.player1 || <span style={{ color: '#9CA3AF', fontSize: '11px' }}>Por definir</span>}
+                                      {(row.player1Name && row.player1Name !== 'BYE') || (row.player1 && row.player1 !== 'BYE') ? (row.player1Name || row.player1) : <span style={{ color: '#9CA3AF', fontSize: '11px', fontStyle: 'italic' }}>Por definir</span>}
                                     </td>
                                     <td style={{ padding: '9px 4px', textAlign: 'center', color: '#9CA3AF', fontSize: '11px' }}>vs</td>
                                     <td style={{ padding: '9px 12px', fontWeight: 500, color: '#111827' }}>
-                                      {row.player2Name || row.player2 || <span style={{ color: '#9CA3AF', fontSize: '11px' }}>Por definir</span>}
+                                      {(row.player2Name && row.player2Name !== 'BYE') || (row.player2 && row.player2 !== 'BYE') ? (row.player2Name || row.player2) : <span style={{ color: '#9CA3AF', fontSize: '11px', fontStyle: 'italic' }}>Por definir</span>}
                                     </td>
                                     <td style={{ padding: '9px 12px', textAlign: 'center', color: '#6B7280', fontSize: '12px' }}>
                                       {row.estimatedDuration || 90}min
@@ -1292,6 +1306,32 @@ export default function Schedule() {
                   </p>
                 )}
               </div>
+
+              {/* Tiempo de espera entre singles y dobles */}
+              <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #E5E7EB' }}>
+                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: '#1B3A1B', marginBottom: '4px' }}>
+                  Tiempo de espera entre Singles y Dobles
+                </label>
+                <p style={{ fontSize: '12px', color: '#6B7280', marginBottom: '10px' }}>
+                  Minutos de espera después de que terminen los partidos de singles antes de iniciar los de dobles
+                </p>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  {[0, 15, 30, 45, 60, 90].map(n => (
+                    <button key={n}
+                      onClick={() => setSinglesDoublesGap(n)}
+                      style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '13px',
+                        background: singlesDoublesGap === n ? '#7C3AED' : '#F3F4F6',
+                        color:      singlesDoublesGap === n ? 'white'   : '#374151' }}>
+                      {n === 0 ? 'Sin espera' : `${n} min`}
+                    </button>
+                  ))}
+                </div>
+                {singlesDoublesGap > 0 && (
+                  <p style={{ fontSize: '12px', color: '#6D28D9', marginTop: '6px', fontWeight: 600 }}>
+                    Se esperarán {singlesDoublesGap} min después del último partido de singles antes de iniciar dobles
+                  </p>
+                )}
+              </div>
             </div>
 
             {/* Paso X — Filtro de rondas (opcional) */}
@@ -1302,6 +1342,31 @@ export default function Schedule() {
               <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '16px' }}>
                 Selecciona solo las rondas que quieres programar hoy. Útil para programar por días.
               </p>
+
+              {/* Filtro de modalidad para rondas */}
+              <div style={{ marginBottom: '14px' }}>
+                <span style={{ fontSize: '13px', fontWeight: '600', color: '#374151', marginRight: '10px' }}>Modalidad:</span>
+                {(['all', 'singles', 'doubles'] as const).map((m) => {
+                  const label = m === 'all' ? 'Todos' : m === 'singles' ? 'Solo Singles' : 'Solo Dobles';
+                  const active = roundModality === m;
+                  return (
+                    <button
+                      key={m}
+                      onClick={() => setRoundModality(m)}
+                      style={{
+                        marginRight: '6px', padding: '5px 13px', borderRadius: '20px', fontSize: '13px',
+                        fontWeight: '600', cursor: 'pointer', border: '2px solid',
+                        borderColor: active ? (m === 'doubles' ? '#7C3AED' : m === 'singles' ? '#B45309' : '#2D6A2D') : '#E5E7EB',
+                        backgroundColor: active ? (m === 'doubles' ? '#F5F3FF' : m === 'singles' ? '#FFFBEB' : '#F0FDF4') : 'white',
+                        color: active ? (m === 'doubles' ? '#6D28D9' : m === 'singles' ? '#92400E' : '#166534') : '#6B7280',
+                      }}
+                    >
+                      {active ? '✓ ' : ''}{label}
+                    </button>
+                  );
+                })}
+              </div>
+
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                 {ROUNDS.map(({ key, label }) => {
                   const isSelected = selectedRounds.includes(key);
@@ -1323,9 +1388,9 @@ export default function Schedule() {
                     </button>
                   );
                 })}
-                {selectedRounds.length > 0 && (
+                {(selectedRounds.length > 0 || roundModality !== 'all') && (
                   <button
-                    onClick={() => setSelectedRounds([])}
+                    onClick={() => { setSelectedRounds([]); setRoundModality('all'); }}
                     style={{
                       padding: '7px 14px', borderRadius: '8px', fontSize: '13px',
                       fontWeight: '500', cursor: 'pointer', border: '1px solid #FECACA',
@@ -1339,6 +1404,11 @@ export default function Schedule() {
               {selectedRounds.length > 0 && (
                 <p style={{ fontSize: '12px', color: '#2D6A2D', marginTop: '10px', fontWeight: '600' }}>
                   ✓ Solo se programarán: {selectedRounds.map(r => ROUNDS.find(x => x.key === r)?.label).join(', ')}
+                  {roundModality !== 'all' && (
+                    <span style={{ marginLeft: '6px', color: roundModality === 'doubles' ? '#6D28D9' : '#92400E' }}>
+                      — {roundModality === 'singles' ? 'Solo Singles' : 'Solo Dobles'}
+                    </span>
+                  )}
                 </p>
               )}
             </div>
@@ -1379,7 +1449,7 @@ export default function Schedule() {
                 </div>
                 <div>
                   <span style={{ fontSize: 13, fontWeight: 700, color: withLed ? '#92400E' : '#374151' }}>
-                    ⚡ Sistema de juego LED
+                    ⚡ Sistema de juego LET
                   </span>
                   <span style={{ fontSize: 11, color: '#6B7280', display: 'block' }}>
                     Si el saque toca la red y cae en el cuadro, se juega el punto (no se repite)
@@ -1534,6 +1604,30 @@ export default function Schedule() {
               Selecciona el día que deseas eliminar. Los partidos volverán a estado pendiente.
             </p>
 
+            {/* Toggle modalidad */}
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
+              Modalidad a eliminar
+            </label>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
+              {(['all', 'singles', 'doubles'] as const).map((m) => {
+                const label = m === 'all' ? 'Todos' : m === 'singles' ? 'Solo Singles' : 'Solo Dobles';
+                const active = modalDeleteModality === m;
+                const activeColor = m === 'doubles' ? '#7C3AED' : m === 'singles' ? '#B45309' : '#DC2626';
+                const activeBg = m === 'doubles' ? '#F5F3FF' : m === 'singles' ? '#FFFBEB' : '#FEF2F2';
+                return (
+                  <button key={m} onClick={() => setModalDeleteModality(m)} style={{
+                    padding: '7px 14px', borderRadius: '8px', fontSize: '13px', fontWeight: '600',
+                    cursor: 'pointer', border: '2px solid',
+                    borderColor: active ? activeColor : '#E5E7EB',
+                    backgroundColor: active ? activeBg : 'white',
+                    color: active ? activeColor : '#6B7280',
+                  }}>
+                    {active ? '✓ ' : ''}{label}
+                  </button>
+                );
+              })}
+            </div>
+
             <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
               Día a eliminar
             </label>
@@ -1583,21 +1677,25 @@ export default function Schedule() {
                 disabled={!modalDeleteDate}
                 onClick={async () => {
                   if (!modalDeleteDate) return;
+                  const modalityLabel = modalDeleteModality === 'doubles' ? ' de dobles' : modalDeleteModality === 'singles' ? ' de singles' : '';
                   const label = modalDeleteDate === 'ALL'
-                    ? 'TODA la programación del torneo'
-                    : `la programación del ${modalDeleteDate}`;
+                    ? `TODA la programación${modalityLabel} del torneo`
+                    : `la programación${modalityLabel} del ${modalDeleteDate}`;
                   if (!confirm(`¿Confirmas eliminar ${label}?\n\nLos partidos volverán a estado PENDIENTE.`)) return;
                   try {
+                    const params = modalDeleteModality !== 'all' ? `?modality=${modalDeleteModality}` : '';
                     if (modalDeleteDate === 'ALL') {
                       await Promise.all(
                         availableDates.map(d =>
-                          api.delete(`/matches/tournament/${selectedTournament}/schedule/${d}`)
+                          api.delete(`/matches/tournament/${selectedTournament}/schedule/${d}${params}`)
                         )
                       );
                     } else {
-                      await api.delete(`/matches/tournament/${selectedTournament}/schedule/${modalDeleteDate}`);
+                      await api.delete(`/matches/tournament/${selectedTournament}/schedule/${modalDeleteDate}${params}`);
                     }
                     setShowDeleteModal(false);
+                    setModalDeleteDate('');
+                    setModalDeleteModality('all');
                     setScheduleResult(null);
                     refetchAll();
                     alert('✅ Programación eliminada correctamente');
@@ -1634,34 +1732,58 @@ export default function Schedule() {
               📄 Exportar PDF
             </h3>
             <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '20px' }}>
-              Selecciona el día que deseas exportar como PDF de orden de juego.
+              Selecciona uno o varios días para exportar en un solo PDF.
             </p>
 
             <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
-              Día a exportar
+              Días a exportar
             </label>
 
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '20px' }}>
-              {availableDates.map(date => (
-                <button
-                  key={date}
-                  onClick={() => setModalExportDate(date)}
-                  style={{
-                    padding: '8px 16px', borderRadius: '8px', fontSize: '13px',
-                    fontWeight: '600', cursor: 'pointer', border: '2px solid',
-                    borderColor: modalExportDate === date ? '#1D4ED8' : '#E5E7EB',
-                    backgroundColor: modalExportDate === date ? '#EFF6FF' : 'white',
-                    color: modalExportDate === date ? '#1D4ED8' : '#374151',
-                  }}
-                >
-                  📅 {new Date(date + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })}
-                </button>
-              ))}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+              {availableDates.map(date => {
+                const selected = modalExportDates.includes(date);
+                return (
+                  <button
+                    key={date}
+                    onClick={() => setModalExportDates(prev =>
+                      selected ? prev.filter(d => d !== date) : [...prev, date]
+                    )}
+                    style={{
+                      padding: '8px 16px', borderRadius: '8px', fontSize: '13px',
+                      fontWeight: '600', cursor: 'pointer', border: '2px solid',
+                      borderColor: selected ? '#1D4ED8' : '#E5E7EB',
+                      backgroundColor: selected ? '#EFF6FF' : 'white',
+                      color: selected ? '#1D4ED8' : '#374151',
+                    }}
+                  >
+                    {selected ? '✓ ' : ''}📅 {new Date(date + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })}
+                  </button>
+                );
+              })}
+              <button
+                onClick={() => setModalExportDates(
+                  modalExportDates.length === availableDates.length ? [] : [...availableDates]
+                )}
+                style={{
+                  padding: '8px 16px', borderRadius: '8px', fontSize: '13px',
+                  fontWeight: '600', cursor: 'pointer', border: '2px solid',
+                  borderColor: modalExportDates.length === availableDates.length ? '#1D4ED8' : '#E5E7EB',
+                  backgroundColor: modalExportDates.length === availableDates.length ? '#EFF6FF' : 'white',
+                  color: modalExportDates.length === availableDates.length ? '#1D4ED8' : '#374151',
+                }}
+              >
+                {modalExportDates.length === availableDates.length ? '✓ ' : ''}Todos los días
+              </button>
             </div>
+            {modalExportDates.length > 0 && (
+              <p style={{ fontSize: '12px', color: '#1D4ED8', marginBottom: '16px', fontWeight: 600 }}>
+                ✓ {modalExportDates.length} día{modalExportDates.length > 1 ? 's' : ''} seleccionado{modalExportDates.length > 1 ? 's' : ''}
+              </p>
+            )}
 
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
               <button
-                onClick={() => setShowExportModal(false)}
+                onClick={() => { setShowExportModal(false); setModalExportDates([]); }}
                 style={{
                   padding: '9px 20px', borderRadius: '8px', fontSize: '13px',
                   border: '1px solid #E5E7EB', background: 'white',
@@ -1671,37 +1793,34 @@ export default function Schedule() {
                 Cancelar
               </button>
               <button
-                disabled={!modalExportDate}
+                disabled={modalExportDates.length === 0}
                 onClick={() => {
-                  if (!modalExportDate) return;
+                  if (modalExportDates.length === 0) return;
                   const tournament = (tournaments as any[]).find((t: any) => t.id === selectedTournament);
-
-                  // Filtrar flatSchedule por el día seleccionado
-                  const rowsForDay = (flatSchedule as any[])
-                    .filter((r: any) => r.date === modalExportDate)
-                    .map((r: any) => ({
-                      ...r,
-                      court: r.courtName || r.court || 'Sin cancha',  // courtName es el campo correcto
-                    }));
+                  const sortedDates = [...modalExportDates].sort();
+                  const rowsForDays = (flatSchedule as any[])
+                    .filter((r: any) => sortedDates.includes(r.date))
+                    .map((r: any) => ({ ...r, court: r.courtName || r.court || 'Sin cancha' }));
 
                   exportSchedulePdf({
                     tournamentName: tournament?.name || 'Torneo',
-                    date: modalExportDate,
+                    dates: sortedDates,
                     city: 'Medellín',
                     referee,
                     director,
                     observations,
                     withLed,
-                    schedule: rowsForDay,
+                    schedule: rowsForDays,
                   });
                   setShowExportModal(false);
+                  setModalExportDates([]);
                 }}
                 style={{
                   padding: '9px 20px', borderRadius: '8px', fontSize: '13px',
-                  border: 'none', cursor: modalExportDate ? 'pointer' : 'not-allowed',
-                  background: modalExportDate ? '#1D4ED8' : '#E5E7EB',
+                  border: 'none', cursor: modalExportDates.length > 0 ? 'pointer' : 'not-allowed',
+                  background: modalExportDates.length > 0 ? '#1D4ED8' : '#E5E7EB',
                   color: 'white', fontWeight: '700',
-                  opacity: modalExportDate ? 1 : 0.6,
+                  opacity: modalExportDates.length > 0 ? 1 : 0.6,
                 }}
               >
                 📄 Exportar PDF

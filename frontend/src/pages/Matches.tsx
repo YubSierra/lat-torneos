@@ -1414,7 +1414,8 @@ function ScoreRow({ name, photoUrl, sets, games, points, setsHistory, isWinning,
 
 // ── Celda de jugador clicable (en tablas) ─────────────────────────────────────
 function PlayerNameCell({ name, photoUrl, playerId, onClick, dim = false, winner = false }: any) {
-  if (!playerId) return <span style={{ color: '#9CA3AF', fontSize: '12px', fontStyle: 'italic' }}>{name || 'Por definir'}</span>;
+  const displayName = name === 'BYE' ? 'Por definir' : name;
+  if (!playerId) return <span style={{ color: '#9CA3AF', fontSize: '12px', fontStyle: 'italic' }}>{displayName || 'Por definir'}</span>;
   return (
     <button
       onClick={() => onClick(playerId, name, photoUrl)}
@@ -1424,9 +1425,9 @@ function PlayerNameCell({ name, photoUrl, playerId, onClick, dim = false, winner
         opacity: dim ? 0.5 : 1,
       }}
     >
-      <PlayerAvatar name={name || '?'} photoUrl={photoUrl} size={28} borderColor={winner ? '#22C55E' : undefined} />
+      <PlayerAvatar name={displayName || '?'} photoUrl={photoUrl} size={28} borderColor={winner ? '#22C55E' : undefined} />
       <span style={{ fontWeight: winner ? '700' : '500', color: winner ? '#1B3A1B' : '#374151', fontSize: '13px' }}>
-        {name || 'BYE'}
+        {displayName || 'Por definir'}
       </span>
       {winner && <Trophy size={11} color="#2D6A2D" />}
     </button>

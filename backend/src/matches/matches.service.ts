@@ -10,6 +10,7 @@ import { Repository, In } from 'typeorm';
 import { Match, MatchStatus } from './match.entity';
 import { UpdateScoreDto } from './dto/update-score.dto';
 import { User } from '../users/user.entity';
+import { formatPlayerName, toTitleCase } from '../common/name-format.util';
 
 @Injectable()
 export class MatchesService {
@@ -49,14 +50,14 @@ export class MatchesService {
         : [];
 
       const duMap = new Map(
-        doublesUsers.map(u => [u.id, `${u.nombres || ''} ${u.apellidos || ''}`.trim() || u.email]),
+        doublesUsers.map(u => [u.id, formatPlayerName(u.nombres, u.apellidos, u.email)]),
       );
 
       for (const t of teams as any[]) {
         const n1 = duMap.get(t.player1Id) || '?';
         const n2 = t.player2Id ? (duMap.get(t.player2Id) || '?') : null;
         teamNameMap.set(t.id, n2 ? `${n1} / ${n2}` : n1);
-        if (t.teamName) teamNameMap.set(t.id, `${t.teamName} (${n1}${n2 ? ' / ' + n2 : ''})`);
+        if (t.teamName) teamNameMap.set(t.id, `${toTitleCase(t.teamName)} (${n1}${n2 ? ' / ' + n2 : ''})`);
       }
     }
 
@@ -82,7 +83,7 @@ export class MatchesService {
       users.map((u) => [
         u.id,
         {
-          name: `${u.nombres || ''} ${u.apellidos || ''}`.trim() || u.email,
+          name: formatPlayerName(u.nombres, u.apellidos, u.email),
           photoUrl: (u as any).photoUrl || null,
         },
       ]),
@@ -355,15 +356,23 @@ export class MatchesService {
   }
 
   // ── LIMPIAR PROGRAMACIÓN DEL DÍA ────────────────
-  async clearScheduleByDate(tournamentId: string, date: string) {
-    await this.repo
+  async clearScheduleByDate(tournamentId: string, date: string, modality?: 'all' | 'singles' | 'doubles') {
+    const qb = this.repo
       .createQueryBuilder()
       .update()
       .set({ scheduledAt: null, courtId: null, estimatedDuration: 90 })
       .where('tournamentId = :tournamentId', { tournamentId })
-      .andWhere('DATE(scheduledAt) = :date', { date })
-      .execute();
-    return { message: `Programación del ${date} eliminada` };
+      .andWhere('DATE(scheduledAt) = :date', { date });
+
+    if (modality === 'doubles') {
+      qb.andWhere("category LIKE '%\\_DOBLES'");
+    } else if (modality === 'singles') {
+      qb.andWhere("category NOT LIKE '%\\_DOBLES'");
+    }
+
+    await qb.execute();
+    const label = modality === 'doubles' ? ' de dobles' : modality === 'singles' ? ' de singles' : '';
+    return { message: `Programación${label} del ${date} eliminada` };
   }
 
   // ── ESTADO DEL RR POR GRUPO ─────────────────────
@@ -403,7 +412,7 @@ export class MatchesService {
     const userMap = new Map(
       users.map((u) => [
         u.id,
-        `${u.nombres || ''} ${u.apellidos || ''}`.trim() || u.email,
+        formatPlayerName(u.nombres, u.apellidos, u.email),
       ]),
     );
 
@@ -768,8 +777,7 @@ export class MatchesService {
       users.map((u) => [
         u.id,
         {
-          name:
-            `${u.nombres || ''} ${u.apellidos || ''}`.trim() || u.email,
+          name: formatPlayerName(u.nombres, u.apellidos, u.email),
           photoUrl: (u as any).photoUrl || null,
         },
       ]),
@@ -1304,7 +1312,7 @@ export class MatchesService {
         : [];
 
     const playerMap = new Map(
-      players.map((p: any) => [p.id, `${p.nombres} ${p.apellidos}`]),
+      players.map((p: any) => [p.id, formatPlayerName(p.nombres, p.apellidos)]),
     );
 
     return unscheduled.map((m) => ({
@@ -1339,12 +1347,11 @@ export class MatchesService {
     const now = new Date();
     const unscheduled = all.filter((m) => {
       const sAt = (m as any).scheduledAt as Date | null;
-      // Sin hora asignada
+      // Sin hora asignada → siempre pendiente
       if (!sAt) return true;
-      // Jugadores aún por definir (rondas futuras)
-      if (!m.player1Id || !m.player2Id) return true;
       // Hora ya pasó pero el partido no se jugó → debe reprogramarse
       if (sAt < now) return true;
+      // Tiene hora futura → ya está programado (aunque no tenga jugadores definidos)
       return false;
     });
 

@@ -5,6 +5,7 @@ import { Repository, In } from 'typeorm';
 import { Enrollment, EnrollmentStatus } from './enrollment.entity';
 import { CreateEnrollmentDto } from './dto/create-enrollment.dto';
 import { TournamentsService } from '../tournaments/tournaments.service';
+import { formatPlayerName } from '../common/name-format.util';
 
 @Injectable()
 export class EnrollmentsService {
@@ -108,7 +109,7 @@ export class EnrollmentsService {
       const u = userMap.get(e.playerId) as any;
       return {
         ...e,
-        playerName:      u ? `${u.nombres || ''} ${u.apellidos || ''}`.trim() || u.email : e.playerId,
+        playerName:      u ? formatPlayerName(u.nombres, u.apellidos, u.email) : e.playerId,
         playerEmail:     u?.email     || null,
         playerPhone:     u?.telefono  || null,
         playerDocNumber: u?.docNumber || null,
@@ -396,7 +397,7 @@ export class EnrollmentsService {
     return {
       success:       true,
       userId:        user.id,
-      playerName:    `${user.nombres} ${user.apellidos}`,
+      playerName:    formatPlayerName(user.nombres, user.apellidos),
       category:      data.category,
       status:        enrollment.status,
       paymentMethod: pm,
@@ -554,7 +555,7 @@ export class EnrollmentsService {
     return {
       success: true,
       message: 'Pre-inscripción exitosa. Un administrador confirmará tu inscripción.',
-      playerName: `${user.nombres} ${user.apellidos}`,
+      playerName: formatPlayerName(user.nombres, user.apellidos),
       category: data.category,
       tempPassword: `Tu contraseña temporal es: ${(data.apellidos || 'lat').slice(0,4).toLowerCase()}${(data.docNumber || '0000').slice(-4)}`,
     };

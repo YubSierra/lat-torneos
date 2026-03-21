@@ -5,6 +5,7 @@ import { DoublesTeam, DoublesTeamStatus } from './doubles-team.entity';
 import { Enrollment, EnrollmentStatus } from '../enrollments/enrollment.entity';
 import { Tournament } from '../tournaments/tournament.entity';
 import { User } from '../users/user.entity';
+import { formatPlayerName } from '../common/name-format.util';
 
 const CATEGORY_ORDER = [
   'PRIMERA', 'SEGUNDA', 'INTERMEDIA', 'TERCERA',
@@ -292,7 +293,7 @@ export class DoublesService {
       : [];
 
     const userMap = new Map(
-      users.map(u => [u.id, `${u.nombres || ''} ${u.apellidos || ''}`.trim() || u.email])
+      users.map(u => [u.id, formatPlayerName(u.nombres, u.apellidos, u.email)])
     );
 
     return teams.map(t => ({
@@ -372,7 +373,7 @@ export class DoublesService {
 
     return users.map(u => ({
       id: u.id,
-      name: `${u.nombres || ''} ${u.apellidos || ''}`.trim() || u.email,
+      name: formatPlayerName(u.nombres, u.apellidos, u.email),
       email: u.email,
       category: enrollments.find(e => e.playerId === u.id)?.category || '',
     }));

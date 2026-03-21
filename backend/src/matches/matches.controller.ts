@@ -45,6 +45,13 @@ export class MatchesController {
     return this.matchesService.getPendingUnscheduled(id);
   }
 
+  // GET /matches/tournament/:id/suspended — partidos suspendidos
+  @Get('tournament/:id/suspended')
+  @UseGuards(JwtAuthGuard)
+  getSuspended(@Param('id') id: string) {
+    return this.matchesService.getSuspendedMatches(id);
+  }
+
   // GET /matches/tournament/:id/draw-summary — resumen del cuadro por categoría
   @Get('tournament/:id/draw-summary')
   @UseGuards(JwtAuthGuard)
@@ -95,8 +102,13 @@ export class MatchesController {
   clearSchedule(
     @Param('id') tournamentId: string,
     @Param('date') date: string,
+    @Query('modality') modality?: 'all' | 'singles' | 'doubles',
   ) {
-    return this.matchesService.clearScheduleByDate(tournamentId, date);
+    return this.matchesService.clearScheduleByDate(
+      tournamentId,
+      date,
+      modality,
+    );
   }
 
   // DELETE /matches/tournament/:id/draw — eliminar cuadro
