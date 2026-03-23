@@ -19,6 +19,7 @@ interface BracketMatch {
   groupLabel?: string;
   scheduledAt?: string;
   suspensionReason?: string;
+  bracketPosition?: number;
   sets1?: number;
   sets2?: number;
   games1?: number;
@@ -36,6 +37,7 @@ interface BracketViewProps {
   advancingPerGroup?: number;
   onSuspendMatch?: (match: BracketMatch) => void;
   onResumeMatch?:  (match: BracketMatch) => void;
+  onRescheduleMatch?: (match: BracketMatch) => void;
   onEditRRGroups?: (category: string) => void;
 }
 
@@ -56,16 +58,15 @@ const ROW_GAP = 10;   // espacio entre tarjetas dentro de una misma columna
 const SLOT_H  = CARD_H + ROW_GAP;  // alto de cada "slot" en la primera ronda
 const HEADER_H = 40;  // espacio para los headers de ronda
 
-// ── Helper: apellido ───────────────────────────────────────────────────────
+// ── Helper: nombre completo ────────────────────────────────────────────────
 function lastName(fullName?: string): string {
   if (!fullName || fullName === 'BYE') return fullName || 'BYE';
-  const parts = fullName.trim().split(' ');
-  return parts.length >= 2 ? parts[1] : parts[0];
+  return fullName.trim();
 }
 
 // ── Tarjeta de un partido ──────────────────────────────────────────────────
 function MatchCard({
-  match, isAdmin, onSuspend, onResume,
+  match, isAdmin, onSuspend, onResume, onReschedule,
   // Textos calculados externamente para no repetir lógica
   p1Text, p2Text, p1Placeholder, p2Placeholder,
   p1Eliminated, p2Eliminated,
@@ -74,6 +75,7 @@ function MatchCard({
   isAdmin?: boolean;
   onSuspend?: () => void;
   onResume?:  () => void;
+  onReschedule?: () => void;
   p1Text: string; p2Text: string;
   p1Placeholder: boolean; p2Placeholder: boolean;
   p1Eliminated: boolean; p2Eliminated: boolean;
@@ -118,7 +120,7 @@ function MatchCard({
         <PlayerRow
           text={p1Text} placeholder={p1Placeholder} eliminated={p1Eliminated}
           seeding={match.seeding1}
-          winner={match.winnerId === match.player1Id}
+          winner={!!match.winnerId && match.winnerId === match.player1Id}
           sets={isDone ? match.sets1 : isSuspended ? match.partialResult?.sets1 : undefined}
           suspended={isSuspended}
         />
@@ -129,7 +131,7 @@ function MatchCard({
         <PlayerRow
           text={p2Text} placeholder={p2Placeholder} eliminated={p2Eliminated}
           seeding={match.seeding2}
-          winner={match.winnerId === match.player2Id}
+          winner={!!match.winnerId && match.winnerId === match.player2Id}
           sets={isDone ? match.sets2 : isSuspended ? match.partialResult?.sets2 : undefined}
           suspended={isSuspended}
         />
@@ -164,6 +166,11 @@ function MatchCard({
             {isSuspended && (
               <button onClick={onResume} style={{ fontSize: '9px', padding: '2px 6px', borderRadius: '4px', border: '1px solid #86EFAC', backgroundColor: '#F0FDF4', color: '#15803D', cursor: 'pointer', fontWeight: '600' }}>
                 ▶ Reanudar
+              </button>
+            )}
+            {isSuspended && (
+              <button onClick={onReschedule} style={{ fontSize: '9px', padding: '2px 6px', borderRadius: '4px', border: '1px solid #BFDBFE', backgroundColor: '#EFF6FF', color: '#1D4ED8', cursor: 'pointer', fontWeight: '600' }}>
+                📅 Reprog.
               </button>
             )}
           </div>
@@ -244,13 +251,14 @@ function getPlayerInfo(
         ? prevMatch.player1Name : prevMatch.player2Name;
       return { text: `Gan. ${lastName(winnerName)}`, placeholder: true, eliminated: false };
     }
-    // Si uno es BYE → el otro avanza directo con nombre completo
-    if (!prevMatch.player1Id && prevMatch.player2Name && prevMatch.player2Name !== 'BYE')
+    // Si uno es explícitamente BYE → el otro avanza directo con nombre completo
+    // (solo cuando el slot vacío tiene nombre 'BYE', no cuando el jugador está sin determinar)
+    if (prevMatch.player1Name === 'BYE' && prevMatch.player2Name && prevMatch.player2Name !== 'BYE')
       return { text: prevMatch.player2Name, placeholder: false, eliminated: false };
-    if (!prevMatch.player2Id && prevMatch.player1Name && prevMatch.player1Name !== 'BYE')
+    if (prevMatch.player2Name === 'BYE' && prevMatch.player1Name && prevMatch.player1Name !== 'BYE')
       return { text: prevMatch.player1Name, placeholder: false, eliminated: false };
     // Ambos jugadores asignados pero sin ganador → apellidos
-    if (prevMatch.player1Name || prevMatch.player2Name) {
+    if (prevMatch.player1Name && prevMatch.player2Name) {
       const n1 = lastName(prevMatch.player1Name);
       const n2 = lastName(prevMatch.player2Name);
       return { text: `${n1} / ${n2}`, placeholder: true, eliminated: false };
@@ -262,12 +270,13 @@ function getPlayerInfo(
 
 // ── Cuadro de eliminación con conectores SVG ───────────────────────────────
 function ElimBracket({
-  rounds, isAdmin, onSuspendMatch, onResumeMatch,
+  rounds, isAdmin, onSuspendMatch, onResumeMatch, onRescheduleMatch,
 }: {
   rounds: Record<string, BracketMatch[]>;
   isAdmin?: boolean;
   onSuspendMatch?: (m: BracketMatch) => void;
   onResumeMatch?:  (m: BracketMatch) => void;
+  onRescheduleMatch?: (m: BracketMatch) => void;
 }) {
   const existingElimRounds = ROUND_ORDER.filter(r =>
     !['RR','RR_A','RR_B'].includes(r) && rounds[r]
@@ -381,6 +390,7 @@ function ElimBracket({
                       p2Text={p2.text} p2Placeholder={p2.placeholder} p2Eliminated={p2.eliminated}
                       onSuspend={() => onSuspendMatch?.(m)}
                       onResume={() => onResumeMatch?.(m)}
+                      onReschedule={() => onRescheduleMatch?.(m)}
                     />
                   </div>
                 );
@@ -450,13 +460,14 @@ function ElimBracket({
 
 // ── Grupos Round Robin ─────────────────────────────────────────────────────
 function RRGroups({
-  rounds, isAdmin, advancingPerGroup = 1, onSuspendMatch, onResumeMatch, onEditGroups,
+  rounds, isAdmin, advancingPerGroup = 1, onSuspendMatch, onResumeMatch, onRescheduleMatch, onEditGroups,
 }: {
   rounds: Record<string, BracketMatch[]>;
   isAdmin?: boolean;
   advancingPerGroup?: number;
   onSuspendMatch?: (m: BracketMatch) => void;
   onResumeMatch?:  (m: BracketMatch) => void;
+  onRescheduleMatch?: (m: BracketMatch) => void;
   onEditGroups?: () => void;
 }) {
   const rrRounds = ROUND_ORDER.filter(r => ['RR','RR_A','RR_B'].includes(r) && rounds[r]);
@@ -472,6 +483,10 @@ function RRGroups({
     });
   });
 
+  // Detect single-group completed tournament
+  const groupEntries = Object.entries(groups).sort();
+  const isSingleGroup = groupEntries.length === 1;
+
   return (
     <div>
       {isAdmin && onEditGroups && (
@@ -485,7 +500,7 @@ function RRGroups({
         </div>
       )}
       <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: '20px' }}>
-      {Object.entries(groups).sort().map(([groupLabel, gMatches]) => {
+      {groupEntries.map(([groupLabel, gMatches]) => {
         // Standings
         const standings: Record<string, { name: string; seeding?: number; wins: number; losses: number; setsWon: number; setsLost: number; gamesWon: number; gamesLost: number }> = {};
         gMatches.forEach(m => {
@@ -597,12 +612,22 @@ function RRGroups({
                             : '—'}
                         </span>
                         {isAdmin && !['completed','wo'].includes(m.status) && m.player1Id && (
-                          <button
-                            onClick={() => isSusp ? onResumeMatch?.(m) : onSuspendMatch?.(m)}
-                            style={{ fontSize: '9px', padding: '1px 5px', borderRadius: '3px', border: '1px solid #E5E7EB', backgroundColor: 'white', cursor: 'pointer', marginLeft: '2px' }}
-                          >
-                            {isSusp ? '▶' : '⛈'}
-                          </button>
+                          <>
+                            <button
+                              onClick={() => isSusp ? onResumeMatch?.(m) : onSuspendMatch?.(m)}
+                              style={{ fontSize: '9px', padding: '1px 5px', borderRadius: '3px', border: '1px solid #E5E7EB', backgroundColor: 'white', cursor: 'pointer', marginLeft: '2px' }}
+                            >
+                              {isSusp ? '▶' : '⛈'}
+                            </button>
+                            {isSusp && (
+                              <button
+                                onClick={() => onRescheduleMatch?.(m)}
+                                style={{ fontSize: '9px', padding: '1px 5px', borderRadius: '3px', border: '1px solid #BFDBFE', backgroundColor: '#EFF6FF', color: '#1D4ED8', cursor: 'pointer', marginLeft: '2px' }}
+                              >
+                                📅
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
@@ -614,18 +639,115 @@ function RRGroups({
         );
       })}
       </div>
+
+      {/* ── Resultado final para grupo único completo ── */}
+      {isSingleGroup && (() => {
+        const [, gMatches] = groupEntries[0];
+        const done = gMatches.filter(m => m.status === 'completed' || m.status === 'wo').length;
+        if (done < gMatches.length) return null;
+
+        // Recalcular standings para el resultado final
+        const st: Record<string, { name: string; seeding?: number; wins: number; losses: number; setsWon: number; setsLost: number; gamesWon: number; gamesLost: number }> = {};
+        gMatches.forEach(m => {
+          if (m.player1Id && !st[m.player1Id]) st[m.player1Id] = { name: m.player1Name || m.player1Id!, seeding: m.seeding1, wins: 0, losses: 0, setsWon: 0, setsLost: 0, gamesWon: 0, gamesLost: 0 };
+          if (m.player2Id && !st[m.player2Id]) st[m.player2Id] = { name: m.player2Name || m.player2Id!, seeding: m.seeding2, wins: 0, losses: 0, setsWon: 0, setsLost: 0, gamesWon: 0, gamesLost: 0 };
+          if (m.winnerId && (m.status === 'completed' || m.status === 'wo')) {
+            const loserId = m.winnerId === m.player1Id ? m.player2Id : m.player1Id;
+            if (st[m.winnerId]) st[m.winnerId].wins++;
+            if (loserId && st[loserId]) st[loserId].losses++;
+            if (m.player1Id && st[m.player1Id]) { st[m.player1Id].setsWon += m.sets1||0; st[m.player1Id].setsLost += m.sets2||0; st[m.player1Id].gamesWon += m.games1||0; st[m.player1Id].gamesLost += m.games2||0; }
+            if (m.player2Id && st[m.player2Id]) { st[m.player2Id].setsWon += m.sets2||0; st[m.player2Id].setsLost += m.sets1||0; st[m.player2Id].gamesWon += m.games2||0; st[m.player2Id].gamesLost += m.games1||0; }
+          }
+        });
+        const gR = (w: number, l: number) => l > 0 ? w/l : w > 0 ? Infinity : 0;
+        const completedM = gMatches.filter(m => m.status === 'completed' || m.status === 'wo');
+        const allE = Object.entries(st);
+        const podium = [...allE].sort(([idA, a], [idB, b]) => {
+          if (b.wins !== a.wins) return b.wins - a.wins;
+          const sA = gR(a.setsWon, a.setsLost), sB = gR(b.setsWon, b.setsLost);
+          if (Math.abs(sB - sA) > 0.0001) return sB - sA;
+          const gA = gR(a.gamesWon, a.gamesLost), gBv = gR(b.gamesWon, b.gamesLost);
+          if (Math.abs(gBv - gA) > 0.0001) return gBv - gA;
+          const tied = allE.filter(([,s]) => s.wins===a.wins && Math.abs(gR(s.setsWon,s.setsLost)-sA)<=0.0001 && Math.abs(gR(s.gamesWon,s.gamesLost)-gA)<=0.0001);
+          if (tied.length === 2) {
+            const h2h = completedM.find(m => (m.player1Id===idA&&m.player2Id===idB)||(m.player1Id===idB&&m.player2Id===idA));
+            if (h2h?.winnerId === idA) return -1;
+            if (h2h?.winnerId === idB) return 1;
+          }
+          return a.name.localeCompare(b.name);
+        });
+
+        const champion = podium[0];
+        const runnerUp = podium[1];
+        if (!champion) return null;
+
+        return (
+          <div style={{ marginTop: '8px', marginBottom: '8px' }}>
+            {/* Separator */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+              <div style={{ flex: 1, height: '1px', backgroundColor: '#E5E7EB' }} />
+              <span style={{ fontSize: '11px', fontWeight: '700', color: '#6B7280', backgroundColor: '#F3F4F6', padding: '4px 12px', borderRadius: '999px' }}>
+                RESULTADO FINAL
+              </span>
+              <div style={{ flex: 1, height: '1px', backgroundColor: '#E5E7EB' }} />
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              {/* Campeón */}
+              <div style={{ flex: '1 1 220px', background: 'linear-gradient(135deg,#78350F,#D97706)', borderRadius: '12px', padding: '16px 20px', color: 'white', boxShadow: '0 4px 12px rgba(217,119,6,0.3)' }}>
+                <div style={{ fontSize: '11px', fontWeight: '700', opacity: 0.85, letterSpacing: '0.08em', marginBottom: '6px' }}>
+                  CAMPEÓN
+                </div>
+                <div style={{ fontSize: '11px', opacity: 0.75, marginBottom: '2px' }}>
+                  {champion[1].seeding ? `[${champion[1].seeding}] ` : ''}1er Lugar
+                </div>
+                <div style={{ fontSize: '17px', fontWeight: '800', lineHeight: 1.2 }}>
+                  {champion[1].name}
+                </div>
+                <div style={{ fontSize: '11px', opacity: 0.7, marginTop: '6px' }}>
+                  {champion[1].wins}V – {champion[1].losses}D
+                </div>
+              </div>
+
+              {/* Finalista */}
+              {runnerUp && (
+                <div style={{ flex: '1 1 220px', background: 'linear-gradient(135deg,#374151,#6B7280)', borderRadius: '12px', padding: '16px 20px', color: 'white', boxShadow: '0 4px 12px rgba(107,114,128,0.25)' }}>
+                  <div style={{ fontSize: '11px', fontWeight: '700', opacity: 0.85, letterSpacing: '0.08em', marginBottom: '6px' }}>
+                    FINALISTA
+                  </div>
+                  <div style={{ fontSize: '11px', opacity: 0.75, marginBottom: '2px' }}>
+                    {runnerUp[1].seeding ? `[${runnerUp[1].seeding}] ` : ''}2do Lugar
+                  </div>
+                  <div style={{ fontSize: '17px', fontWeight: '800', lineHeight: 1.2 }}>
+                    {runnerUp[1].name}
+                  </div>
+                  <div style={{ fontSize: '11px', opacity: 0.7, marginTop: '6px' }}>
+                    {runnerUp[1].wins}V – {runnerUp[1].losses}D
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
 
 // ── Componente principal ───────────────────────────────────────────────────
-export default function BracketView({ matches, isAdmin, advancingPerGroup = 1, onSuspendMatch, onResumeMatch, onEditRRGroups }: BracketViewProps) {
+export default function BracketView({ matches, isAdmin, advancingPerGroup = 1, onSuspendMatch, onResumeMatch, onRescheduleMatch, onEditRRGroups }: BracketViewProps) {
   const byCategory = useMemo(() => {
     const cat: Record<string, Record<string, BracketMatch[]>> = {};
     matches.forEach(m => {
       if (!cat[m.category])         cat[m.category] = {};
       if (!cat[m.category][m.round]) cat[m.category][m.round] = [];
       cat[m.category][m.round].push(m);
+    });
+    // Ordenar cada ronda por bracketPosition para que los conectores sean correctos
+    Object.values(cat).forEach(rounds => {
+      Object.keys(rounds).forEach(r => {
+        rounds[r].sort((a, b) => (a.bracketPosition ?? 0) - (b.bracketPosition ?? 0));
+      });
     });
     return cat;
   }, [matches]);
@@ -652,7 +774,7 @@ export default function BracketView({ matches, isAdmin, advancingPerGroup = 1, o
 
             {/* Grupos RR */}
             {hasRR && (
-              <RRGroups rounds={rounds} isAdmin={isAdmin} advancingPerGroup={advancingPerGroup} onSuspendMatch={onSuspendMatch} onResumeMatch={onResumeMatch} onEditGroups={onEditRRGroups ? () => onEditRRGroups(category) : undefined} />
+              <RRGroups rounds={rounds} isAdmin={isAdmin} advancingPerGroup={advancingPerGroup} onSuspendMatch={onSuspendMatch} onResumeMatch={onResumeMatch} onRescheduleMatch={onRescheduleMatch} onEditGroups={onEditRRGroups ? () => onEditRRGroups(category) : undefined} />
             )}
 
             {/* Separador RR → Main Draw */}
@@ -673,6 +795,7 @@ export default function BracketView({ matches, isAdmin, advancingPerGroup = 1, o
                 isAdmin={isAdmin}
                 onSuspendMatch={onSuspendMatch}
                 onResumeMatch={onResumeMatch}
+                onRescheduleMatch={onRescheduleMatch}
               />
             )}
           </div>

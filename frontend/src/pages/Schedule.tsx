@@ -71,7 +71,8 @@ function AssignModal({
 }) {
   const [matchId,  setMatchId]  = useState(preselectedMatch?.id ?? '');
   const [date,     setDate]     = useState('');
-  const [slotKey,  setSlotKey]  = useState('');   // "courtId|||HH:MM"
+  const [time,     setTime]     = useState('');
+  const [courtId,  setCourtId]  = useState('');
   const [duration, setDuration] = useState<string>('90');
 
   // ── Partidos pendientes sin programar ─────────────────────────────────────
@@ -83,75 +84,12 @@ function AssignModal({
     },
   });
 
-  // ── Slots disponibles: se calculan a partir de la programación existente ──
-  // Lógica: para cada cancha que ya tiene partidos ese día, calculamos
-  // los huecos disponibles (gaps). También incluimos canchas sin partidos ese día.
-  const availableSlots = useMemo(() => {
-    if (!date) return [];
-
-    // Partidos de ese día en la programación ya cargada
-    const dayRows = flatSchedule.filter(r => {
-      const d = r.date || r.scheduledAt?.slice(0, 10);
-      return d === date;
-    });
-
-    // Horas ocupadas por cancha: { courtName → Set<"HH:MM"> }
-    const occupiedByCourt = new Map<string, Set<string>>();
-    dayRows.forEach((r: any) => {
-      const key = r.courtName || r.court || 'Sin cancha';
-      if (!occupiedByCourt.has(key)) occupiedByCourt.set(key, new Set());
-      const t = r.time || (r.scheduledAt ? new Date(r.scheduledAt).toTimeString().slice(0,5) : null);
-      if (t) occupiedByCourt.get(key)!.add(t);
-    });
-
-    const slots: { courtId: string; courtName: string; sede: string; time: string }[] = [];
-
-    // Para cada cancha, generar slots de 08:00 a 21:00 cada 30 min
-    // y marcar cuáles están libres
-    courts.forEach((c: any) => {
-      const occupied = occupiedByCourt.get(c.name) || new Set<string>();
-      // Slots de 07:00 a 22:00 cada 30 minutos
-      for (let h = 7; h < 22; h++) {
-        for (const min of [0, 30]) {
-          const t = `${String(h).padStart(2,'0')}:${String(min).padStart(2,'0')}`;
-          if (!occupied.has(t)) {
-            slots.push({
-              courtId  : c.id,
-              courtName: c.name,
-              sede     : c.sede || 'Principal',
-              time     : t,
-            });
-          }
-        }
-      }
-    });
-
-    // Ordenar por hora, luego por cancha
-    return slots.sort((a, b) =>
-      a.time.localeCompare(b.time) || a.courtName.localeCompare(b.courtName)
-    );
-  }, [date, flatSchedule, courts]);
-
-  // Agrupar slots por hora para el select agrupado
-  const slotsByHour = useMemo(() => {
-    const map = new Map<string, typeof availableSlots>();
-    availableSlots.forEach(s => {
-      const h = s.time.slice(0, 2) + ':00';
-      if (!map.has(h)) map.set(h, []);
-      map.get(h)!.push(s);
-    });
-    return map;
-  }, [availableSlots]);
-
-  const selectedSlot = availableSlots.find(s => `${s.courtId}|||${s.time}` === slotKey);
-
   const mutation = useMutation({
     mutationFn: () => {
-      if (!selectedSlot) throw new Error('Selecciona un slot');
       return api.patch(`/matches/${matchId}/reschedule`, {
         date,
-        time    : selectedSlot.time,
-        courtId : selectedSlot.courtId,
+        time,
+        courtId : courtId || undefined,
         duration: Number(duration) || 90,
       });
     },
@@ -159,7 +97,7 @@ function AssignModal({
     onError  : (e: any) => alert(`❌ ${e?.response?.data?.message ?? 'Error al asignar'}`),
   });
 
-  const canSubmit = matchId && date && slotKey && Number(duration) > 0;
+  const canSubmit = matchId && date && time && Number(duration) > 0;
 
   return (
     <div style={{
@@ -243,52 +181,48 @@ function AssignModal({
               <input
                 type="date"
                 value={date}
-                onChange={e => { setDate(e.target.value); setSlotKey(''); }}
+                onChange={e => setDate(e.target.value)}
                 style={{ ...selectStyle, cursor: 'pointer' }}
               />
-              {date && availableSlots.length === 0 && (
-                <p style={{ fontSize: '12px', color: '#DC2626', marginTop: '6px' }}>
-                  ⚠ No hay slots disponibles para esa fecha. Todas las canchas están ocupadas.
-                </p>
-              )}
             </div>
           )}
 
-          {/* PASO 3 — Slot disponible (solo si hay fecha) */}
-          {matchId && date && availableSlots.length > 0 && (
-            <div>
-              <label style={labelStyle}>
-                <span style={stepBadge}>3</span> Cancha y hora disponible *
-              </label>
-              <select
-                value={slotKey}
-                onChange={e => setSlotKey(e.target.value)}
-                style={selectStyle}
-                size={1}
-              >
-                <option value="">— Selecciona cancha y hora —</option>
-                {[...slotsByHour.entries()].map(([hour, slots]) => (
-                  <optgroup key={hour} label={`🕐 ${hour}`}>
-                    {slots.map(s => (
-                      <option key={`${s.courtId}|||${s.time}`} value={`${s.courtId}|||${s.time}`}>
-                        {s.time} — {s.courtName} ({s.sede})
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-              {selectedSlot && (
-                <div style={{ marginTop: '8px', background: '#F0FDF4', border: '1px solid #86EFAC', borderRadius: '7px', padding: '8px 12px', fontSize: '13px', color: '#15803D', display: 'flex', gap: '16px' }}>
-                  <span>🎾 <strong>{selectedSlot.courtName}</strong></span>
-                  <span>🕐 <strong>{selectedSlot.time}</strong></span>
-                  <span>🏟️ {selectedSlot.sede}</span>
-                </div>
-              )}
+          {/* PASO 3 — Hora y cancha */}
+          {matchId && date && (
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              <div style={{ flex: '0 0 auto' }}>
+                <label style={labelStyle}>
+                  <span style={stepBadge}>3</span> Hora *
+                </label>
+                <input
+                  type="time"
+                  value={time}
+                  onChange={e => setTime(e.target.value)}
+                  style={{ padding: '9px 12px', borderRadius: '8px', border: '1.5px solid #D1D5DB', fontSize: '14px', fontWeight: 600, color: '#111827', width: '130px' }}
+                />
+              </div>
+              <div style={{ flex: 1, minWidth: '180px' }}>
+                <label style={{ ...labelStyle, paddingLeft: 0 }}>
+                  Cancha
+                </label>
+                <select
+                  value={courtId}
+                  onChange={e => setCourtId(e.target.value)}
+                  style={selectStyle}
+                >
+                  <option value="">— Sin cancha asignada —</option>
+                  {courts.map((c: any) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}{c.sede ? ` (${c.sede})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           )}
 
           {/* PASO 4 — Duración manual */}
-          {matchId && date && slotKey && (
+          {matchId && date && time && (
             <div>
               <label style={labelStyle}>
                 <span style={stepBadge}>4</span> Duración estimada (minutos) *
@@ -409,6 +343,7 @@ export default function Schedule() {
   const [maxMatchesMode,       setMaxMatchesMode]       = useState<'preset'|'unlimited'|'custom'>('preset');
   const [restTimeBetweenMatches, setRestTimeBetweenMatches] = useState(0);
   const [singlesDoublesGap,      setSinglesDoublesGap]      = useState(0);
+  const [roundBreakTime,         setRoundBreakTime]         = useState(0);
   const [showAssignModal,      setShowAssignModal]      = useState(false);
   const [filterDate,           setFilterDate]           = useState('');
   const [selectedCategories,   setSelectedCategories]   = useState<string[]>([]);
@@ -421,6 +356,12 @@ export default function Schedule() {
   const [roundModality,        setRoundModality]         = useState<'all' | 'singles' | 'doubles'>('all');
   const [suspendModal,         setSuspendModal]          = useState<{ isOpen: boolean; match: any | null }>({ isOpen: false, match: null });
   const [rescheduleMatch,      setRescheduleMatch]       = useState<{ id: string; label: string } | null>(null);
+  const [bulkRescheduleModal,  setBulkRescheduleModal]   = useState(false);
+  const [bulkDate,             setBulkDate]              = useState('');
+  const [bulkStartTime,        setBulkStartTime]         = useState('08:00');
+  const [bulkMaxTime,          setBulkMaxTime]           = useState('22:00');
+  const [bulkCourts,           setBulkCourts]            = useState<string[]>([]);
+  const [bulkLoading,          setBulkLoading]           = useState(false);
 
   // ── Queries ────────────────────────────────────────────────────────────────
   const { data: tournaments = [] } = useQuery({
@@ -509,6 +450,7 @@ export default function Schedule() {
         roundFilter: selectedRounds.length > 0 ? selectedRounds : undefined,
         restTimeBetweenMatches,
         singlesDoublesGap,
+        roundBreakTime,
       });
       return res.data;
     },
@@ -709,14 +651,22 @@ export default function Schedule() {
         {/* ── Partidos suspendidos ──────────────────────────────────────── */}
         {selectedTournament && isAdmin && suspendedMatches.length > 0 && (
           <div className="bg-white rounded-xl shadow-sm p-4 mb-6" style={{ border: '1.5px solid #FDE68A' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-              <CloudRain size={16} color="#92400E" />
-              <h2 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#92400E' }}>
-                Partidos Suspendidos
-              </h2>
-              <span style={{ backgroundColor: '#FEF3C7', color: '#92400E', fontSize: '11px', fontWeight: 700, padding: '1px 9px', borderRadius: '999px' }}>
-                {suspendedMatches.length}
-              </span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <CloudRain size={16} color="#92400E" />
+                <h2 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#92400E' }}>
+                  Partidos Suspendidos
+                </h2>
+                <span style={{ backgroundColor: '#FEF3C7', color: '#92400E', fontSize: '11px', fontWeight: 700, padding: '1px 9px', borderRadius: '999px' }}>
+                  {suspendedMatches.length}
+                </span>
+              </div>
+              <button
+                onClick={() => { setBulkDate(''); setBulkCourts([]); setBulkRescheduleModal(true); }}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#EFF6FF', border: '1.5px solid #BFDBFE', color: '#1D4ED8', borderRadius: '8px', padding: '7px 14px', cursor: 'pointer', fontSize: '12px', fontWeight: 700 }}
+              >
+                <Calendar size={13} /> Reprogramar todos
+              </button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {(suspendedMatches as any[]).map((m: any) => (
@@ -1332,6 +1282,32 @@ export default function Schedule() {
                   </p>
                 )}
               </div>
+
+              {/* Tiempo de espera entre rondas del cuadro principal */}
+              <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #E5E7EB' }}>
+                <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: '#1B3A1B', marginBottom: '4px' }}>
+                  Tiempo de espera entre rondas del cuadro principal
+                </label>
+                <p style={{ fontSize: '12px', color: '#6B7280', marginBottom: '10px' }}>
+                  Minutos mínimos entre el fin de una ronda (R16, Cuartos, SF) y el inicio de la siguiente en el cuadro principal
+                </p>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  {[0, 15, 20, 30, 45, 60, 90].map(n => (
+                    <button key={n}
+                      onClick={() => setRoundBreakTime(n)}
+                      style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '13px',
+                        background: roundBreakTime === n ? '#B45309' : '#F3F4F6',
+                        color:      roundBreakTime === n ? 'white'   : '#374151' }}>
+                      {n === 0 ? 'Sin espera' : `${n} min`}
+                    </button>
+                  ))}
+                </div>
+                {roundBreakTime > 0 && (
+                  <p style={{ fontSize: '12px', color: '#B45309', marginTop: '6px', fontWeight: 600 }}>
+                    Se dejarán {roundBreakTime} min libres entre rondas del cuadro principal (R16 → QF → SF → F)
+                  </p>
+                )}
+              </div>
             </div>
 
             {/* Paso X — Filtro de rondas (opcional) */}
@@ -1859,6 +1835,230 @@ export default function Schedule() {
         onCancel={() => setSuspendModal({ isOpen: false, match: null })}
         isLoading={suspendMutation.isPending}
       />
+
+      {/* ── Modal Reprogramar TODOS los suspendidos ──────────────────────── */}
+      {bulkRescheduleModal && (() => {
+        const suspended = suspendedMatches as any[];
+        const timeToMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+        const minToTime = (n: number) => `${String(Math.floor(n/60)).padStart(2,'0')}:${String(n%60).padStart(2,'0')}`;
+        const MAX_HOUR = bulkMaxTime ? timeToMin(bulkMaxTime) : 22 * 60;
+
+        // Cursor de cada cancha: máximo entre hora de inicio global y fin del último partido ya programado ese día
+        const getCourtCursor = (courtId: string) => {
+          const court = (courts as any[]).find((c: any) => c.id === courtId);
+          const base = bulkStartTime ? timeToMin(bulkStartTime) : 8 * 60;
+          if (!court) return base;
+          const existing = (flatSchedule as any[]).filter(m => m.date === bulkDate && m.courtName === court.name);
+          let lastEnd = base;
+          for (const m of existing) {
+            lastEnd = Math.max(lastEnd, timeToMin(m.time) + (parseInt(m.duration) || 90));
+          }
+          return lastEnd;
+        };
+
+        // Algoritmo greedy con detección de conflictos de jugadores:
+        // Para cada partido busca la cancha con el slot más temprano donde ambos jugadores estén libres
+        const buildPreview = () => {
+          if (bulkCourts.length === 0 || !bulkDate) return [];
+
+          // Cursors por cancha (próximo slot libre a partir de la hora de inicio global)
+          const courtCursors: Record<string, number> = {};
+          for (const courtId of bulkCourts) {
+            courtCursors[courtId] = getCourtCursor(courtId);
+          }
+
+          // Intervalos ocupados por jugador (solo de los partidos que ya estamos asignando)
+          const playerSlots: Record<string, { start: number; end: number }[]> = {};
+          const isFree = (pid: string | undefined, s: number, e: number) =>
+            !pid || !(playerSlots[pid] || []).some(b => s < b.end && e > b.start);
+          const markBusy = (pid: string | undefined, s: number, e: number) => {
+            if (!pid) return;
+            if (!playerSlots[pid]) playerSlots[pid] = [];
+            playerSlots[pid].push({ start: s, end: e });
+          };
+
+          return suspended.map(m => {
+            const dur = m.estimatedDuration || 90;
+            const p1 = m.player1Id, p2 = m.player2Id;
+            let bestSlot: { courtId: string; time: number } | null = null;
+
+            // Probar cada cancha — encontrar el slot más temprano sin conflicto de jugadores
+            for (const courtId of bulkCourts) {
+              let start = courtCursors[courtId];
+              for (let attempt = 0; attempt < 12; attempt++) {
+                const end = start + dur;
+                if (end > MAX_HOUR) break;
+                if (isFree(p1, start, end) && isFree(p2, start, end)) {
+                  if (!bestSlot || start < bestSlot.time) bestSlot = { courtId, time: start };
+                  break;
+                }
+                start += dur; // avanzar un slot e intentar de nuevo
+              }
+            }
+
+            if (!bestSlot) return { match: m, courtId: bulkCourts[0], time: null as string | null, fits: false };
+
+            const end = bestSlot.time + dur;
+            courtCursors[bestSlot.courtId] = Math.max(courtCursors[bestSlot.courtId], end);
+            markBusy(p1, bestSlot.time, end);
+            markBusy(p2, bestSlot.time, end);
+            return { match: m, courtId: bestSlot.courtId, time: minToTime(bestSlot.time), fits: true };
+          });
+        };
+
+        const preview = buildPreview();
+        const schedulable = preview.filter(p => p.fits);
+        const unschedulable = preview.filter(p => !p.fits);
+
+        const handleBulkConfirm = async () => {
+          if (!bulkDate || bulkCourts.length === 0) return;
+          setBulkLoading(true);
+          try {
+            for (const item of schedulable) {
+              await matchesApi.rescheduleMatch(item.match.id, {
+                scheduledAt: `${bulkDate}T${item.time}:00`,
+                courtId: item.courtId || undefined,
+                estimatedDuration: item.match.estimatedDuration || 90,
+              });
+            }
+            setBulkRescheduleModal(false);
+            refetchAll();
+          } finally {
+            setBulkLoading(false);
+          }
+        };
+
+        const toggleCourt = (courtId: string) => {
+          setBulkCourts(prev =>
+            prev.includes(courtId) ? prev.filter(id => id !== courtId) : [...prev, courtId]
+          );
+        };
+
+        const canConfirm = bulkDate && bulkStartTime && bulkCourts.length > 0 && !bulkLoading;
+
+        return (
+          <div style={{ position:'fixed', inset:0, zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', backgroundColor:'rgba(0,0,0,0.55)', backdropFilter:'blur(4px)' }}
+            onClick={() => setBulkRescheduleModal(false)}>
+            <div style={{ backgroundColor:'white', borderRadius:'18px', boxShadow:'0 30px 70px rgba(0,0,0,0.25)', width:'100%', maxWidth:'640px', margin:'0 16px', overflow:'hidden', maxHeight:'92vh', display:'flex', flexDirection:'column' }}
+              onClick={e => e.stopPropagation()}>
+
+              {/* Header */}
+              <div style={{ background:'linear-gradient(135deg,#1B3A1B,#2D6A2D)', padding:'18px 24px', flexShrink:0 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
+                  <span style={{ fontSize:'24px' }}>📅</span>
+                  <div>
+                    <h2 style={{ color:'white', fontSize:'16px', fontWeight:'700', margin:0 }}>Reprogramar partidos suspendidos</h2>
+                    <p style={{ color:'rgba(255,255,255,0.7)', fontSize:'12px', margin:0 }}>{suspended.length} partidos · define fecha, horario y canchas a usar</p>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ padding:'18px 24px', overflowY:'auto', flex:1, display:'flex', flexDirection:'column', gap:'16px' }}>
+
+                {/* Nueva fecha + hora inicio + hora máxima */}
+                <div style={{ display:'flex', gap:'12px', flexWrap:'wrap', alignItems:'flex-end' }}>
+                  <div>
+                    <label style={{ display:'block', fontSize:'12px', fontWeight:'600', color:'#4B5563', marginBottom:'6px' }}>
+                      📅 Nueva fecha <span style={{ color:'#EF4444' }}>*</span>
+                    </label>
+                    <input type="date" value={bulkDate} onChange={e => setBulkDate(e.target.value)}
+                      style={{ width:'170px', padding:'9px 12px', borderRadius:'8px', border:'1.5px solid #D1D5DB', fontSize:'13px', boxSizing:'border-box' as any }} />
+                  </div>
+                  <div>
+                    <label style={{ display:'block', fontSize:'12px', fontWeight:'600', color:'#4B5563', marginBottom:'6px' }}>
+                      ⏰ Hora inicio <span style={{ color:'#EF4444' }}>*</span>
+                    </label>
+                    <input type="time" value={bulkStartTime} onChange={e => setBulkStartTime(e.target.value)}
+                      style={{ width:'110px', padding:'9px 12px', borderRadius:'8px', border:'1.5px solid #D1D5DB', fontSize:'13px', color:'#1F2937', boxSizing:'border-box' as any }} />
+                  </div>
+                  <div>
+                    <label style={{ display:'block', fontSize:'12px', fontWeight:'600', color:'#4B5563', marginBottom:'6px' }}>
+                      🕐 Hora fin <span style={{ color:'#EF4444' }}>*</span>
+                    </label>
+                    <input type="time" value={bulkMaxTime} onChange={e => setBulkMaxTime(e.target.value)}
+                      style={{ width:'110px', padding:'9px 12px', borderRadius:'8px', border:'1.5px solid #D1D5DB', fontSize:'13px', color:'#1F2937', boxSizing:'border-box' as any }} />
+                  </div>
+                </div>
+
+                {/* Selección de canchas */}
+                <div>
+                  <p style={{ fontSize:'12px', fontWeight:'600', color:'#4B5563', marginBottom:'8px' }}>
+                    🏟️ Canchas a usar <span style={{ color:'#EF4444' }}>*</span>
+                    <span style={{ color:'#9CA3AF', fontWeight:400, marginLeft:'6px' }}>Selecciona una o varias · los partidos se distribuyen en paralelo entre ellas</span>
+                  </p>
+                  <div style={{ display:'flex', flexWrap:'wrap', gap:'8px' }}>
+                    {(courts as any[]).map((c: any) => {
+                      const selected = bulkCourts.includes(c.id);
+                      return (
+                        <div key={c.id} style={{ display:'flex', alignItems:'center', gap:'8px', padding:'8px 14px', borderRadius:'10px', border: selected ? '1.5px solid #6366F1' : '1.5px solid #E5E7EB', backgroundColor: selected ? '#EEF2FF' : 'white', cursor:'pointer', transition:'all 0.12s' }}
+                          onClick={() => toggleCourt(c.id)}>
+                          <div style={{ width:'16px', height:'16px', borderRadius:'4px', border: selected ? '2px solid #6366F1' : '2px solid #D1D5DB', backgroundColor: selected ? '#6366F1' : 'white', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                            {selected && <span style={{ color:'white', fontSize:'11px', fontWeight:'800' }}>✓</span>}
+                          </div>
+                          <span style={{ fontSize:'13px', fontWeight: selected ? '700' : '500', color:'#1F2937' }}>{c.name}</span>
+                          {c.sede && <span style={{ fontSize:'11px', color:'#9CA3AF' }}>{c.sede}</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Vista previa de distribución */}
+                {preview.length > 0 && (
+                  <div>
+                    <div style={{ display:'flex', alignItems:'center', gap:'10px', marginBottom:'8px' }}>
+                      <p style={{ fontSize:'12px', fontWeight:'600', color:'#4B5563', margin:0 }}>Vista previa:</p>
+                      {schedulable.length > 0 && <span style={{ fontSize:'11px', backgroundColor:'#DCFCE7', color:'#15803D', padding:'2px 8px', borderRadius:'999px', fontWeight:'600' }}>✓ {schedulable.length} programados</span>}
+                      {unschedulable.length > 0 && <span style={{ fontSize:'11px', backgroundColor:'#FEF2F2', color:'#DC2626', padding:'2px 8px', borderRadius:'999px', fontWeight:'600' }}>⚠ {unschedulable.length} sin espacio</span>}
+                    </div>
+                    <div style={{ border:'1px solid #E5E7EB', borderRadius:'8px', overflow:'hidden' }}>
+                      {preview.map((item, i) => {
+                        const court = (courts as any[]).find((c: any) => c.id === item.courtId);
+                        return (
+                          <div key={item.match.id} style={{ display:'flex', alignItems:'center', gap:'8px', padding:'7px 12px', backgroundColor: !item.fits ? '#FEF2F2' : i%2===0 ? 'white' : '#FAFAFA', borderBottom: i < preview.length-1 ? '1px solid #F3F4F6' : 'none', fontSize:'11px' }}>
+                            {item.fits
+                              ? <span style={{ fontWeight:'700', color:'#6366F1', minWidth:'42px' }}>{item.time}</span>
+                              : <span style={{ fontWeight:'700', color:'#DC2626', minWidth:'42px', fontSize:'10px' }}>Sin esp.</span>
+                            }
+                            <span style={{ backgroundColor: item.fits ? '#EEF2FF' : '#FEE2E2', color: item.fits ? '#4338CA' : '#DC2626', padding:'1px 7px', borderRadius:'999px', fontWeight:'600', whiteSpace:'nowrap' }}>{court?.name || '—'}</span>
+                            <span style={{ color: item.fits ? '#374151' : '#9CA3AF', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                              {item.match.player1Name} vs {item.match.player2Name}
+                            </span>
+                            <span style={{ color:'#9CA3AF', whiteSpace:'nowrap' }}>{ROUND_LABELS[item.match.round] ?? item.match.round}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {unschedulable.length > 0 && (
+                      <p style={{ fontSize:'11px', color:'#9CA3AF', marginTop:'6px', margin:'6px 0 0' }}>
+                        ⚠ Los partidos en rojo superan las {bulkMaxTime || '22:00'}. Quedarán suspendidos sin cambios.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {bulkCourts.length === 0 && (
+                  <p style={{ fontSize:'12px', color:'#9CA3AF', textAlign:'center', padding:'8px 0', margin:0 }}>
+                    Selecciona al menos una cancha para ver la distribución de partidos.
+                  </p>
+                )}
+
+                {/* Botones */}
+                <div style={{ display:'flex', gap:'10px', paddingTop:'4px' }}>
+                  <button onClick={() => setBulkRescheduleModal(false)} disabled={bulkLoading}
+                    style={{ flex:1, padding:'11px', borderRadius:'10px', border:'1.5px solid #E5E7EB', backgroundColor:'white', color:'#374151', fontWeight:'600', fontSize:'14px', cursor:'pointer' }}>
+                    Cancelar
+                  </button>
+                  <button onClick={handleBulkConfirm} disabled={!canConfirm}
+                    style={{ flex:2, padding:'11px', borderRadius:'10px', border:'none', background: !canConfirm ? '#D1D5DB' : 'linear-gradient(135deg,#1D4ED8,#1E40AF)', color:'white', fontWeight:'700', fontSize:'14px', cursor: !canConfirm ? 'not-allowed' : 'pointer', boxShadow: canConfirm ? '0 4px 14px rgba(29,78,216,0.3)' : 'none' }}>
+                    {bulkLoading ? '⏳ Reprogramando...' : schedulable.length > 0 ? `✓ Programar ${schedulable.length} de ${suspended.length} partidos` : 'Selecciona cancha y fecha'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

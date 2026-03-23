@@ -20,6 +20,7 @@ interface Match {
   sets2?: number;
   games1?: number;
   games2?: number;
+  bracketPosition?: number;
 }
 
 export interface ExportOptions {
@@ -76,10 +77,10 @@ function getPlayerText(
       const wName = prev.winnerId === prev.player1Id ? prev.player1Name : prev.player2Name;
       return { text: `Gan.${lastName(wName)}`, placeholder: true };
     }
-    if (prev.player1Name || prev.player2Name) {
-      // Si uno de los dos es BYE (sin id), el otro avanza directo → nombre completo
-      if (!prev.player1Id) return { text: fullName(prev.player2Name), placeholder: false };
-      if (!prev.player2Id) return { text: fullName(prev.player1Name), placeholder: false };
+    if (prev.player1Name && prev.player2Name) {
+      // Si uno de los dos es BYE, el otro avanza directo → nombre completo
+      if (prev.player1Name === 'BYE') return { text: fullName(prev.player2Name), placeholder: false };
+      if (prev.player2Name === 'BYE') return { text: fullName(prev.player1Name), placeholder: false };
       // Partido pendiente entre dos jugadores reales → solo apellidos
       return { text: `${lastName(prev.player1Name)}/${lastName(prev.player2Name)}`, placeholder: true };
     }
@@ -364,7 +365,92 @@ function renderRR(
     colIdx  = (colIdx + 1) % cols;
   });
 
-  return y + maxRowH + 8;
+  let finalY = y + maxRowH + 8;
+
+  // ── Resultado final para grupo único completo ──────────────────────────
+  const isSingleGroup = entries.length === 1;
+  if (isSingleGroup) {
+    const [, gMatches] = entries[0];
+    const done = gMatches.filter(m => m.status === 'completed' || m.status === 'wo').length;
+    if (done === gMatches.length && done > 0) {
+      // Reuse sorted standings already computed in entries[0]
+      const st: Record<string, { name: string; wins: number; losses: number }> = {};
+      gMatches.forEach(m => {
+        [[m.player1Id, m.player1Name],[m.player2Id, m.player2Name]].forEach(([pid, name]) => {
+          if (pid && !st[pid]) st[pid] = { name: name || '', wins: 0, losses: 0 };
+        });
+        if (m.winnerId && (m.status === 'completed' || m.status === 'wo')) {
+          if (st[m.winnerId]) st[m.winnerId].wins++;
+          const loserId = m.winnerId === m.player1Id ? m.player2Id : m.player1Id;
+          if (loserId && st[loserId]) st[loserId].losses++;
+        }
+      });
+      const gRp = (w: number, l: number) => l > 0 ? w/l : w > 0 ? Infinity : 0;
+      const stEntries = Object.entries(st);
+      const completedM = gMatches.filter(m => m.status === 'completed' || m.status === 'wo');
+      stEntries.sort(([idA, a], [idB, b]) => {
+        if (b.wins !== a.wins) return b.wins - a.wins;
+        const tied2 = stEntries.filter(([,s]) => s.wins === a.wins).length === 2;
+        if (tied2) {
+          const h2h = completedM.find(m => (m.player1Id===idA&&m.player2Id===idB)||(m.player1Id===idB&&m.player2Id===idA));
+          if (h2h?.winnerId === idA) return -1;
+          if (h2h?.winnerId === idB) return 1;
+        }
+        return a.name.localeCompare(b.name);
+      });
+
+      const champion = stEntries[0];
+      const runnerUp = stEntries[1];
+      if (champion) {
+        const rowH = 18;
+        const neededH = 12 + rowH * (runnerUp ? 2 : 1) + 6;
+        if (finalY + neededH > pageH - footerH) {
+          doc.addPage();
+          drawHeader();
+          finalY = 24;
+        }
+
+        // Section header
+        doc.setDrawColor(200, 200, 200); doc.setLineWidth(0.2);
+        doc.line(margin, finalY, pageW - margin, finalY);
+        doc.setFontSize(7.5); doc.setFont('helvetica', 'bold');
+        doc.setTextColor(80, 80, 80);
+        doc.text('RESULTADO FINAL', pageW / 2, finalY + 4, { align: 'center' });
+        finalY += 10;
+
+        const podiumW = Math.min(90, (pageW - margin * 2) / 2 - 4);
+
+        // Champion card (gold)
+        doc.setFillColor(120, 53, 15);
+        doc.roundedRect(margin, finalY, podiumW, rowH, 2, 2, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(6); doc.setFont('helvetica', 'bold');
+        doc.text('CAMPEÓN', margin + 4, finalY + 4.5);
+        doc.setFontSize(8); doc.setFont('helvetica', 'bold');
+        doc.text(doc.splitTextToSize(champion[1].name, podiumW - 8)[0], margin + 4, finalY + 10);
+        doc.setFontSize(6); doc.setFont('helvetica', 'normal');
+        doc.text(`${champion[1].wins}V – ${champion[1].losses}D`, margin + 4, finalY + 15);
+
+        // Runner-up card (silver)
+        if (runnerUp) {
+          const ruX = margin + podiumW + 4;
+          doc.setFillColor(75, 85, 99);
+          doc.roundedRect(ruX, finalY, podiumW, rowH, 2, 2, 'F');
+          doc.setTextColor(255, 255, 255);
+          doc.setFontSize(6); doc.setFont('helvetica', 'bold');
+          doc.text('FINALISTA', ruX + 4, finalY + 4.5);
+          doc.setFontSize(8); doc.setFont('helvetica', 'bold');
+          doc.text(doc.splitTextToSize(runnerUp[1].name, podiumW - 8)[0], ruX + 4, finalY + 10);
+          doc.setFontSize(6); doc.setFont('helvetica', 'normal');
+          doc.text(`${runnerUp[1].wins}V – ${runnerUp[1].losses}D`, ruX + 4, finalY + 15);
+        }
+
+        finalY += rowH + 6;
+      }
+    }
+  }
+
+  return finalY;
 }
 
 // ── FUNCIÓN PRINCIPAL ───────────────────────────────────────────────────────
@@ -422,6 +508,12 @@ export function exportBracketPdf({ tournamentName, matches, mode = 'both', modal
     if (!byCategory[m.category])          byCategory[m.category] = {};
     if (!byCategory[m.category][m.round]) byCategory[m.category][m.round] = [];
     byCategory[m.category][m.round].push(m);
+  });
+  // Sort each round's matches by bracketPosition so sequential indexing is correct
+  Object.values(byCategory).forEach(rounds => {
+    Object.keys(rounds).forEach(r => {
+      rounds[r].sort((a, b) => (a.bracketPosition ?? 0) - (b.bracketPosition ?? 0));
+    });
   });
 
   let yPos    = 24;

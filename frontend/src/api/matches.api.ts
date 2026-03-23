@@ -35,12 +35,19 @@ export const matchesApi = {
   },
 
   rescheduleMatch: async (matchId: string, data: {
-    scheduledAt: string;
+    scheduledAt: string;   // ISO: "2026-03-22T14:15:00"
     courtId?: string;
     estimatedDuration?: number;
     notes?: string;
   }) => {
-    const res = await api.patch(`/matches/${matchId}/reschedule`, data);
+    const [date, timePart] = data.scheduledAt.split('T');
+    const time = timePart?.slice(0, 5) ?? '09:00'; // "HH:MM"
+    const res = await api.patch(`/matches/${matchId}/reschedule`, {
+      date,
+      time,
+      courtId: data.courtId,
+      duration: data.estimatedDuration ?? 90,
+    });
     return res.data;
   },
 

@@ -1,31 +1,35 @@
 // backend/src/matches/match.entity.ts  ← REEMPLAZA COMPLETO
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+} from 'typeorm';
 
 export enum MatchStatus {
-  PENDING   = 'pending',
-  LIVE      = 'live',
+  PENDING = 'pending',
+  LIVE = 'live',
   COMPLETED = 'completed',
-  WO        = 'wo',
-  SUSPENDED = 'suspended',   // ← NUEVO: partido o jornada suspendida
+  WO = 'wo',
+  SUSPENDED = 'suspended', // ← NUEVO: partido o jornada suspendida
 }
 
 export enum MatchRound {
-  R64  = 'R64',
-  R32  = 'R32',
-  R16  = 'R16',
-  QF   = 'QF',
-  SF   = 'SF',
-  F    = 'F',
-  RR   = 'RR',
+  R64 = 'R64',
+  R32 = 'R32',
+  R16 = 'R16',
+  QF = 'QF',
+  SF = 'SF',
+  F = 'F',
+  RR = 'RR',
   RR_A = 'RR_A',
   RR_B = 'RR_B',
   SF_M = 'SF_M',
-  F_M  = 'F_M',
+  F_M = 'F_M',
 }
 
 @Entity('matches')
 export class Match {
-
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
@@ -125,8 +129,13 @@ export class Match {
     sets2: number;
     games1: number;
     games2: number;
-    setsHistory: { games1: number; games2: number; tiebreak1?: number; tiebreak2?: number }[];
-    note?: string;  // ej: "Suspendido por lluvia en el 2° set"
+    setsHistory: {
+      games1: number;
+      games2: number;
+      tiebreak1?: number;
+      tiebreak2?: number;
+    }[];
+    note?: string; // ej: "Suspendido por lluvia en el 2° set"
   };
 
   // Fecha reprogramada (para mostrar al público)
@@ -141,6 +150,12 @@ export class Match {
 
   @Column({ nullable: true })
   player2Label: string;
+
+  // ── POSICIÓN EN EL CUADRO ────────────────────────
+  // Índice 0-based dentro de la ronda (0=primera llave, 1=segunda llave, etc.)
+  // Garantiza orden estable independientemente del UUID o createdAt
+  @Column({ nullable: true, type: 'int', default: null })
+  bracketPosition: number | null;
 
   @CreateDateColumn()
   createdAt: Date;

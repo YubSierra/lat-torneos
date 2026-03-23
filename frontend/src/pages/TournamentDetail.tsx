@@ -17,6 +17,8 @@ import GameFormatConfig, {
 import { exportBracketPdf } from '../utils/exportBracketPdf';
 import BracketView from '../components/BracketView';
 import SuspendModal, { type SuspendMode } from '../components/SuspendModal';
+import EditScheduleModal from '../components/EditScheduleModal';
+import { courtsApi } from '../api/courts.api';
 import InscribirJugadorModal from '../components/InscribirJugadorModal';
 import CambiarPagoModal      from '../components/CambiarPagoModal';
 import DeleteDrawButton from '../components/DeleteDrawButton';
@@ -80,6 +82,17 @@ export default function TournamentDetail() {
     open: boolean;
     match?: any;
   }>({ open: false });
+
+  const [rescheduleModal, setRescheduleModal] = useState<{
+    open: boolean;
+    match?: any;
+  }>({ open: false });
+
+  const [bulkRescheduleModal, setBulkRescheduleModal] = useState(false);
+  const [bulkDate, setBulkDate] = useState('');
+  const [bulkStartTime, setBulkStartTime] = useState('');
+  const [bulkCourtId, setBulkCourtId] = useState('');
+  const [bulkLoading, setBulkLoading] = useState(false);
 
   // ── Modal inscribir jugador individual ───────────────────────────────
   const [showInscribirModal, setShowInscribirModal] = useState(false);
@@ -197,6 +210,23 @@ export default function TournamentDetail() {
   const resumeMatchMutation = useMutation({
     mutationFn: (matchId: string) => matchesApi.resumeMatch(matchId),
     onSuccess: () => {
+      refetchBracket();
+      queryClient.invalidateQueries({ queryKey: ['matches', id] });
+    },
+  });
+
+  // ── Canchas (para modal de reprogramar) ──────────────────────────────
+  const { data: courts = [] } = useQuery({
+    queryKey: ['courts'],
+    queryFn: () => courtsApi.getAll(),
+  });
+
+  // ── Reprogramar partido suspendido desde el cuadro ───────────────────
+  const rescheduleMatchMutation = useMutation({
+    mutationFn: ({ matchId, data }: { matchId: string; data: any }) =>
+      matchesApi.rescheduleMatch(matchId, data),
+    onSuccess: () => {
+      setRescheduleModal({ open: false });
       refetchBracket();
       queryClient.invalidateQueries({ queryKey: ['matches', id] });
     },
@@ -1321,6 +1351,46 @@ export default function TournamentDetail() {
                     onDeleted={() => queryClient.invalidateQueries({ queryKey: ['matches', id] })}
                   />
                 )}
+                {isAdmin && (
+                  <button
+                    onClick={async () => {
+                      if (!confirm('¿Reparar el cuadro de llaves? Esto corregirá jugadores duplicados o mal asignados en las rondas siguientes (QF/SF/F).')) return;
+                      try {
+                        const res = await import('../api/axios').then(m => m.default.post(`/tournaments/${id}/draw/repair`, {}));
+                        queryClient.invalidateQueries({ queryKey: ['matches', id] });
+                        alert(`✅ Cuadro reparado: ${res.data.fixed} slots corregidos, ${res.data.reset} reseteados.`);
+                      } catch (e: any) {
+                        alert(`❌ ${e?.response?.data?.message ?? 'Error al reparar'}`);
+                      }
+                    }}
+                    style={{
+                      padding: '8px 14px', borderRadius: '7px',
+                      border: '1.5px solid #FDE68A', background: '#FFFBEB',
+                      color: '#92400E', cursor: 'pointer', fontWeight: 600,
+                      fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px',
+                    }}
+                  >
+                    🔧 Reparar Cuadro
+                  </button>
+                )}
+                {isAdmin && (bracketMatches as any[]).some((m: any) => m.status === 'suspended') && (
+                  <button
+                    onClick={() => {
+                      setBulkDate('');
+                      setBulkStartTime('');
+                      setBulkCourtId('');
+                      setBulkRescheduleModal(true);
+                    }}
+                    style={{
+                      padding: '8px 14px', borderRadius: '7px',
+                      border: '1.5px solid #BFDBFE', background: '#EFF6FF',
+                      color: '#1D4ED8', cursor: 'pointer', fontWeight: 600,
+                      fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px',
+                    }}
+                  >
+                    📅 Reprogramar suspendidos
+                  </button>
+                )}
               </div>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 {/* Exportar PDF */}
@@ -1391,6 +1461,7 @@ export default function TournamentDetail() {
                 advancingPerGroup={mdAdvancing || advancingPerGroup}
                 onSuspendMatch={(match) => setSuspendModal({ open: true, match })}
                 onResumeMatch={(match) => resumeMatchMutation.mutate(match.id)}
+                onRescheduleMatch={(match) => setRescheduleModal({ open: true, match })}
                 onEditRRGroups={isAdmin ? openEditRRModal : undefined}
               />
             )}
@@ -1574,6 +1645,165 @@ export default function TournamentDetail() {
         onCancel={() => setSuspendModal({ open: false })}
         isLoading={suspendMatchMutation.isPending}
       />
+
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* MODAL: Reprogramar partido suspendido                             */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      <EditScheduleModal
+        isOpen={rescheduleModal.open}
+        match={rescheduleModal.match ? (() => {
+          const m = rescheduleModal.match;
+          const court = (courts as any[]).find((c: any) => c.id === m.courtId);
+          const d = m.scheduledAt ? new Date(m.scheduledAt) : null;
+          return {
+            matchId:  m.id,
+            player1:  m.player1Name || 'Por definir',
+            player2:  m.player2Name || 'Por definir',
+            round:    m.round,
+            category: m.category,
+            time:     d ? d.toTimeString().slice(0, 5) : '',
+            date:     d ? d.toISOString().slice(0, 10) : '',
+            court:    court?.name || '—',
+            courtId:  m.courtId || '',
+            sede:     court?.sede || '—',
+            duration: `${m.estimatedDuration || 90}`,
+          };
+        })() : null}
+        courts={(courts as any[]).map((c: any) => ({ id: c.id, name: c.name, sede: c.sede, surface: c.surface }))}
+        onConfirm={(matchId, data) => rescheduleMatchMutation.mutate({ matchId, data })}
+        onCancel={() => setRescheduleModal({ open: false })}
+      />
+
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* MODAL: Reprogramar TODOS los partidos suspendidos                 */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {bulkRescheduleModal && (() => {
+        const suspended = (bracketMatches as any[]).filter((m: any) => m.status === 'suspended');
+        const ROUND_LABELS: Record<string,string> = { RR:'RR', R16:'R16', QF:'Cuartos', SF:'Semifinal', F:'Final' };
+        const handleBulkConfirm = async () => {
+          if (!bulkDate) return;
+          setBulkLoading(true);
+          try {
+            let cursor = bulkStartTime
+              ? bulkStartTime.split(':').reduce((h, m, i) => i === 0 ? +h * 60 : +h + +m, 0 as any) as number
+              : null;
+            for (const m of suspended) {
+              const dur = m.estimatedDuration || 90;
+              let scheduledAt: string;
+              if (cursor !== null) {
+                const hh = String(Math.floor(cursor / 60)).padStart(2, '0');
+                const mm = String(cursor % 60).padStart(2, '0');
+                scheduledAt = `${bulkDate}T${hh}:${mm}:00`;
+                cursor += dur;
+              } else {
+                const origTime = m.scheduledAt
+                  ? new Date(m.scheduledAt).toTimeString().slice(0, 5)
+                  : '09:00';
+                scheduledAt = `${bulkDate}T${origTime}:00`;
+              }
+              await matchesApi.rescheduleMatch(m.id, {
+                scheduledAt,
+                courtId: bulkCourtId || m.courtId || undefined,
+                estimatedDuration: dur,
+              });
+            }
+            setBulkRescheduleModal(false);
+            refetchBracket();
+            queryClient.invalidateQueries({ queryKey: ['matches', id] });
+          } finally {
+            setBulkLoading(false);
+          }
+        };
+
+        return (
+          <div style={{ position:'fixed', inset:0, zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', backgroundColor:'rgba(0,0,0,0.55)', backdropFilter:'blur(4px)' }}
+            onClick={() => setBulkRescheduleModal(false)}>
+            <div style={{ backgroundColor:'white', borderRadius:'18px', boxShadow:'0 30px 70px rgba(0,0,0,0.25)', width:'100%', maxWidth:'560px', margin:'0 16px', overflow:'hidden', maxHeight:'90vh', display:'flex', flexDirection:'column' }}
+              onClick={e => e.stopPropagation()}>
+
+              {/* Header */}
+              <div style={{ background:'linear-gradient(135deg,#1B3A1B,#2D6A2D)', padding:'20px 24px' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
+                  <span style={{ fontSize:'26px' }}>📅</span>
+                  <div>
+                    <h2 style={{ color:'white', fontSize:'17px', fontWeight:'700', margin:0 }}>Reprogramar partidos suspendidos</h2>
+                    <p style={{ color:'rgba(255,255,255,0.7)', fontSize:'12px', margin:0 }}>{suspended.length} partidos suspendidos</p>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ padding:'20px 24px', overflowY:'auto', flex:1, display:'flex', flexDirection:'column', gap:'16px' }}>
+
+                {/* Lista de partidos */}
+                <div>
+                  <p style={{ fontSize:'12px', fontWeight:'600', color:'#4B5563', marginBottom:'8px' }}>Partidos a reprogramar:</p>
+                  <div style={{ border:'1px solid #E5E7EB', borderRadius:'8px', overflow:'hidden' }}>
+                    {suspended.map((m: any, i: number) => (
+                      <div key={m.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 12px', backgroundColor: i%2===0 ? 'white' : '#FAFAFA', borderBottom: i < suspended.length-1 ? '1px solid #F3F4F6' : 'none', fontSize:'12px' }}>
+                        <div>
+                          <span style={{ fontWeight:'600', color:'#1F2937' }}>{m.player1Name || '—'} vs {m.player2Name || '—'}</span>
+                          <span style={{ color:'#9CA3AF', marginLeft:'8px' }}>{ROUND_LABELS[m.round] ?? m.round} · {m.category}</span>
+                        </div>
+                        <span style={{ color:'#F97316', fontSize:'11px', fontWeight:'600' }}>
+                          {m.scheduledAt ? new Date(m.scheduledAt).toLocaleString('es-CO', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : 'Sin hora'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Nueva fecha */}
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'12px' }}>
+                  <div>
+                    <label style={{ display:'block', fontSize:'12px', fontWeight:'600', color:'#4B5563', marginBottom:'6px' }}>
+                      📅 Nueva fecha <span style={{ color:'#EF4444' }}>*</span>
+                    </label>
+                    <input type="date" value={bulkDate} onChange={e => setBulkDate(e.target.value)}
+                      style={{ width:'100%', padding:'9px 12px', borderRadius:'8px', border:'1.5px solid #D1D5DB', fontSize:'13px', boxSizing:'border-box' as any }} />
+                  </div>
+                  <div>
+                    <label style={{ display:'block', fontSize:'12px', fontWeight:'600', color:'#4B5563', marginBottom:'6px' }}>
+                      ⏰ Hora de inicio <span style={{ color:'#9CA3AF', fontWeight:'400' }}>(opcional)</span>
+                    </label>
+                    <input type="time" value={bulkStartTime} onChange={e => setBulkStartTime(e.target.value)}
+                      style={{ width:'100%', padding:'9px 12px', borderRadius:'8px', border:'1.5px solid #D1D5DB', fontSize:'13px', boxSizing:'border-box' as any }} />
+                  </div>
+                </div>
+
+                {/* Cancha */}
+                <div>
+                  <label style={{ display:'block', fontSize:'12px', fontWeight:'600', color:'#4B5563', marginBottom:'6px' }}>🏟️ Cancha <span style={{ color:'#9CA3AF', fontWeight:'400' }}>(opcional — mantiene la cancha original si no se elige)</span></label>
+                  <select value={bulkCourtId} onChange={e => setBulkCourtId(e.target.value)}
+                    style={{ width:'100%', padding:'9px 12px', borderRadius:'8px', border:'1.5px solid #D1D5DB', fontSize:'13px', boxSizing:'border-box' as any }}>
+                    <option value="">Mantener cancha original de cada partido</option>
+                    {(courts as any[]).map((c: any) => (
+                      <option key={c.id} value={c.id}>{c.name} — {c.sede}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <p style={{ fontSize:'11px', color:'#6B7280', margin:0 }}>
+                  {bulkStartTime
+                    ? `El primer partido inicia a las ${bulkStartTime}. Los siguientes se programan consecutivamente según la duración de cada partido.`
+                    : 'Sin hora de inicio: cada partido conserva su hora original pero con la nueva fecha.'}
+                </p>
+
+                {/* Botones */}
+                <div style={{ display:'flex', gap:'10px' }}>
+                  <button onClick={() => setBulkRescheduleModal(false)} disabled={bulkLoading}
+                    style={{ flex:1, padding:'11px', borderRadius:'10px', border:'1.5px solid #E5E7EB', backgroundColor:'white', color:'#374151', fontWeight:'600', fontSize:'14px', cursor:'pointer' }}>
+                    Cancelar
+                  </button>
+                  <button onClick={handleBulkConfirm} disabled={!bulkDate || bulkLoading}
+                    style={{ flex:2, padding:'11px', borderRadius:'10px', border:'none', background: !bulkDate ? '#D1D5DB' : 'linear-gradient(135deg,#1D4ED8,#1E40AF)', color:'white', fontWeight:'700', fontSize:'14px', cursor: !bulkDate ? 'not-allowed' : 'pointer', boxShadow: bulkDate ? '0 4px 14px rgba(29,78,216,0.3)' : 'none' }}>
+                    {bulkLoading ? '⏳ Reprogramando...' : `✓ Reprogramar ${suspended.length} partidos`}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ══════════════════════════════════════════════════════════════════ */}
       {/* MODAL: Admin cambia forma de pago de una inscripción              */}

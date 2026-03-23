@@ -26,9 +26,13 @@ export class MatchesService {
     const isUuid = (id: string) => id && id !== 'BYE' && id.length === 36;
 
     // Separar partidos de dobles (categoría termina en _DOBLES)
-    const doublesMatches = matches.filter(m => m.category?.endsWith('_DOBLES'));
+    const doublesMatches = matches.filter((m) =>
+      m.category?.endsWith('_DOBLES'),
+    );
     const doublesTeamIds = new Set<string>(
-      doublesMatches.flatMap(m => [m.player1Id, m.player2Id, m.winnerId].filter(isUuid)),
+      doublesMatches.flatMap((m) =>
+        [m.player1Id, m.player2Id, m.winnerId].filter(isUuid),
+      ),
     );
 
     // Resolver nombres de parejas de dobles
@@ -38,26 +42,36 @@ export class MatchesService {
         .getRepository('doubles_teams')
         .find({ where: { id: In([...doublesTeamIds]) } });
 
-      const doublesUserIds = [...new Set(
-        teams.flatMap((t: any) => [t.player1Id, t.player2Id].filter(Boolean)),
-      )];
+      const doublesUserIds = [
+        ...new Set(
+          teams.flatMap((t: any) => [t.player1Id, t.player2Id].filter(Boolean)),
+        ),
+      ];
 
-      const doublesUsers = doublesUserIds.length > 0
-        ? await this.userRepo.find({
-            where: { id: In(doublesUserIds) },
-            select: ['id', 'nombres', 'apellidos', 'email'],
-          })
-        : [];
+      const doublesUsers =
+        doublesUserIds.length > 0
+          ? await this.userRepo.find({
+              where: { id: In(doublesUserIds) },
+              select: ['id', 'nombres', 'apellidos', 'email'],
+            })
+          : [];
 
       const duMap = new Map(
-        doublesUsers.map(u => [u.id, formatPlayerName(u.nombres, u.apellidos, u.email)]),
+        doublesUsers.map((u) => [
+          u.id,
+          formatPlayerName(u.nombres, u.apellidos, u.email),
+        ]),
       );
 
       for (const t of teams as any[]) {
         const n1 = duMap.get(t.player1Id) || '?';
-        const n2 = t.player2Id ? (duMap.get(t.player2Id) || '?') : null;
+        const n2 = t.player2Id ? duMap.get(t.player2Id) || '?' : null;
         teamNameMap.set(t.id, n2 ? `${n1} / ${n2}` : n1);
-        if (t.teamName) teamNameMap.set(t.id, `${toTitleCase(t.teamName)} (${n1}${n2 ? ' / ' + n2 : ''})`);
+        if (t.teamName)
+          teamNameMap.set(
+            t.id,
+            `${toTitleCase(t.teamName)} (${n1}${n2 ? ' / ' + n2 : ''})`,
+          );
       }
     }
 
@@ -72,12 +86,13 @@ export class MatchesService {
       ),
     ];
 
-    const users = playerIds.length > 0
-      ? await this.userRepo.find({
-          where: { id: In(playerIds) },
-          select: ['id', 'nombres', 'apellidos', 'email', 'photoUrl'],
-        })
-      : [];
+    const users =
+      playerIds.length > 0
+        ? await this.userRepo.find({
+            where: { id: In(playerIds) },
+            select: ['id', 'nombres', 'apellidos', 'email', 'photoUrl'],
+          })
+        : [];
 
     const userMap = new Map(
       users.map((u) => [
@@ -102,7 +117,9 @@ export class MatchesService {
       ...m,
       player1Name: resolveName(m.player1Id, isByeMatch(m)),
       player2Name: resolveName(m.player2Id, isByeMatch(m)),
-      winnerName:  m.winnerId ? (teamNameMap.get(m.winnerId) || userMap.get(m.winnerId)?.name || null) : null,
+      winnerName: m.winnerId
+        ? teamNameMap.get(m.winnerId) || userMap.get(m.winnerId)?.name || null
+        : null,
       player1PhotoUrl: userMap.get(m.player1Id)?.photoUrl || null,
       player2PhotoUrl: userMap.get(m.player2Id)?.photoUrl || null,
     }));
@@ -119,7 +136,7 @@ export class MatchesService {
   async findByTournament(tournamentId: string) {
     const matches = await this.repo.find({
       where: { tournamentId },
-      order: { scheduledAt: 'ASC' },
+      order: { scheduledAt: 'ASC', bracketPosition: 'ASC' } as any,
     });
     return this.enrichWithNames(matches);
   }
@@ -146,23 +163,26 @@ export class MatchesService {
 
     if (dto.setsHistory && dto.setsHistory.length > 0) {
       // Calcular sets y games totales desde el historial set a set
-      let sets1 = 0, sets2 = 0, games1 = 0, games2 = 0;
-      dto.setsHistory.forEach(s => {
+      let sets1 = 0,
+        sets2 = 0,
+        games1 = 0,
+        games2 = 0;
+      dto.setsHistory.forEach((s) => {
         if (s.games1 > s.games2) sets1++;
         else if (s.games2 > s.games1) sets2++;
         games1 += s.games1;
         games2 += s.games2;
       });
-      match.sets1  = sets1;
-      match.sets2  = sets2;
+      match.sets1 = sets1;
+      match.sets2 = sets2;
       match.games1 = games1;
       match.games2 = games2;
       match.setsHistory = dto.setsHistory as any;
     } else {
-      match.sets1   = dto.sets1;
-      match.sets2   = dto.sets2;
-      match.games1  = dto.games1;
-      match.games2  = dto.games2;
+      match.sets1 = dto.sets1;
+      match.sets2 = dto.sets2;
+      match.games1 = dto.games1;
+      match.games2 = dto.games2;
     }
 
     match.points1 = dto.points1;
@@ -188,14 +208,14 @@ export class MatchesService {
     match.status = MatchStatus.WO;
 
     // Respetar el formato del partido: sets necesarios para ganar
-    const totalSets   = (match.gameFormat as any)?.sets      ?? 3;
+    const totalSets = (match.gameFormat as any)?.sets ?? 3;
     const gamesPerSet = (match.gameFormat as any)?.gamesPerSet ?? 6;
-    const setsToWin   = Math.ceil(totalSets / 2);
+    const setsToWin = Math.ceil(totalSets / 2);
 
-    match.sets1   = winnerId === match.player1Id ? setsToWin : 0;
-    match.sets2   = winnerId === match.player2Id ? setsToWin : 0;
-    match.games1  = winnerId === match.player1Id ? setsToWin * gamesPerSet : 0;
-    match.games2  = winnerId === match.player2Id ? setsToWin * gamesPerSet : 0;
+    match.sets1 = winnerId === match.player1Id ? setsToWin : 0;
+    match.sets2 = winnerId === match.player2Id ? setsToWin : 0;
+    match.games1 = winnerId === match.player1Id ? setsToWin * gamesPerSet : 0;
+    match.games2 = winnerId === match.player2Id ? setsToWin * gamesPerSet : 0;
 
     await this.repo.save(match);
     await this.advanceWinner(match);
@@ -205,13 +225,13 @@ export class MatchesService {
   // ── DECLARAR DOBLE W.O. ─────────────────────────
   // Ningún jugador se presentó — sin ganador, sin puntos, 0-0
   async declareDoubleWalkover(id: string) {
-    const match    = await this.findOne(id);
+    const match = await this.findOne(id);
     match.winnerId = null;
-    match.status   = MatchStatus.WO;
-    match.sets1    = 0;
-    match.sets2    = 0;
-    match.games1   = 0;
-    match.games2   = 0;
+    match.status = MatchStatus.WO;
+    match.sets1 = 0;
+    match.sets2 = 0;
+    match.games1 = 0;
+    match.games2 = 0;
     // NO se llama advanceWinner — nadie avanza
     await this.repo.save(match);
     return match;
@@ -284,9 +304,17 @@ export class MatchesService {
       order: { createdAt: 'ASC' },
     });
 
-    const allCompleted = [...completedInRound, ...completedWO].sort(
-      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-    );
+    const stableSort = (arr: Match[]) =>
+      arr.sort((a, b) => {
+        const bpA = (a as any).bracketPosition ?? null;
+        const bpB = (b as any).bracketPosition ?? null;
+        if (bpA !== null && bpB !== null) return bpA - bpB;
+        if (bpA !== null) return -1;
+        if (bpB !== null) return 1;
+        const tDiff =
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+        return tDiff !== 0 ? tDiff : a.id.localeCompare(b.id);
+      });
 
     const allInRound = await this.repo.find({
       where: { tournamentId, category, round: completedMatch.round as any },
@@ -294,28 +322,22 @@ export class MatchesService {
 
     if (!allInRound || allInRound.length === 0) return;
 
-    const matchIndex = allInRound
-      .sort(
-        (a, b) =>
-          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-      )
-      .findIndex((m) => m.id === completedMatch.id);
+    const sortedRound = stableSort(allInRound);
+    const matchIndex = sortedRound.findIndex((m) => m.id === completedMatch.id);
 
     if (matchIndex === -1) return;
 
     const pairIndex = Math.floor(matchIndex / 2);
     const pairOffset = matchIndex % 2;
 
-    const sortedRound = allInRound.sort(
-      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-    );
     const partner =
       sortedRound[pairOffset === 0 ? matchIndex + 1 : matchIndex - 1];
 
-    const nextRoundMatches = await this.repo.find({
-      where: { tournamentId, category, round: nextRound as any },
-      order: { createdAt: 'ASC' },
-    });
+    const nextRoundMatches = stableSort(
+      await this.repo.find({
+        where: { tournamentId, category, round: nextRound as any },
+      }),
+    );
 
     const existingNext = nextRoundMatches[pairIndex];
 
@@ -344,8 +366,6 @@ export class MatchesService {
 
       await this.repo.save(newMatch);
     }
-
-    void allCompleted; // usado implícitamente en lógica anterior
   }
 
   // ── ELIMINAR PARTIDO ─────────────────────────────
@@ -356,7 +376,11 @@ export class MatchesService {
   }
 
   // ── LIMPIAR PROGRAMACIÓN DEL DÍA ────────────────
-  async clearScheduleByDate(tournamentId: string, date: string, modality?: 'all' | 'singles' | 'doubles') {
+  async clearScheduleByDate(
+    tournamentId: string,
+    date: string,
+    modality?: 'all' | 'singles' | 'doubles',
+  ) {
     const qb = this.repo
       .createQueryBuilder()
       .update()
@@ -371,7 +395,12 @@ export class MatchesService {
     }
 
     await qb.execute();
-    const label = modality === 'doubles' ? ' de dobles' : modality === 'singles' ? ' de singles' : '';
+    const label =
+      modality === 'doubles'
+        ? ' de dobles'
+        : modality === 'singles'
+          ? ' de singles'
+          : '';
     return { message: `Programación${label} del ${date} eliminada` };
   }
 
@@ -426,35 +455,75 @@ export class MatchesService {
       ).length;
 
       // Calcular standings
-      const standings = new Map<string, {
-        wins: number; losses: number; name: string;
-        setsWon: number; setsLost: number;
-        gamesWon: number; gamesLost: number;
-      }>();
+      const standings = new Map<
+        string,
+        {
+          wins: number;
+          losses: number;
+          name: string;
+          setsWon: number;
+          setsLost: number;
+          gamesWon: number;
+          gamesLost: number;
+        }
+      >();
 
-      gMatches.forEach(m => {
+      gMatches.forEach((m) => {
         if (m.player1Id && !standings.has(m.player1Id))
-          standings.set(m.player1Id, { wins: 0, losses: 0, name: userMap.get(m.player1Id) || m.player1Id, setsWon: 0, setsLost: 0, gamesWon: 0, gamesLost: 0 });
+          standings.set(m.player1Id, {
+            wins: 0,
+            losses: 0,
+            name: userMap.get(m.player1Id) || m.player1Id,
+            setsWon: 0,
+            setsLost: 0,
+            gamesWon: 0,
+            gamesLost: 0,
+          });
         if (m.player2Id && !standings.has(m.player2Id))
-          standings.set(m.player2Id, { wins: 0, losses: 0, name: userMap.get(m.player2Id) || m.player2Id, setsWon: 0, setsLost: 0, gamesWon: 0, gamesLost: 0 });
+          standings.set(m.player2Id, {
+            wins: 0,
+            losses: 0,
+            name: userMap.get(m.player2Id) || m.player2Id,
+            setsWon: 0,
+            setsLost: 0,
+            gamesWon: 0,
+            gamesLost: 0,
+          });
 
         if (m.status === MatchStatus.COMPLETED || m.status === MatchStatus.WO) {
-          const loserId = m.winnerId === m.player1Id ? m.player2Id : m.player1Id;
-          if (m.winnerId && standings.has(m.winnerId)) standings.get(m.winnerId)!.wins++;
-          if (loserId   && standings.has(loserId))    standings.get(loserId)!.losses++;
+          const loserId =
+            m.winnerId === m.player1Id ? m.player2Id : m.player1Id;
+          if (m.winnerId && standings.has(m.winnerId))
+            standings.get(m.winnerId)!.wins++;
+          if (loserId && standings.has(loserId))
+            standings.get(loserId)!.losses++;
           // Sets
-          if (standings.has(m.player1Id)) { standings.get(m.player1Id)!.setsWon  += m.sets1; standings.get(m.player1Id)!.setsLost += m.sets2; }
-          if (standings.has(m.player2Id)) { standings.get(m.player2Id)!.setsWon  += m.sets2; standings.get(m.player2Id)!.setsLost += m.sets1; }
+          if (standings.has(m.player1Id)) {
+            standings.get(m.player1Id)!.setsWon += m.sets1;
+            standings.get(m.player1Id)!.setsLost += m.sets2;
+          }
+          if (standings.has(m.player2Id)) {
+            standings.get(m.player2Id)!.setsWon += m.sets2;
+            standings.get(m.player2Id)!.setsLost += m.sets1;
+          }
           // Games
-          if (standings.has(m.player1Id)) { standings.get(m.player1Id)!.gamesWon  += m.games1; standings.get(m.player1Id)!.gamesLost += m.games2; }
-          if (standings.has(m.player2Id)) { standings.get(m.player2Id)!.gamesWon  += m.games2; standings.get(m.player2Id)!.gamesLost += m.games1; }
+          if (standings.has(m.player1Id)) {
+            standings.get(m.player1Id)!.gamesWon += m.games1;
+            standings.get(m.player1Id)!.gamesLost += m.games2;
+          }
+          if (standings.has(m.player2Id)) {
+            standings.get(m.player2Id)!.gamesWon += m.games2;
+            standings.get(m.player2Id)!.gamesLost += m.games1;
+          }
         }
       });
 
       // ── ORDENAR: 1. Victorias  2. ratio sets  3. ratio games  4. H2H (2-way)  5. Nombre (alfabético)
-      const ratio = (w: number, l: number) => l > 0 ? w / l : w > 0 ? Infinity : 0;
+      const ratio = (w: number, l: number) =>
+        l > 0 ? w / l : w > 0 ? Infinity : 0;
       const completedM = gMatches.filter(
-        m => m.status === MatchStatus.COMPLETED || m.status === MatchStatus.WO,
+        (m) =>
+          m.status === MatchStatus.COMPLETED || m.status === MatchStatus.WO,
       );
 
       // allEntries: snapshot estable — no se muta durante el sort
@@ -472,25 +541,29 @@ export class MatchesService {
         if (Math.abs(gB - gA) > 0.0001) return gB - gA;
 
         // H2H solo si exactamente 2 jugadores comparten todas las métricas anteriores
-        const tiedGroup = allEntries.filter(([, s]) =>
-          s.wins === a.wins &&
-          Math.abs(ratio(s.setsWon, s.setsLost)  - sA) <= 0.0001 &&
-          Math.abs(ratio(s.gamesWon, s.gamesLost) - gA) <= 0.0001,
+        const tiedGroup = allEntries.filter(
+          ([, s]) =>
+            s.wins === a.wins &&
+            Math.abs(ratio(s.setsWon, s.setsLost) - sA) <= 0.0001 &&
+            Math.abs(ratio(s.gamesWon, s.gamesLost) - gA) <= 0.0001,
         );
         if (tiedGroup.length === 2) {
-          const h2h = completedM.find(m =>
-            (m.player1Id === idA && m.player2Id === idB) ||
-            (m.player1Id === idB && m.player2Id === idA),
+          const h2h = completedM.find(
+            (m) =>
+              (m.player1Id === idA && m.player2Id === idB) ||
+              (m.player1Id === idB && m.player2Id === idA),
           );
           if (h2h?.winnerId === idA) return -1;
-          if (h2h?.winnerId === idB) return  1;
+          if (h2h?.winnerId === idB) return 1;
         }
 
         // Empate circular o de 3+ jugadores → desempatar por nombre (determinístico)
         return a.name.localeCompare(b.name);
       };
 
-      const sortedEntries = [...allEntries].sort(([idA, a], [idB, b]) => cmpPlayers(idA, a, idB, b));
+      const sortedEntries = [...allEntries].sort(([idA, a], [idB, b]) =>
+        cmpPlayers(idA, a, idB, b),
+      );
 
       // tiedForPosition: true solo cuando cmpPlayers devuelve 0 para el par adyacente
       // (con el desempate alfabético final, esto prácticamente nunca ocurre)
@@ -514,7 +587,7 @@ export class MatchesService {
         };
       });
 
-      const hasTie = sorted.some(s => s.tiedForPosition);
+      const hasTie = sorted.some((s) => s.tiedForPosition);
 
       groups.push({
         groupLabel,
@@ -549,7 +622,9 @@ export class MatchesService {
       return advancers.some((p: any) => p.tiedForPosition);
     });
     if (tiedGroups.length > 0) {
-      const labels = tiedGroups.map((g: any) => `Grupo ${g.groupLabel}`).join(', ');
+      const labels = tiedGroups
+        .map((g: any) => `Grupo ${g.groupLabel}`)
+        .join(', ');
       throw new HttpException(
         `Empate irresolvable en ${labels}. Se requiere decisión del árbitro antes de generar el Main Draw.`,
         HttpStatus.CONFLICT,
@@ -560,95 +635,184 @@ export class MatchesService {
     // LUEGO todos los 2dos. Así los primeros siempre tienen BYE antes que los segundos.
     const firstPlacers: string[] = [];
     const secondPlacers: string[] = [];
-    status.groups.forEach(group => {
+    status.groups.forEach((group) => {
       if (group.standings[0]) firstPlacers.push(group.standings[0].playerId);
-      if (advancingPerGroup >= 2 && group.standings[1]) secondPlacers.push(group.standings[1].playerId);
+      if (advancingPerGroup >= 2 && group.standings[1])
+        secondPlacers.push(group.standings[1].playerId);
     });
-    const qualifiers = [...firstPlacers, ...secondPlacers];
+
+    // Rotar los 2dos para evitar enfrentamientos del mismo grupo en primera ronda.
+    // La rotación segura se calcula dinámicamente según la estructura de slots ITF
+    // y el byeCount, para que ningún 1ro quede adyacente a su propio 2do en R16.
+    const numGroups = status.groups.length;
+    const totalQualifiers = firstPlacers.length + secondPlacers.length;
+    const drawSize_pre = this.nextPowerOfTwo(totalQualifiers);
+    const rotOffset =
+      secondPlacers.length > 0
+        ? this.findSafeRotationOffset(
+            numGroups,
+            drawSize_pre - totalQualifiers,
+            drawSize_pre,
+          )
+        : 0;
+    const rotatedSeconds =
+      rotOffset > 0 && secondPlacers.length > 0
+        ? [
+            ...secondPlacers.slice(rotOffset),
+            ...secondPlacers.slice(0, rotOffset),
+          ]
+        : secondPlacers;
+
+    const qualifiers = [...firstPlacers, ...rotatedSeconds];
 
     if (qualifiers.length < 2)
-      throw new Error('Se necesitan al menos 2 clasificados para generar el Main Draw');
+      throw new Error(
+        'Se necesitan al menos 2 clasificados para generar el Main Draw',
+      );
 
-    const drawSize_check   = this.nextPowerOfTwo(qualifiers.length);
+    const drawSize_check = this.nextPowerOfTwo(qualifiers.length);
     const firstRound_check = this.getFirstRound(drawSize_check);
     const existing = await this.repo.find({
       where: { tournamentId, category, round: firstRound_check as any },
     });
     // Bloquear solo si ya existen partidos reales (con jugadores), no placeholders
-    const realMatches = existing.filter(m => m.player1Id != null || m.player2Id != null);
+    const realMatches = existing.filter(
+      (m) => m.player1Id != null || m.player2Id != null,
+    );
     if (realMatches.length > 0)
       throw new Error('El Main Draw ya fue generado para esta categoría');
-    // Limpiar placeholders (sin jugadores) creados al generar el cuadro RR
+    // Limpiar placeholders (sin jugadores) creados al generar el cuadro RR.
+    // Incluye R16 y R32 porque generateRoundRobinGroups también los crea.
+    // Preservar scheduledAt/courtId de los placeholders antes de eliminarlos.
+    const schedMap = new Map<
+      string,
+      { scheduledAt: Date | null; courtId: string | null }
+    >();
     if (existing.length > 0) {
-      const mainRounds = ['QF', 'SF', 'F'] as any[];
+      const allRounds = ['R32', 'R16', 'QF', 'SF', 'F'] as any[];
       const allPlaceholders = await this.repo.find({
-        where: { tournamentId, category, round: In(mainRounds) },
+        where: { tournamentId, category, round: In(allRounds) },
       });
-      const pureNull = allPlaceholders.filter(m => m.player1Id == null && m.player2Id == null);
+      const pureNull = allPlaceholders.filter(
+        (m) => m.player1Id == null && m.player2Id == null,
+      );
+      for (const m of pureNull) {
+        if ((m as any).scheduledAt || (m as any).courtId) {
+          const key = `${m.round}|${m.bracketPosition}`;
+          schedMap.set(key, {
+            scheduledAt: (m as any).scheduledAt ?? null,
+            courtId: (m as any).courtId ?? null,
+          });
+        }
+      }
       if (pureNull.length > 0) await this.repo.remove(pureNull);
     }
 
-    const drawSize   = this.nextPowerOfTwo(qualifiers.length);
-    const byeCount   = drawSize - qualifiers.length;
+    const drawSize = this.nextPowerOfTwo(qualifiers.length);
+    const byeCount = drawSize - qualifiers.length;
     const firstRound = this.getFirstRound(drawSize);
 
-    // Construir el cuadro con siembra ITF
-    const draw = this.buildITFDraw(qualifiers, byeCount, drawSize);
+    // Mapa jugador → grupo para evitar enfrentamientos mismo grupo y 1ro vs 1ro
+    const playerGroupMap = new Map<string, string>();
+    status.groups.forEach((g: any) => {
+      g.standings.forEach((p: any) =>
+        playerGroupMap.set(p.playerId, g.groupLabel),
+      );
+    });
+
+    // Construir el cuadro con siembra ITF (previene 1ro vs 1ro en QF)
+    const draw = this.buildITFDraw(
+      qualifiers,
+      byeCount,
+      drawSize,
+      firstPlacers.length,
+      playerGroupMap,
+    );
 
     const matches = [];
     for (let i = 0; i < drawSize; i += 2) {
       const p1 = draw[i];
       const p2 = draw[i + 1];
+      const bracketPosition = i / 2;
       if (p1 === 'BYE' || p2 === 'BYE') {
         const winner = p1 === 'BYE' ? p2 : p1;
-        matches.push(this.repo.create({
-          tournamentId, category, round: firstRound as any,
-          player1Id: p1 === 'BYE' ? null : p1,
-          player2Id: p2 === 'BYE' ? null : p2,
-          winnerId: winner,
-          status: MatchStatus.COMPLETED,
-        }));
+        matches.push(
+          this.repo.create({
+            tournamentId,
+            category,
+            round: firstRound as any,
+            player1Id: p1 === 'BYE' ? null : p1,
+            player2Id: p2 === 'BYE' ? null : p2,
+            winnerId: winner,
+            status: MatchStatus.COMPLETED,
+            bracketPosition,
+          } as any),
+        );
       } else {
-        matches.push(this.repo.create({
-          tournamentId, category, round: firstRound as any,
-          player1Id: p1, player2Id: p2,
-          status: MatchStatus.PENDING,
-        }));
+        matches.push(
+          this.repo.create({
+            tournamentId,
+            category,
+            round: firstRound as any,
+            player1Id: p1,
+            player2Id: p2,
+            status: MatchStatus.PENDING,
+            bracketPosition,
+          } as any),
+        );
       }
     }
 
     await this.repo.save(matches);
 
     // ── Pre-crear rondas siguientes con jugadores nulos ─────────────────────
-    const ROUND_SEQ: Record<string, string> = { R32: 'R16', R16: 'QF', QF: 'SF', SF: 'F' };
+    const ROUND_SEQ: Record<string, string> = {
+      R32: 'R16',
+      R16: 'QF',
+      QF: 'SF',
+      SF: 'F',
+    };
     let prevRound = [...matches];
-    let curRound  = firstRound as string;
+    let curRound = firstRound as string;
     while (ROUND_SEQ[curRound]) {
-      const nextRound   = ROUND_SEQ[curRound];
+      const nextRound = ROUND_SEQ[curRound];
       const nextMatches = [];
       for (let i = 0; i < prevRound.length; i += 2) {
         const m1 = prevRound[i];
         const m2 = prevRound[i + 1];
-        nextMatches.push(this.repo.create({
-          tournamentId, category,
-          round:     nextRound as any,
-          player1Id: m1?.status === MatchStatus.COMPLETED ? m1.winnerId : null,
-          player2Id: m2?.status === MatchStatus.COMPLETED ? m2.winnerId : null,
-          status:    MatchStatus.PENDING,
-        }));
+        const bp = i / 2;
+        const sched = schedMap.get(`${nextRound}|${bp}`);
+        nextMatches.push(
+          this.repo.create({
+            tournamentId,
+            category,
+            round: nextRound as any,
+            player1Id:
+              m1?.status === MatchStatus.COMPLETED ? m1.winnerId : null,
+            player2Id:
+              m2?.status === MatchStatus.COMPLETED ? m2.winnerId : null,
+            status: MatchStatus.PENDING,
+            bracketPosition: bp,
+            ...(sched ?? {}),
+          } as any),
+        );
       }
       await this.repo.save(nextMatches);
       prevRound = nextMatches;
-      curRound  = nextRound;
+      curRound = nextRound;
     }
 
     return {
       qualifiers: qualifiers.length,
-      drawSize, byeCount, firstRound,
+      drawSize,
+      byeCount,
+      firstRound,
       matches: matches.length,
-      groups: status.groups.map(g => ({
+      groups: status.groups.map((g) => ({
         group: `Grupo ${g.groupLabel}`,
-        classified: g.standings.slice(0, advancingPerGroup).map(p => p.playerName),
+        classified: g.standings
+          .slice(0, advancingPerGroup)
+          .map((p) => p.playerName),
       })),
     };
   }
@@ -662,35 +826,84 @@ export class MatchesService {
   //    S1 arriba del cuadro, S2 abajo, S3/S4 en mitades opuestas, etc.
   //    Garantía: S1 y S2 solo se ven en la Final.
   //              S1-S4 solo se ven en Semis.
-  private buildITFDraw(seeds: string[], byeCount: number, drawSize: number): string[] {
-    const draw     = new Array<string>(drawSize).fill('BYE');
+  private buildITFDraw(
+    seeds: string[],
+    byeCount: number,
+    drawSize: number,
+    numFirsts: number = 0,
+    playerGroupMap: Map<string, string> = new Map(),
+  ): string[] {
+    const draw = new Array<string>(drawSize).fill('BYE');
     const numPairs = drawSize / 2;
-    const slots    = this.getITFSlotOrder(numPairs);
+    const slots = this.getITFSlotOrder(numPairs);
 
-    // Construir los grupos (seed, pareja)
+    // Construir los pares naivamente: top byeCount reciben BYE, resto juegan entre sí
     const withBye = seeds.slice(0, byeCount);
-    const toPlay  = [...seeds.slice(byeCount)];
+    const toPlay = [...seeds.slice(byeCount)];
 
     const pairs: [string, string][] = [];
-    withBye.forEach(s => pairs.push([s, 'BYE']));
-    // Emparejar: mejor vs peor de los que quedan
+    withBye.forEach((s) => pairs.push([s, 'BYE']));
     while (toPlay.length >= 2) pairs.push([toPlay.shift()!, toPlay.pop()!]);
     if (toPlay.length === 1) pairs.push([toPlay[0], 'BYE']);
 
+    // ── Detectar y corregir enfrentamientos 1ro vs 1ro en QF ──────────────
+    // Los slots ITF adyacentes se enfrentan en QF. Si dos 1ros clasificados
+    // con BYE quedan adyacentes, el de menor ranking baja a R16 a jugar
+    // contra un 2do de distinto grupo.
+    if (numFirsts > 1) {
+      const slotToPairIdx = new Map<number, number>();
+      slots.forEach((s, i) => slotToPairIdx.set(s, i));
+
+      const isFirstBye = (pi: number) =>
+        pi < pairs.length && pairs[pi][1] === 'BYE' && pi < numFirsts;
+
+      for (let slot = 0; slot < numPairs; slot += 2) {
+        const pi1 = slotToPairIdx.get(slot);
+        const pi2 = slotToPairIdx.get(slot + 1);
+        if (pi1 === undefined || pi2 === undefined) continue;
+        if (!isFirstBye(pi1) || !isFirstBye(pi2)) continue;
+
+        // Conflicto: dos 1ros adyacentes. Mover el de menor rango (mayor índice) a R16.
+        const conflictPi = Math.max(pi1, pi2);
+        const conflictFirst = pairs[conflictPi][0];
+        const conflictGroup = playerGroupMap.get(conflictFirst);
+
+        // Buscar par real (índice ≥ byeCount) para intercambiar
+        let fixed = false;
+        for (let ri = pairs.length - 1; ri >= byeCount && !fixed; ri--) {
+          if (pairs[ri][1] === 'BYE') continue;
+          const [p1, p2] = pairs[ri];
+          const g1 = playerGroupMap.get(p1);
+          const g2 = playerGroupMap.get(p2);
+          // Usar p1 como rival del 1ro conflictivo, p2 recibe BYE
+          if (!conflictGroup || g1 !== conflictGroup) {
+            pairs[conflictPi] = [conflictFirst, p1];
+            pairs[ri] = [p2, 'BYE'];
+            fixed = true;
+          } else if (!conflictGroup || g2 !== conflictGroup) {
+            // Usar p2 como rival, p1 recibe BYE
+            pairs[conflictPi] = [conflictFirst, p2];
+            pairs[ri] = [p1, 'BYE'];
+            fixed = true;
+          }
+        }
+      }
+    }
+
     pairs.forEach(([seed, partner], idx) => {
       if (idx >= slots.length) return;
-      const slot    = slots[idx];
+      const slot = slots[idx];
       const evenPos = slot * 2;
-      const oddPos  = slot * 2 + 1;
+      const oddPos = slot * 2 + 1;
 
       // Índice par  → seed en posición par del slot  (arriba del par)
       // Índice impar → seed en posición impar del slot (abajo del par)
       // Esto pone S1 en el top absoluto (pos 0) y S2 en el bottom absoluto (pos drawSize-1)
       if (idx % 2 === 0) {
         draw[evenPos] = seed;
-        draw[oddPos]  = partner;
+        draw[oddPos] = partner;
       } else {
-        draw[oddPos]  = seed;
+        draw[oddPos] = seed;
         draw[evenPos] = partner;
       }
     });
@@ -701,15 +914,68 @@ export class MatchesService {
   // Orden de slots ITF por tamaño de cuadro (garantiza la separación correcta entre siembras)
   private getITFSlotOrder(numPairs: number): number[] {
     const orders: Record<number, number[]> = {
-      1:  [0],
-      2:  [0, 1],
-      4:  [0, 3, 2, 1],
-      8:  [0, 7, 4, 3, 2, 5, 1, 6],
+      1: [0],
+      2: [0, 1],
+      4: [0, 3, 2, 1],
+      8: [0, 7, 4, 3, 2, 5, 1, 6],
       16: [0, 15, 8, 7, 4, 11, 3, 12, 2, 9, 5, 14, 1, 10, 6, 13],
-      32: [0, 31, 16, 15, 8, 23, 7, 24, 4, 19, 11, 28, 3, 20, 12, 27,
-           2, 17, 9, 26, 5, 22, 14, 29, 1, 18, 10, 25, 6, 21, 13, 30],
+      32: [
+        0, 31, 16, 15, 8, 23, 7, 24, 4, 19, 11, 28, 3, 20, 12, 27, 2, 17, 9, 26,
+        5, 22, 14, 29, 1, 18, 10, 25, 6, 21, 13, 30,
+      ],
     };
     return orders[numPairs] ?? Array.from({ length: numPairs }, (_, i) => i);
+  }
+
+  // Calcula el offset de rotación seguro para RR→MainDraw.
+  // Garantiza que ningún 1ro quede adyacente a su propio 2do en la primera ronda,
+  // lo que causaría un enfrentamiento del mismo grupo en QF.
+  private findSafeRotationOffset(
+    N: number,
+    byeCount: number,
+    drawSize: number,
+  ): number {
+    if (N <= 1) return 0;
+    const numPairs = drawSize / 2;
+    const slots = this.getITFSlotOrder(numPairs);
+
+    // Construir mapa: slot_number → pair_index
+    const slotToPair = new Map<number, number>();
+    slots.forEach((s, i) => slotToPair.set(s, i));
+
+    const forbidden = new Set<number>();
+
+    if (byeCount >= N) {
+      // Todos los N 1ros tienen BYE; los pares N, N+1, ... son BYEs extra de 2dos.
+      // El extra BYE en par[pairIdx] debe no ser del mismo grupo que el 1ro adyacente.
+      for (let extraIdx = 0; extraIdx < byeCount - N; extraIdx++) {
+        const pairIdx = N + extraIdx;
+        if (pairIdx >= slots.length) break;
+        const mySlot = slots[pairIdx];
+        const adjSlot = mySlot % 2 === 0 ? mySlot + 1 : mySlot - 1;
+        const adjPairIdx = slotToPair.get(adjSlot);
+        if (adjPairIdx !== undefined && adjPairIdx < N) {
+          // adjPairIdx es el índice del 1ro adyacente → su grupo
+          forbidden.add(((adjPairIdx - extraIdx) % N + N) % N);
+        }
+      }
+    } else {
+      // Algunos 1ros juegan partidos reales (byeCount < N).
+      // Par[byeCount + k] = [1st_{byeCount+k}, toPlay.pop() = rotSec[N-1-k]]
+      // rotSec[N-1-k] no debe ser el 2do del mismo grupo que 1st_{byeCount+k}.
+      for (let k = 0; k < N - byeCount; k++) {
+        // rotSec[N-1-k] = secondPlacers[(offset + N - 1 - k) % N]
+        // debe ≠ secondPlacers[byeCount + k]  (mismo índice de grupo)
+        // → (offset + N - 1 - k) % N ≠ byeCount + k
+        // → offset ≠ (byeCount + 2k - N + 1 + N) % N = (byeCount + 2k + 1) % N
+        forbidden.add((byeCount + 2 * k + 1) % N);
+      }
+    }
+
+    for (let offset = 0; offset < N; offset++) {
+      if (!forbidden.has(offset)) return offset;
+    }
+    return 0;
   }
 
   // ── ACTUALIZAR MARCADOR EN VIVO ─────────────────
@@ -765,30 +1031,13 @@ export class MatchesService {
     const match = await this.repo.findOne({ where: { id: matchId } });
     if (!match) throw new NotFoundException('Partido no encontrado');
 
-    const playerIds = [match.player1Id, match.player2Id].filter(Boolean);
-    const users =
-      playerIds.length > 0
-        ? await this.userRepo
-            .createQueryBuilder('u')
-            .where('u.id IN (:...ids)', { ids: playerIds })
-            .getMany()
-        : [];
-    const userMap = new Map(
-      users.map((u) => [
-        u.id,
-        {
-          name: formatPlayerName(u.nombres, u.apellidos, u.email),
-          photoUrl: (u as any).photoUrl || null,
-        },
-      ]),
-    );
+    // Usar enrichWithNames para resolver correctamente nombres de singles Y dobles
+    const [enriched] = await this.enrichWithNames([match]);
 
     return {
-      ...match,
-      player1Name: userMap.get(match.player1Id)?.name || 'Jugador 1',
-      player2Name: userMap.get(match.player2Id)?.name || 'Jugador 2',
-      player1PhotoUrl: userMap.get(match.player1Id)?.photoUrl || null,
-      player2PhotoUrl: userMap.get(match.player2Id)?.photoUrl || null,
+      ...enriched,
+      player1Name: enriched.player1Name || 'Jugador 1',
+      player2Name: enriched.player2Name || 'Jugador 2',
       setsHistory: (match as any).setsHistory
         ? JSON.parse((match as any).setsHistory)
         : [],
@@ -857,8 +1106,10 @@ export class MatchesService {
       const otherEnd = otherStart + (other.estimatedDuration || 90);
 
       const sharesPlayer =
-        (match.player1Id && [other.player1Id, other.player2Id].includes(match.player1Id)) ||
-        (match.player2Id && [other.player1Id, other.player2Id].includes(match.player2Id));
+        (match.player1Id &&
+          [other.player1Id, other.player2Id].includes(match.player1Id)) ||
+        (match.player2Id &&
+          [other.player1Id, other.player2Id].includes(match.player2Id));
 
       if (sharesPlayer && newStart < otherEnd && newEnd > otherStart) {
         const hora = new Date(other.scheduledAt).toTimeString().slice(0, 5);
@@ -872,6 +1123,10 @@ export class MatchesService {
     match.scheduledAt = newDate;
     match.courtId = courtId;
     match.estimatedDuration = duration;
+    // Si estaba suspendido, vuelve a PENDING al reprogramar
+    if (match.status === MatchStatus.SUSPENDED) {
+      match.status = MatchStatus.PENDING;
+    }
     await this.repo.save(match);
     return { message: 'Partido reprogramado correctamente', match };
   }
@@ -1060,7 +1315,9 @@ export class MatchesService {
       throw new Error('Este partido no tiene un slot de BYE disponible');
     }
     if (match.scheduledAt) {
-      throw new Error('El partido ya está programado. No se puede asignar alterno.');
+      throw new Error(
+        'El partido ya está programado. No se puede asignar alterno.',
+      );
     }
 
     const alreadyIn = await this.repo.findOne({
@@ -1080,7 +1337,9 @@ export class MatchesService {
       ],
     });
     if (alreadyIn) {
-      throw new Error('Este jugador ya tiene partidos asignados en esta categoría');
+      throw new Error(
+        'Este jugador ya tiene partidos asignados en esta categoría',
+      );
     }
 
     if (match.player1Id === null) {
@@ -1151,7 +1410,9 @@ export class MatchesService {
       ],
     });
     if (liveOrScheduled) {
-      throw new Error('El jugador tiene un partido en vivo. No se puede reemplazar.');
+      throw new Error(
+        'El jugador tiene un partido en vivo. No se puede reemplazar.',
+      );
     }
 
     const alternateHasMatches = await this.repo.findOne({
@@ -1269,7 +1530,9 @@ export class MatchesService {
       );
     }
 
-    const scheduledAt = new Date(`${slot.scheduledDate}T${slot.scheduledTime}:00`);
+    const scheduledAt = new Date(
+      `${slot.scheduledDate}T${slot.scheduledTime}:00`,
+    );
 
     match.courtId = slot.courtId;
     match.scheduledAt = scheduledAt;
@@ -1403,8 +1666,10 @@ export class MatchesService {
     // (los que se pre-crean sin jugadores al generar el RR)
     if (drawType === 'rr') {
       const mainPlaceholders = all.filter(
-        (m) => ['QF', 'SF', 'F'].includes(m.round as string)
-             && m.player1Id == null && m.player2Id == null,
+        (m) =>
+          ['QF', 'SF', 'F'].includes(m.round as string) &&
+          m.player1Id == null &&
+          m.player2Id == null,
       );
       toDelete = [...toDelete, ...mainPlaceholders];
     }

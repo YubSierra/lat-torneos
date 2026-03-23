@@ -738,7 +738,7 @@ export default function Matches() {
                     <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}>
                       <thead>
                         <tr style={{ backgroundColor: '#F9FAFB' }}>
-                          {['Ronda', 'Categoría', 'Jugador 1', 'Jugador 2'].map(h => (
+                          {['Ronda', 'Categoría', 'Jugador 1', 'Jugador 2', 'Acciones'].map(h => (
                             <th key={h} style={{ textAlign: 'left', padding: '9px 14px', color: '#6B7280', fontWeight: '600', fontSize: '11px' }}>{h}</th>
                           ))}
                         </tr>
@@ -761,6 +761,28 @@ export default function Matches() {
                             </td>
                             <td style={{ padding: '9px 14px' }}>
                               <PlayerNameCell name={m.player2Name} photoUrl={m.player2PhotoUrl} playerId={m.player2Id} onClick={openPlayer} />
+                            </td>
+                            <td style={{ padding: '9px 14px' }}>
+                              {m.player1Id && m.player2Id && (
+                                <div style={{ display: 'flex', gap: '6px' }}>
+                                  {canAct && (
+                                    <button
+                                      onClick={() => openEditMatch(m)}
+                                      style={{ backgroundColor: '#EFF6FF', color: '#1D4ED8', border: '1px solid #BFDBFE', borderRadius: '6px', padding: '4px 8px', cursor: 'pointer', fontSize: '11px', fontWeight: '600' }}
+                                    >
+                                      📋 Resultado
+                                    </button>
+                                  )}
+                                  {canAct && (
+                                    <button
+                                      onClick={() => setWoModal({ isOpen: true, match: m })}
+                                      style={{ backgroundColor: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A', borderRadius: '6px', padding: '4px 8px', cursor: 'pointer', fontSize: '11px', fontWeight: '600' }}
+                                    >
+                                      W.O.
+                                    </button>
+                                  )}
+                                </div>
+                              )}
                             </td>
                           </tr>
                         ))}
@@ -1059,6 +1081,7 @@ export default function Matches() {
                       }));
                     try {
                       await api.patch(`/matches/${editMatch.id}/score`, {
+                        matchId: editMatch.id,
                         sets1: s1, sets2: s2,
                         games1: setsHistory.reduce((sum, s) => sum + s.games1, 0),
                         games2: setsHistory.reduce((sum, s) => sum + s.games2, 0),

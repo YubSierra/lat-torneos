@@ -151,6 +151,17 @@ export default function PublicTournament() {
   const doneMatches    = applyFilters((matches as any[]).filter((m: any) => m.status === 'completed' || m.status === 'wo'));
   const hasFilters     = filterName.trim() !== '' || filterDate !== '';
 
+  // Mapa de partidos anteriores para mostrar candidatos en slots sin definir
+  // Clave: "category|round|bracketPosition" → match
+  const ROUND_PREV: Record<string, string> = {
+    F: 'SF', SF: 'QF', QF: 'R16', R16: 'R32', R32: 'R64',
+  };
+  const matchByKey = new Map<string, any>();
+  (matches as any[]).forEach((m: any) => {
+    if (m.bracketPosition != null)
+      matchByKey.set(`${m.category}|${m.round}|${m.bracketPosition}`, m);
+  });
+
   const playerMatches = (matches as any[]).filter(
     (m: any) => m.player1Id === playerPanel?.id || m.player2Id === playerPanel?.id
   );
@@ -397,7 +408,7 @@ export default function PublicTournament() {
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     {pendingMatches.map((m: any) => (
-                      <PendingRow key={m.id} m={m} onPlayerClick={openPlayer} />
+                      <PendingRow key={m.id} m={m} onPlayerClick={openPlayer} matchByKey={matchByKey} roundPrev={ROUND_PREV} />
                     ))}
                   </div>
                 )}
@@ -616,7 +627,55 @@ function PubScoreRow({ name, photoUrl, sets, games, points, isWinning, setsHisto
 // ═════════════════════════════════════════════════════════════════════════════
 // FILA PARTIDO PENDIENTE
 // ═════════════════════════════════════════════════════════════════════════════
-function PendingRow({ m, onPlayerClick }: any) {
+function PendingRow({ m, onPlayerClick, matchByKey, roundPrev }: any) {
+  // Resolve a player slot: if the player is defined show them normally;
+  // if the slot is empty look up the feeder match and return the 2 candidates.
+  const resolveSlot = (playerId: string | null, playerName: string | null, slotIndex: 0 | 1) => {
+    if (playerId) {
+      // Real player assigned
+      return { type: 'real' as const, playerId, playerName };
+    }
+    // Slot is empty — look up feeder match from previous round
+    const prevRound = roundPrev[m.round];
+    if (!prevRound || m.bracketPosition == null) return { type: 'unknown' as const };
+    const feederBp = m.bracketPosition * 2 + slotIndex;
+    const feeder = matchByKey.get(`${m.category}|${prevRound}|${feederBp}`);
+    if (!feeder) return { type: 'unknown' as const };
+    // If feeder is completed, show winner
+    if (feeder.winnerId) {
+      const wName = feeder.winnerId === feeder.player1Id ? feeder.player1Name : feeder.player2Name;
+      const wId   = feeder.winnerId === feeder.player1Id ? feeder.player1Id  : feeder.player2Id;
+      const wPhoto = feeder.winnerId === feeder.player1Id ? feeder.player1PhotoUrl : feeder.player2PhotoUrl;
+      return { type: 'real' as const, playerId: wId, playerName: wName, photoUrl: wPhoto };
+    }
+    // Feeder still pending — show both candidates
+    const p1 = feeder.player1Name;
+    const p2 = feeder.player2Name;
+    if (p1 && p2 && p1 !== 'BYE' && p2 !== 'BYE') return { type: 'candidates' as const, names: [p1, p2] };
+    if (p1 && p1 !== 'BYE') return { type: 'candidates' as const, names: [p1] };
+    if (p2 && p2 !== 'BYE') return { type: 'candidates' as const, names: [p2] };
+    return { type: 'unknown' as const };
+  };
+
+  const slot1 = resolveSlot(m.player1Id, m.player1Name, 0);
+  const slot2 = resolveSlot(m.player2Id, m.player2Name, 1);
+
+  const renderSlot = (slot: ReturnType<typeof resolveSlot>) => {
+    if (slot.type === 'real') {
+      return <ClickablePlayer name={slot.playerName} photoUrl={(slot as any).photoUrl || (slot as any).photo} playerId={slot.playerId} onPlayerClick={onPlayerClick} />;
+    }
+    if (slot.type === 'candidates') {
+      return (
+        <span style={{ fontSize: '12px', color: '#6B7280', fontStyle: 'italic', display: 'flex', flexDirection: 'column', gap: '1px' }}>
+          {slot.names.map((n: string, i: number) => (
+            <span key={i} style={{ whiteSpace: 'nowrap' }}>{n}</span>
+          ))}
+        </span>
+      );
+    }
+    return <span style={{ color: '#D1D5DB', fontSize: '12px', fontStyle: 'italic' }}>Por definir</span>;
+  };
+
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', borderRadius: '10px', border: '1px solid #E5E7EB', backgroundColor: 'white', flexWrap: 'wrap' }}>
       {/* Badges */}
@@ -631,9 +690,9 @@ function PendingRow({ m, onPlayerClick }: any) {
 
       {/* Jugadores */}
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', minWidth: '180px' }}>
-        <ClickablePlayer name={m.player1Name} photoUrl={m.player1PhotoUrl} playerId={m.player1Id} onPlayerClick={onPlayerClick} />
+        {renderSlot(slot1)}
         <span style={{ color: '#9CA3AF', fontSize: '12px', fontWeight: '700' }}>vs</span>
-        <ClickablePlayer name={m.player2Name} photoUrl={m.player2PhotoUrl} playerId={m.player2Id} onPlayerClick={onPlayerClick} />
+        {renderSlot(slot2)}
       </div>
 
       {/* Fecha y hora */}
@@ -1042,44 +1101,159 @@ function HallOfHonor({
   matches: any[];
   onOpenPlayer: (id: string, name: string, photoUrl?: string) => void;
 }) {
-  // Finals: 'F' (elimination) or 'F_M' (masters)
+  // ── 1. Categorías con Final disputada (eliminación directa / máster) ──────
   const finals = matches.filter(
     (m: any) =>
       (m.round === 'F' || m.round === 'F_M') &&
       (m.status === 'completed' || m.status === 'wo'),
   );
+  const byCategoryFinal: Record<string, any[]> = {};
+  for (const m of finals) {
+    const cat = m.category || 'General';
+    if (!byCategoryFinal[cat]) byCategoryFinal[cat] = [];
+    byCategoryFinal[cat].push(m);
+  }
 
-  if (finals.length === 0) {
+  // ── 2. Categorías con grupo único RR completo (sin cuadro principal) ───────
+  // Compute standings for single-group RR categories where all matches are done
+  const rrMatches = matches.filter((m: any) => m.round === 'RR');
+  const rrByCategory: Record<string, any[]> = {};
+  for (const m of rrMatches) {
+    const cat = m.category || 'General';
+    if (!rrByCategory[cat]) rrByCategory[cat] = [];
+    rrByCategory[cat].push(m);
+  }
+
+  // For each RR category, check single-group + all complete + no main draw final
+  const singleGroupResults: Record<string, { winner: any; finalist: any }> = {};
+  for (const [cat, catMatches] of Object.entries(rrByCategory)) {
+    // Skip if there's already a final for this category
+    if (byCategoryFinal[cat]) continue;
+    // Check single group
+    const groupLabels = [...new Set(catMatches.map((m: any) => m.groupLabel || 'A'))];
+    if (groupLabels.length !== 1) continue;
+    // Check all complete
+    const done = catMatches.filter((m: any) => m.status === 'completed' || m.status === 'wo').length;
+    if (done < catMatches.length || done === 0) continue;
+
+    // Build standings
+    const st: Record<string, { id: string; name: string; photo?: string; wins: number; losses: number; setsWon: number; setsLost: number; gamesWon: number; gamesLost: number }> = {};
+    catMatches.forEach((m: any) => {
+      if (m.player1Id && !st[m.player1Id]) st[m.player1Id] = { id: m.player1Id, name: m.player1Name || m.player1Id, photo: m.player1PhotoUrl, wins: 0, losses: 0, setsWon: 0, setsLost: 0, gamesWon: 0, gamesLost: 0 };
+      if (m.player2Id && !st[m.player2Id]) st[m.player2Id] = { id: m.player2Id, name: m.player2Name || m.player2Id, photo: m.player2PhotoUrl, wins: 0, losses: 0, setsWon: 0, setsLost: 0, gamesWon: 0, gamesLost: 0 };
+      if (m.winnerId && (m.status === 'completed' || m.status === 'wo')) {
+        if (st[m.winnerId]) st[m.winnerId].wins++;
+        const loserId = m.winnerId === m.player1Id ? m.player2Id : m.player1Id;
+        if (loserId && st[loserId]) st[loserId].losses++;
+        if (m.player1Id && st[m.player1Id]) { st[m.player1Id].setsWon += m.sets1||0; st[m.player1Id].setsLost += m.sets2||0; st[m.player1Id].gamesWon += m.games1||0; st[m.player1Id].gamesLost += m.games2||0; }
+        if (m.player2Id && st[m.player2Id]) { st[m.player2Id].setsWon += m.sets2||0; st[m.player2Id].setsLost += m.sets1||0; st[m.player2Id].gamesWon += m.games2||0; st[m.player2Id].gamesLost += m.games1||0; }
+      }
+    });
+    const gR = (w: number, l: number) => l > 0 ? w/l : w > 0 ? Infinity : 0;
+    const completedM = catMatches.filter((m: any) => m.status === 'completed' || m.status === 'wo');
+    const allE = Object.values(st);
+    const podium = [...allE].sort((a, b) => {
+      if (b.wins !== a.wins) return b.wins - a.wins;
+      const sA = gR(a.setsWon, a.setsLost), sB = gR(b.setsWon, b.setsLost);
+      if (Math.abs(sB - sA) > 0.0001) return sB - sA;
+      const gA = gR(a.gamesWon, a.gamesLost), gBv = gR(b.gamesWon, b.gamesLost);
+      if (Math.abs(gBv - gA) > 0.0001) return gBv - gA;
+      const tied2 = allE.filter(s => s.wins === a.wins && Math.abs(gR(s.setsWon,s.setsLost)-sA)<=0.0001 && Math.abs(gR(s.gamesWon,s.gamesLost)-gA)<=0.0001).length === 2;
+      if (tied2) {
+        const h2h = completedM.find((m: any) => (m.player1Id===a.id&&m.player2Id===b.id)||(m.player1Id===b.id&&m.player2Id===a.id));
+        if (h2h?.winnerId === a.id) return -1;
+        if (h2h?.winnerId === b.id) return 1;
+      }
+      return a.name.localeCompare(b.name);
+    });
+    if (podium[0]) {
+      singleGroupResults[cat] = { winner: podium[0], finalist: podium[1] || null };
+    }
+  }
+
+  const hasData = finals.length > 0 || Object.keys(singleGroupResults).length > 0;
+
+  if (!hasData) {
     return (
       <div style={{ backgroundColor: 'white', borderRadius: '14px', padding: '60px 20px', textAlign: 'center', boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>
         <p style={{ fontSize: '48px', margin: '0 0 12px' }}>🏅</p>
         <p style={{ color: '#374151', fontSize: '16px', fontWeight: '700', margin: '0 0 6px' }}>Cuadro de Honor</p>
-        <p style={{ color: '#9CA3AF', fontSize: '13px' }}>Aún no hay finales disputadas en este torneo</p>
+        <p style={{ color: '#9CA3AF', fontSize: '13px' }}>Aún no hay campeones en este torneo</p>
       </div>
     );
   }
 
-  // Group by category
-  const byCategory: Record<string, any[]> = {};
-  for (const m of finals) {
-    const cat = m.category || 'General';
-    if (!byCategory[cat]) byCategory[cat] = [];
-    byCategory[cat].push(m);
-  }
+  // ── Render helper for a podium card ─────────────────────────────────────
+  const PodiumCard = ({ category, winner, finalist, scoreFooter }: {
+    category: string;
+    winner: { id: string; name: string; photo?: string };
+    finalist: { id: string; name: string; photo?: string } | null;
+    scoreFooter?: React.ReactNode;
+  }) => (
+    <div style={{ backgroundColor: 'white', borderRadius: '14px', overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>
+      <div style={{ background: 'linear-gradient(90deg,#1B3A1B,#2D6A2D)', padding: '10px 20px' }}>
+        <p style={{ margin: 0, fontSize: '14px', fontWeight: '800', color: 'white', letterSpacing: '0.3px' }}>
+          🎾 {category}
+        </p>
+      </div>
+      <div style={{ display: 'flex', gap: '0', alignItems: 'stretch' }}>
+        {/* Finalist (left) */}
+        {finalist ? (
+          <button
+            onClick={() => onOpenPlayer(finalist.id, finalist.name, finalist.photo)}
+            style={{ flex: 1, background: 'none', border: 'none', cursor: finalist.id ? 'pointer' : 'default', padding: '24px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', borderRight: '1px solid #F3F4F6', transition: 'background 0.15s' }}
+            onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#F9FAFB')}
+            onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+          >
+            <div style={{ position: 'relative' }}>
+              <PlayerAvatar name={finalist.name || '?'} photoUrl={finalist.photo} size={72} borderColor="#D1D5DB" />
+              <span style={{ position: 'absolute', bottom: -6, right: -6, fontSize: '22px', lineHeight: 1 }}>🥈</span>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <p style={{ margin: '0 0 2px', fontSize: '13px', fontWeight: '700', color: '#374151', lineHeight: 1.2 }}>{finalist.name || '—'}</p>
+              <p style={{ margin: 0, fontSize: '11px', color: '#9CA3AF', fontWeight: '600' }}>Finalista</p>
+            </div>
+          </button>
+        ) : (
+          <div style={{ flex: 1, borderRight: '1px solid #F3F4F6' }} />
+        )}
+
+        <div style={{ width: '1px', backgroundColor: '#F3F4F6', flexShrink: 0 }} />
+
+        {/* Winner (right) */}
+        <button
+          onClick={() => onOpenPlayer(winner.id, winner.name, winner.photo)}
+          style={{ flex: 1, background: 'none', border: 'none', cursor: winner.id ? 'pointer' : 'default', padding: '20px 16px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', backgroundColor: '#FFFBEB', transition: 'background 0.15s' }}
+          onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#FEF9C3')}
+          onMouseLeave={e => (e.currentTarget.style.backgroundColor = '#FFFBEB')}
+        >
+          <div style={{ position: 'relative' }}>
+            <div style={{ position: 'absolute', inset: -4, borderRadius: '50%', background: 'linear-gradient(135deg,#FBBF24,#F59E0B)', zIndex: 0, opacity: 0.25 }} />
+            <PlayerAvatar name={winner.name || '?'} photoUrl={winner.photo} size={88} borderColor="#F59E0B" />
+            <span style={{ position: 'absolute', bottom: -8, right: -8, fontSize: '28px', lineHeight: 1 }}>🥇</span>
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <p style={{ margin: '0 0 2px', fontSize: '15px', fontWeight: '900', color: '#92400E', lineHeight: 1.2 }}>{winner.name || '—'}</p>
+            <p style={{ margin: 0, fontSize: '11px', color: '#B45309', fontWeight: '700', letterSpacing: '0.3px' }}>CAMPEÓN</p>
+          </div>
+        </button>
+      </div>
+      {scoreFooter}
+    </div>
+  );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
       {/* Header */}
-      <div style={{ backgroundColor: 'linear-gradient(135deg,#1B3A1B,#2D6A2D)', background: 'linear-gradient(135deg,#1B3A1B 0%,#2D6A2D 100%)', borderRadius: '14px', padding: '24px 20px', textAlign: 'center', boxShadow: '0 2px 8px rgba(27,58,27,0.3)' }}>
+      <div style={{ background: 'linear-gradient(135deg,#1B3A1B 0%,#2D6A2D 100%)', borderRadius: '14px', padding: '24px 20px', textAlign: 'center', boxShadow: '0 2px 8px rgba(27,58,27,0.3)' }}>
         <p style={{ margin: '0 0 4px', fontSize: '36px' }}>🏅</p>
         <p style={{ margin: 0, fontSize: '20px', fontWeight: '900', color: 'white', letterSpacing: '0.5px' }}>Cuadro de Honor</p>
         <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'rgba(255,255,255,0.65)' }}>Campeones y finalistas por categoría</p>
       </div>
 
-      {/* Cards per category */}
-      {Object.entries(byCategory).map(([category, categoryFinals]) => {
-        // Take the last final if there are multiple (shouldn't happen normally)
+      {/* Elimination / Masters finals */}
+      {Object.entries(byCategoryFinal).map(([category, categoryFinals]) => {
         const final = categoryFinals[categoryFinals.length - 1];
         const isP1Winner = final.winnerId === final.player1Id;
         const winner   = isP1Winner
@@ -1088,75 +1262,23 @@ function HallOfHonor({
         const finalist = isP1Winner
           ? { id: final.player2Id, name: final.player2Name, photo: final.player2PhotoUrl }
           : { id: final.player1Id, name: final.player1Name, photo: final.player1PhotoUrl };
-
-        return (
-          <div
-            key={category}
-            style={{ backgroundColor: 'white', borderRadius: '14px', overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
-          >
-            {/* Category header */}
-            <div style={{ background: 'linear-gradient(90deg,#1B3A1B,#2D6A2D)', padding: '10px 20px' }}>
-              <p style={{ margin: 0, fontSize: '14px', fontWeight: '800', color: 'white', letterSpacing: '0.3px' }}>
-                🎾 {category}
-              </p>
-            </div>
-
-            {/* Podium */}
-            <div style={{ display: 'flex', gap: '0', alignItems: 'stretch' }}>
-
-              {/* Finalist (left) */}
-              <button
-                onClick={() => onOpenPlayer(finalist.id, finalist.name, finalist.photo)}
-                style={{ flex: 1, background: 'none', border: 'none', cursor: finalist.id ? 'pointer' : 'default', padding: '24px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', borderRight: '1px solid #F3F4F6', transition: 'background 0.15s' }}
-                onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#F9FAFB')}
-                onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
-              >
-                <div style={{ position: 'relative' }}>
-                  <PlayerAvatar name={finalist.name || '?'} photoUrl={finalist.photo} size={72} borderColor="#D1D5DB" />
-                  <span style={{ position: 'absolute', bottom: -6, right: -6, fontSize: '22px', lineHeight: 1 }}>🥈</span>
-                </div>
-                <div style={{ textAlign: 'center' }}>
-                  <p style={{ margin: '0 0 2px', fontSize: '13px', fontWeight: '700', color: '#374151', lineHeight: 1.2 }}>{finalist.name || 'BYE'}</p>
-                  <p style={{ margin: 0, fontSize: '11px', color: '#9CA3AF', fontWeight: '600' }}>Finalista</p>
-                </div>
-              </button>
-
-              {/* Separator */}
-              <div style={{ width: '1px', backgroundColor: '#F3F4F6', flexShrink: 0 }} />
-
-              {/* Winner (center / right) */}
-              <button
-                onClick={() => onOpenPlayer(winner.id, winner.name, winner.photo)}
-                style={{ flex: 1, background: 'none', border: 'none', cursor: winner.id ? 'pointer' : 'default', padding: '20px 16px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', backgroundColor: '#FFFBEB', transition: 'background 0.15s' }}
-                onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#FEF9C3')}
-                onMouseLeave={e => (e.currentTarget.style.backgroundColor = '#FFFBEB')}
-              >
-                <div style={{ position: 'relative' }}>
-                  <div style={{ position: 'absolute', inset: -4, borderRadius: '50%', background: 'linear-gradient(135deg,#FBBF24,#F59E0B)', zIndex: 0, opacity: 0.25 }} />
-                  <PlayerAvatar name={winner.name || '?'} photoUrl={winner.photo} size={88} borderColor="#F59E0B" />
-                  <span style={{ position: 'absolute', bottom: -8, right: -8, fontSize: '28px', lineHeight: 1 }}>🥇</span>
-                </div>
-                <div style={{ textAlign: 'center' }}>
-                  <p style={{ margin: '0 0 2px', fontSize: '15px', fontWeight: '900', color: '#92400E', lineHeight: 1.2 }}>{winner.name || 'BYE'}</p>
-                  <p style={{ margin: 0, fontSize: '11px', color: '#B45309', fontWeight: '700', letterSpacing: '0.3px' }}>CAMPEÓN</p>
-                </div>
-              </button>
-
-            </div>
-
-            {/* Score footer */}
-            {(final.sets1 != null || final.score) && (
-              <div style={{ borderTop: '1px solid #F3F4F6', padding: '8px 20px', display: 'flex', justifyContent: 'center', gap: '6px', alignItems: 'center' }}>
-                <span style={{ fontSize: '11px', color: '#9CA3AF' }}>Resultado:</span>
-                <span style={{ fontSize: '12px', fontWeight: '700', color: '#374151', fontFamily: 'monospace' }}>
-                  {final.sets1 != null ? `${final.sets1}–${final.sets2}` : final.score || ''}
-                  {final.status === 'wo' ? ' (W.O.)' : ''}
-                </span>
-              </div>
-            )}
+        const scoreFooter = (final.sets1 != null || final.score) ? (
+          <div style={{ borderTop: '1px solid #F3F4F6', padding: '8px 20px', display: 'flex', justifyContent: 'center', gap: '6px', alignItems: 'center' }}>
+            <span style={{ fontSize: '11px', color: '#9CA3AF' }}>Resultado:</span>
+            <span style={{ fontSize: '12px', fontWeight: '700', color: '#374151', fontFamily: 'monospace' }}>
+              {final.sets1 != null ? `${final.sets1}–${final.sets2}` : final.score || ''}
+              {final.status === 'wo' ? ' (W.O.)' : ''}
+            </span>
           </div>
-        );
+        ) : undefined;
+        return <PodiumCard key={category} category={category} winner={winner} finalist={finalist} scoreFooter={scoreFooter} />;
       })}
+
+      {/* Single-group RR completed categories */}
+      {Object.entries(singleGroupResults).map(([category, { winner, finalist }]) => (
+        <PodiumCard key={`rr-${category}`} category={category} winner={winner} finalist={finalist} />
+      ))}
+
     </div>
   );
 }
