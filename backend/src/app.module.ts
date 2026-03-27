@@ -30,24 +30,44 @@ import { CircuitLinesModule } from './circuit-lines/circuit-lines.module';
 
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        type: 'postgres',
-        host:     config.get('DB_HOST'),
-        port:     config.get<number>('DB_PORT'),
-        database: config.get('DB_NAME'),
-        username: config.get('DB_USER'),
-        password: config.get('DB_PASS'),
-        entities: [
-          User, Player, Tournament,
-          Enrollment, Payment,
-          Court, CourtSchedule, Match,
-          Ranking, RankingHistory,
-          DoublesTeam,
-          CircuitLine,
-        ],
-        synchronize: true,
-        logging: true,
-      }),
+      useFactory: (config: ConfigService) => {
+        const databaseUrl = config.get('DATABASE_URL');
+        if (databaseUrl) {
+          // En Railway usa DATABASE_URL directamente
+          return {
+            type: 'postgres',
+            url: databaseUrl,
+            entities: [
+              User, Player, Tournament,
+              Enrollment, Payment,
+              Court, CourtSchedule, Match,
+              Ranking, RankingHistory,
+              DoublesTeam,
+              CircuitLine,
+            ],
+            synchronize: true,
+            ssl: { rejectUnauthorized: false },
+          };
+        }
+        // En local usa las variables individuales del .env
+        return {
+          type: 'postgres',
+          host:     config.get('DB_HOST'),
+          port:     config.get<number>('DB_PORT'),
+          database: config.get('DB_NAME'),
+          username: config.get('DB_USER'),
+          password: config.get('DB_PASS'),
+          entities: [
+            User, Player, Tournament,
+            Enrollment, Payment,
+            Court, CourtSchedule, Match,
+            Ranking, RankingHistory,
+            DoublesTeam,
+            CircuitLine,
+          ],
+          synchronize: true,
+        };
+      },
     }),
 
     AuthModule,
