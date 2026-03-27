@@ -243,13 +243,7 @@ export default function CircuitLineModal({ onClose }: Props) {
               <div>
                 <span style={{ fontWeight: 600, fontSize: 14, color: '#111827' }}>{line.label}</span>
                 <span style={{ fontSize: 12, color: '#9CA3AF', marginLeft: 8 }}>{line.slug}</span>
-                {line.isDefault && (
-                  <span style={{
-                    fontSize: 11, background: '#DBEAFE', color: '#1D4ED8',
-                    borderRadius: 4, padding: '1px 6px', marginLeft: 6,
-                  }}>
-                )}
-                {line.rankingPoints === null && (
+{line.rankingPoints === null && (
                   <span style={{
                     fontSize: 11, background: '#FEF3C7', color: '#92400E',
                     borderRadius: 4, padding: '1px 6px', marginLeft: 6,
