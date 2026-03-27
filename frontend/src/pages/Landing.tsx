@@ -172,12 +172,9 @@ export default function Landing() {
         }}>
           <button
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-            style={{ background:'none', border:'none', cursor:'pointer', display:'flex', alignItems:'center', gap:'9px', padding:0 }}
+            style={{ background:'none', border:'none', cursor:'pointer', padding:0 }}
           >
-            <span style={{ fontSize: '22px' }}>🎾</span>
-            <span style={{ fontSize: '15px', fontWeight: '900', color: 'white', letterSpacing: '-.02em' }}>
-              Matchlungo <span style={{ color: '#8BC34A', fontWeight: '300' }}>Ace</span>
-            </span>
+            <img src="/logo.png" alt="Matchlungo Ace" style={{ height: '38px', objectFit: 'contain', filter: 'brightness(0) invert(1)' }} />
           </button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'clamp(10px, 2vw, 22px)', flexWrap: 'wrap' }}>
             <a href="#activos"  className="nav-link">En Curso</a>
@@ -455,14 +452,11 @@ export default function Landing() {
         <footer style={{ backgroundColor:'#070E07', borderTop:'1px solid rgba(139,195,74,.12)', padding:'44px clamp(16px,4vw,48px)' }}>
           <div style={{ maxWidth:1180, margin:'0 auto', display:'flex', alignItems:'center',
             justifyContent:'space-between', flexWrap:'wrap', gap:'18px' }}>
-            <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
-              <span style={{ fontSize:'26px' }}>🎾</span>
-              <div>
-                <p style={{ margin:0, fontSize:'14px', fontWeight:'800', color:'white' }}>Matchlungo Ace - Gestor de torneo de Tenis</p>
-                <p style={{ margin:'2px 0 0', fontSize:'11px', color:'rgba(255,255,255,.3)' }}>
-                  Sistema oficial de torneos · {new Date().getFullYear()}
-                </p>
-              </div>
+            <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
+              <img src="/logo.png" alt="Matchlungo Ace" style={{ height: '44px', objectFit: 'contain', filter: 'brightness(0) invert(1)' }} />
+              <p style={{ margin:'2px 0 0', fontSize:'11px', color:'rgba(255,255,255,.3)' }}>
+                Sistema oficial de torneos · {new Date().getFullYear()}
+              </p>
             </div>
             <div style={{ display:'flex', gap:'18px', flexWrap:'wrap' }}>
               {[{h:'/login',l:'Panel admin'},{h:'#activos',l:'Torneos activos'},{h:'#proximos',l:'Inscribirme'}].map(l => (

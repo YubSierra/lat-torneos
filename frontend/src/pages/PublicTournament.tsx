@@ -187,12 +187,8 @@ export default function PublicTournament() {
       {/* ── Top bar ──────────────────────────────────────────────────────── */}
       <div style={{ background: 'linear-gradient(135deg, #1B3A1B 0%, #2D6A2D 100%)', padding: '0 24px' }}>
         <div style={{ maxWidth: '1100px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '60px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <span style={{ fontSize: '22px' }}>🎾</span>
-            <div>
-              <p style={{ margin: 0, fontWeight: '800', color: 'white', fontSize: '15px', lineHeight: 1 }}>LAT Torneos</p>
-              <p style={{ margin: 0, fontSize: '11px', color: 'rgba(255,255,255,0.6)' }}>Liga de Tenis</p>
-            </div>
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <img src="/logo.png" alt="Matchlungo Ace" style={{ height: '36px', objectFit: 'contain', filter: 'brightness(0) invert(1)' }} />
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -261,7 +257,7 @@ export default function PublicTournament() {
           /* Pantalla vacía */
           <div style={{ backgroundColor: 'white', borderRadius: '14px', padding: '60px', textAlign: 'center', boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>
             <p style={{ fontSize: '52px', margin: '0 0 14px' }}>🎾</p>
-            <p style={{ color: '#374151', fontSize: '17px', fontWeight: '700', margin: '0 0 6px' }}>Bienvenido a LAT Torneos</p>
+            <p style={{ color: '#374151', fontSize: '17px', fontWeight: '700', margin: '0 0 6px' }}>Bienvenido a Matchlungo Ace</p>
             <p style={{ color: '#9CA3AF', fontSize: '14px' }}>Selecciona un torneo para ver los partidos en tiempo real</p>
           </div>
         ) : (
@@ -452,7 +448,7 @@ export default function PublicTournament() {
 
         {/* Footer */}
         <div style={{ textAlign: 'center', padding: '24px 0 8px', color: '#9CA3AF', fontSize: '12px' }}>
-          LAT — Liga de Tenis · Marcadores en tiempo real
+          Matchlungo Ace · Marcadores en tiempo real
         </div>
       </div>
     </div>
@@ -1003,7 +999,7 @@ function EnrollmentBanner({ tournament }: { tournament: any }) {
             ¡Inscripciones abiertas!
           </p>
           <p style={{ margin: 0, color: '#166534', fontSize: '13px', lineHeight: '1.5' }}>
-            Puedes inscribirte en este torneo. Contacta al administrador de la LAT para completar tu inscripción.
+            Puedes inscribirte en este torneo. Contacta al administrador de Matchlungo Ace para completar tu inscripción.
             {hasDoubles && doublesOpenForRegistration && (
               <> También están abiertas las <strong>inscripciones de dobles</strong>.</>
             )}

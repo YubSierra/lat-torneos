@@ -14,7 +14,7 @@ import CircuitLineModal from '../components/CircuitLineModal';
 const TOURNAMENT_TYPES = [
   { value: 'elimination',   label: 'Eliminación Directa' },
   { value: 'round_robin',   label: 'Round Robin'          },
-  { value: 'master',        label: 'Torneo Máster LAT'    },
+  { value: 'master',        label: 'Torneo Máster Matchlungo' },
   { value: 'americano',     label: 'Americano'            },
   { value: 'king_of_court', label: 'King of the Court'    },
   { value: 'supertiebreak', label: 'Supertiebreak'        },
@@ -115,7 +115,7 @@ export default function Tournaments() {
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-2xl font-bold text-lat-dark">Torneos</h1>
-            <p className="text-gray-500">Gestión de torneos y circuitos LAT</p>
+            <p className="text-gray-500">Gestión de torneos y circuitos Matchlungo Ace</p>
           </div>
           {isAdmin && (
             <div style={{ display: 'flex', gap: 8 }}>
@@ -469,7 +469,7 @@ export default function Tournaments() {
                     🏷️ Categorías del torneo
                   </p>
                   <p style={{ fontSize: '12px', color: '#6B7280', margin: '3px 0 0' }}>
-                    Selecciona las categorías LAT o crea personalizadas
+                    Selecciona las categorías o crea personalizadas
                   </p>
                 </div>
                 <CategorySelector

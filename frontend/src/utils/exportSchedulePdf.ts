@@ -115,7 +115,7 @@ export function exportSchedulePdf(options: ExportOptions) {
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(20);
     doc.setFont('helvetica', 'bold');
-    doc.text('LAT', 12, 14);
+    doc.text('MATCHLUNGO', 12, 14);
     doc.setFontSize(13);
     doc.text(tournamentName.toUpperCase(), pageW / 2, 9, { align: 'center' });
     doc.setFontSize(10);

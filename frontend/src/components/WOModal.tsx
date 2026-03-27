@@ -230,7 +230,7 @@ export default function WOModal({ isOpen, match, onConfirm, onDoubleWO, onCancel
                     {WO_REASONS.find(r => r.id === selectedReason)?.label?.toLowerCase()}
                   </p>
                   <p style={{ fontSize: '11px', color: '#A16207', marginTop: '4px' }}>
-                    Marcador: 6-0 6-0 (Art. 23 Reglamento LAT)
+                    Marcador: 6-0 6-0 (Art. 23 Reglamento)
                   </p>
                 </div>
               )}

@@ -248,8 +248,6 @@ export default function CircuitLineModal({ onClose }: Props) {
                     fontSize: 11, background: '#DBEAFE', color: '#1D4ED8',
                     borderRadius: 4, padding: '1px 6px', marginLeft: 6,
                   }}>
-                    LAT
-                  </span>
                 )}
                 {line.rankingPoints === null && (
                   <span style={{

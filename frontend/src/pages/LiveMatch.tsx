@@ -274,10 +274,8 @@ export default function LiveMatch() {
         {/* ── Top bar ──────────────────────────────────────────────────── */}
         <div style={{ textAlign: 'center', marginBottom: '20px' }}>
           {/* Logo */}
-          <div style={{ marginBottom: '12px' }}>
-            <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.3)', letterSpacing: '0.2em', textTransform: 'uppercase' }}>
-              🎾 LAT Torneos
-            </span>
+          <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'center' }}>
+            <img src="/logo.png" alt="Matchlungo Ace" style={{ height: '32px', objectFit: 'contain', filter: 'brightness(0) invert(1)', opacity: 0.6 }} />
           </div>
 
           {/* Status pill */}

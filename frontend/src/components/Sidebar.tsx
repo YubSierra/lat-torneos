@@ -35,14 +35,8 @@ export default function Sidebar() {
     <div style={{ backgroundColor: '#1B3A1B', minHeight: '100vh', width: '220px', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
 
       {/* Logo */}
-      <div style={{ padding: '22px 18px', borderBottom: '1px solid #2D6A2D' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <span style={{ fontSize: '26px' }}>🎾</span>
-          <div>
-            <p style={{ color: '#FFFFFF', fontWeight: '800', fontSize: '15px', margin: 0 }}>LAT</p>
-            <p style={{ color: '#86EFAC', fontSize: '11px', margin: 0 }}>Sistema de Torneos</p>
-          </div>
-        </div>
+      <div style={{ padding: '16px 18px', borderBottom: '1px solid #2D6A2D', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <img src="/logo.png" alt="Matchlungo Ace" style={{ width: '140px', objectFit: 'contain', filter: 'brightness(0) invert(1)' }} />
       </div>
 
       {/* Navegación */}

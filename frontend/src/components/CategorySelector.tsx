@@ -183,10 +183,10 @@ export default function CategorySelector({ selected, onChange, circuitLine }: Ca
         </div>
       )}
 
-      {/* ── Categorías LAT predefinidas ── */}
+      {/* ── Categorías predefinidas ── */}
       <div style={{ marginBottom: 12 }}>
         <p style={{ fontSize: 11, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
-          Categorías LAT (reglamento)
+          Categorías (reglamento)
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {DEFAULT_CATEGORIES.map(cat => {

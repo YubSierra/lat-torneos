@@ -1082,7 +1082,7 @@ export default function TournamentDetail() {
                 <select value={drawType} onChange={e => setDrawType(e.target.value)} style={sel}>
                   <option value="elimination">Eliminación Directa</option>
                   <option value="round_robin">Round Robin</option>
-                  <option value="master">Torneo Máster LAT</option>
+                  <option value="master">Torneo Máster Matchlungo</option>
                 </select>
               </div>
 

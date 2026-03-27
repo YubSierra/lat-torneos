@@ -155,17 +155,11 @@ export default function Login() {
 
         {/* Logo */}
         <div style={{ position: 'relative', zIndex: 1, textAlign: 'center' }}>
-          <div style={{ fontSize: '72px', marginBottom: '8px', filter: 'drop-shadow(0 0 30px rgba(74,222,128,0.25))' }}>
-            🎾
+          <div style={{ marginBottom: '32px', filter: 'drop-shadow(0 0 30px rgba(74,222,128,0.25))' }}>
+            <img src="/logo.png" alt="Matchlungo Ace" style={{ width: '180px', objectFit: 'contain', filter: 'brightness(0) invert(1)' }} />
           </div>
-          <h1 style={{
-            color: 'white', fontSize: '28px', fontWeight: '800',
-            margin: '0 0 6px', letterSpacing: '-0.03em', lineHeight: 1.1,
-          }}>
-            Liga Antioqueña<br />de Tenis
-          </h1>
           <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: '13px', margin: '0 0 48px', letterSpacing: '0.12em', textTransform: 'uppercase' }}>
-            Sistema de Torneos
+            Gestor de Torneos de Tenis
           </p>
 
           {/* Stats decorativos */}
@@ -241,7 +235,7 @@ export default function Login() {
                   Bienvenido de nuevo
                 </h2>
                 <p style={{ margin: 0, color: '#6B7280', fontSize: '14px' }}>
-                  Ingresa a tu cuenta LAT Torneos
+                  Ingresa a tu cuenta Matchlungo Ace
                 </p>
               </div>
 
@@ -296,7 +290,7 @@ export default function Login() {
                   Crear tu cuenta
                 </h2>
                 <p style={{ margin: 0, color: '#6B7280', fontSize: '13px' }}>
-                  Accede a torneos, resultados y rankings de la LAT
+                  Accede a torneos, resultados y rankings de Matchlungo Ace
                 </p>
               </div>
 
@@ -399,7 +393,7 @@ export default function Login() {
 
                   {/* Aviso */}
                   <p style={{ fontSize: '11px', color: '#9CA3AF', margin: '0', lineHeight: '1.5' }}>
-                    Al registrarte aceptas usar la plataforma únicamente para participar en torneos de la LAT. Tu cuenta tendrá rol de jugador.
+                    Al registrarte aceptas usar la plataforma únicamente para participar en torneos de Matchlungo Ace. Tu cuenta tendrá rol de jugador.
                   </p>
 
                   <button type="submit" disabled={regLoading} style={submitBtnStyle(regLoading)}>

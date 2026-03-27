@@ -483,9 +483,9 @@ export function exportBracketPdf({ tournamentName, matches, mode = 'both', modal
     doc.rect(0, 0, pageW, 20, 'F');
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(16); doc.setFont('helvetica', 'bold');
-    const title = mode === 'rr'       ? `LAT — ROUND ROBIN${modalityLabel}`
-                : mode === 'maindraw' ? `LAT — CUADRO ELIMINACION DIRECTA${modalityLabel}`
-                :                       `LAT — CUADRO DE LLAVES${modalityLabel}`;
+    const title = mode === 'rr'       ? `MATCHLUNGO ACE — ROUND ROBIN${modalityLabel}`
+                : mode === 'maindraw' ? `MATCHLUNGO ACE — CUADRO ELIMINACION DIRECTA${modalityLabel}`
+                :                       `MATCHLUNGO ACE — CUADRO DE LLAVES${modalityLabel}`;
     doc.text(title, pageW / 2, 9, { align: 'center' });
     doc.setFontSize(10); doc.setFont('helvetica', 'normal');
     doc.text(tournamentName.toUpperCase(), pageW / 2, 16, { align: 'center' });
