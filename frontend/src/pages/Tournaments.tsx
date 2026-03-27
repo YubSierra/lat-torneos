@@ -40,10 +40,11 @@ export default function Tournaments() {
   const queryClient   = useQueryClient();
   const [showModal, setShowModal] = useState(false);
   const [showCircuitModal, setShowCircuitModal] = useState(false);
+  const [clubFilter, setClubFilter] = useState('');
 
   // Estado del formulario
   const [form, setForm] = useState({
-    name: '', type: 'elimination', circuitLine: 'departamental',
+    name: '', club: '', type: 'elimination', circuitLine: 'departamental',
     inscriptionValue: 80000, stageNumber: 1,
     registrationStart: '', registrationEnd: '',
     eventStart: '', eventEnd: '',
@@ -82,7 +83,7 @@ export default function Tournaments() {
 
   const resetForm = () => {
     setForm({
-      name: '', type: 'elimination', circuitLine: 'departamental',
+      name: '', club: '', type: 'elimination', circuitLine: 'departamental',
       inscriptionValue: 80000, stageNumber: 1,
       registrationStart: '', registrationEnd: '',
       eventStart: '', eventEnd: '',
@@ -141,6 +142,35 @@ export default function Tournaments() {
           )}
         </div>
 
+        {/* Filtro por club */}
+        {!isLoading && (tournaments as any[]).length > 0 && (() => {
+          const clubs = Array.from(new Set((tournaments as any[]).map((t: any) => t.club).filter(Boolean))) as string[];
+          return clubs.length > 0 ? (
+            <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <label style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Club:</label>
+              <select
+                value={clubFilter}
+                onChange={e => setClubFilter(e.target.value)}
+                style={{
+                  padding: '7px 12px', borderRadius: '8px', border: '1.5px solid #D1D5DB',
+                  fontSize: '13px', color: '#111827', backgroundColor: 'white', cursor: 'pointer',
+                }}
+              >
+                <option value="">Todos los clubes</option>
+                {clubs.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              {clubFilter && (
+                <button
+                  onClick={() => setClubFilter('')}
+                  style={{ fontSize: '12px', color: '#6B7280', background: 'none', border: 'none', cursor: 'pointer' }}
+                >
+                  ✕ Limpiar
+                </button>
+              )}
+            </div>
+          ) : null;
+        })()}
+
         {/* Lista torneos */}
         <div className="bg-white rounded-xl shadow-sm p-6">
           {isLoading ? (
@@ -149,7 +179,7 @@ export default function Tournaments() {
             <p className="text-gray-400 text-center py-8">No hay torneos creados aún</p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {(tournaments as any[]).map((t: any) => {
+              {(tournaments as any[]).filter((t: any) => !clubFilter || t.club === clubFilter).map((t: any) => {
                 const statusInfo = STATUS_LABELS[t.status] || STATUS_LABELS.draft;
                 return (
                   <div
@@ -173,6 +203,11 @@ export default function Tournaments() {
                       {' · '}
                       {circuitLabel(t.circuitLine)}
                     </p>
+                    {t.club && (
+                      <p style={{ fontSize: '11px', color: '#4338CA', fontWeight: '600', margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        🏛️ {t.club}
+                      </p>
+                    )}
 
                     {/* Categorías del torneo */}
                     {t.categories && t.categories.length > 0 && (
@@ -292,6 +327,17 @@ export default function Tournaments() {
                   style={inputStyle}
                   placeholder="Etapa 1 — Circuito Departamental 2025"
                   required
+                />
+              </div>
+
+              {/* Club */}
+              <div>
+                <label style={labelStyle}>🏛️ Club organizador</label>
+                <input
+                  value={form.club}
+                  onChange={e => setForm({ ...form, club: e.target.value })}
+                  style={inputStyle}
+                  placeholder="Ej: Club Campestre, Club El Rodeo..."
                 />
               </div>
 

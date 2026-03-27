@@ -120,6 +120,10 @@ export class Tournament {
     finalSetPoints: number;
   }>;
 
+  // ── CLUB ─────────────────────────────────────────
+  @Column({ nullable: true })
+  club: string;
+
   // ── ÁRBITRO Y DIRECTOR ───────────────────────────
   @Column({ nullable: true })
   refereeName: string;

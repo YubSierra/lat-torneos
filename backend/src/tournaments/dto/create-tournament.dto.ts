@@ -1,11 +1,16 @@
 import { IsString, IsEnum, IsNumber, IsDateString,
-         Min, Max, IsOptional, IsBoolean } from 'class-validator';
+         Min, Max, IsOptional, IsBoolean, MaxLength } from 'class-validator';
 import { TournamentType, CircuitLine } from '../tournament.entity';
 
 export class CreateTournamentDto {
 
   @IsString()
   name: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  club?: string;
 
   @IsEnum(TournamentType)
   type: TournamentType;

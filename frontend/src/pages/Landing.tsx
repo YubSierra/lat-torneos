@@ -13,6 +13,7 @@ interface Tournament {
   status: 'draft' | 'open' | 'closed' | 'active' | 'completed';
   type: string;
   circuitLine: string;
+  club?: string;
   stageNumber?: number;
   eventStart: string;
   eventEnd: string;
@@ -115,6 +116,7 @@ export default function Landing() {
   const navigate  = useNavigate();
   const [scrollY, setScrollY] = useState(0);
   const [selectedTournament, setSelectedTournament] = useState<Tournament | null>(null);
+  const [clubFilter, setClubFilter] = useState('');
 
   useEffect(() => {
     const h = () => setScrollY(window.scrollY);
@@ -145,9 +147,12 @@ export default function Landing() {
     staleTime: 30_000,
   });
 
-  const active   = allTournaments.filter(t => t.status === 'active');
-  const open     = allTournaments.filter(t => t.status === 'open' || t.status === 'closed');
-  const past     = allTournaments.filter(t => t.status === 'completed');
+  const allClubs = Array.from(new Set(allTournaments.map(t => t.club).filter(Boolean))) as string[];
+  const filtered = clubFilter ? allTournaments.filter(t => t.club === clubFilter) : allTournaments;
+
+  const active   = filtered.filter(t => t.status === 'active');
+  const open     = filtered.filter(t => t.status === 'open' || t.status === 'closed');
+  const past     = filtered.filter(t => t.status === 'completed');
 
   return (
     <>
@@ -171,13 +176,31 @@ export default function Landing() {
           >
             <span style={{ fontSize: '22px' }}>🎾</span>
             <span style={{ fontSize: '15px', fontWeight: '900', color: 'white', letterSpacing: '-.02em' }}>
-              LAT <span style={{ color: '#8BC34A', fontWeight: '300' }}>Torneos</span>
+              Matchlungo <span style={{ color: '#8BC34A', fontWeight: '300' }}>Ace</span>
             </span>
           </button>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'clamp(14px, 2.5vw, 28px)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'clamp(10px, 2vw, 22px)', flexWrap: 'wrap' }}>
             <a href="#activos"  className="nav-link">En Curso</a>
             <a href="#proximos" className="nav-link">Próximos</a>
             <a href="#pasados"  className="nav-link">Historial</a>
+            {allClubs.length > 0 && (
+              <select
+                value={clubFilter}
+                onChange={e => setClubFilter(e.target.value)}
+                style={{
+                  backgroundColor: clubFilter ? 'rgba(139,195,74,.15)' : 'rgba(255,255,255,.08)',
+                  border: `1px solid ${clubFilter ? 'rgba(139,195,74,.5)' : 'rgba(255,255,255,.2)'}`,
+                  borderRadius: '8px', color: clubFilter ? '#8BC34A' : 'rgba(255,255,255,.6)',
+                  padding: '6px 10px', fontSize: '12px', fontWeight: '600',
+                  cursor: 'pointer', fontFamily: 'inherit',
+                }}
+              >
+                <option value="" style={{ backgroundColor: '#0D1F0D', color: 'white' }}>🏛️ Todos los clubes</option>
+                {allClubs.map(c => (
+                  <option key={c} value={c} style={{ backgroundColor: '#0D1F0D', color: 'white' }}>{c}</option>
+                ))}
+              </select>
+            )}
             <button
               onClick={() => navigate('/login')}
               style={{
@@ -254,11 +277,11 @@ export default function Landing() {
               fontFamily:"'DM Serif Display', serif",
               animation:'fadeUp .8s ease forwards', opacity:0, animationDelay:'.15s',
             }}>
-              Liga Antioqueña<br/>
+              Matchlungo Ace<br/>
               <span style={{
                 background:'linear-gradient(135deg, #8BC34A 0%, #4CAF50 50%, #2D6A2D 100%)',
                 WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text',
-              }}>de Tenis</span>
+              }}>Gestor de Torneos</span>
             </h1>
 
             <p style={{
@@ -266,7 +289,7 @@ export default function Landing() {
               fontWeight:'300', lineHeight:'1.65', margin:'0 0 42px',
               animation:'fadeUp .8s ease forwards', opacity:0, animationDelay:'.3s',
             }}>
-              El circuito oficial de tenis de Antioquia — torneos departamentales,<br/>
+              Tu plataforma de gestión de torneos de tenis — inscripciones,<br/>
               escalafón en tiempo real y marcadores en vivo.
             </p>
 
@@ -435,7 +458,7 @@ export default function Landing() {
             <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
               <span style={{ fontSize:'26px' }}>🎾</span>
               <div>
-                <p style={{ margin:0, fontSize:'14px', fontWeight:'800', color:'white' }}>Liga Antioqueña de Tenis</p>
+                <p style={{ margin:0, fontSize:'14px', fontWeight:'800', color:'white' }}>Matchlungo Ace - Gestor de torneo de Tenis</p>
                 <p style={{ margin:'2px 0 0', fontSize:'11px', color:'rgba(255,255,255,.3)' }}>
                   Sistema oficial de torneos · {new Date().getFullYear()}
                 </p>
@@ -537,6 +560,11 @@ function TournamentModal({ t, onClose, onViewPublic }: {
                 {CIRCUIT_LABEL[t.circuitLine] || t.circuitLine} · {TYPE_LABEL[t.type] || t.type}
                 {t.stageNumber ? ` · Etapa ${t.stageNumber}` : ''}
               </p>
+              {t.club && (
+                <p style={{ margin:'4px 0 0', fontSize:'12px', color:'#8BC34A', fontWeight:'700', opacity:.85 }}>
+                  🏛️ {t.club}
+                </p>
+              )}
             </div>
             <button
               onClick={onClose}
@@ -840,7 +868,12 @@ function ActiveCard({ t, delay, onClick }: { t: Tournament; delay: number; onCli
             {CIRCUIT_LABEL[t.circuitLine] || t.circuitLine}
           </span>
         </div>
-        <h3 style={{ margin:'0 0 6px', fontSize:'17px', fontWeight:'800', color:'white', lineHeight:1.2 }}>{t.name}</h3>
+        <h3 style={{ margin:'0 0 4px', fontSize:'17px', fontWeight:'800', color:'white', lineHeight:1.2 }}>{t.name}</h3>
+        {t.club && (
+          <p style={{ margin:'0 0 4px', fontSize:'11px', fontWeight:'700', color:'#8BC34A', opacity:.8 }}>
+            🏛️ {t.club}
+          </p>
+        )}
         <p style={{ margin:'0 0 16px', fontSize:'12px', color:'rgba(255,255,255,.4)' }}>
           {TYPE_LABEL[t.type] || t.type}{t.stageNumber ? ` · Etapa ${t.stageNumber}` : ''}
           {t.hasDoubles ? ' · 🤝 Dobles' : ''}
@@ -893,7 +926,12 @@ function UpcomingCard({ t, delay, onDetails }: { t: Tournament; delay: number; o
           </span>
         </div>
 
-        <h3 style={{ margin:'0 0 5px', fontSize:'17px', fontWeight:'800', color:'white', lineHeight:1.2 }}>{t.name}</h3>
+        <h3 style={{ margin:'0 0 4px', fontSize:'17px', fontWeight:'800', color:'white', lineHeight:1.2 }}>{t.name}</h3>
+        {t.club && (
+          <p style={{ margin:'0 0 4px', fontSize:'11px', fontWeight:'700', color:'#8BC34A', opacity:.8 }}>
+            🏛️ {t.club}
+          </p>
+        )}
         <p style={{ margin:'0 0 14px', fontSize:'12px', color:'rgba(255,255,255,.4)' }}>
           {TYPE_LABEL[t.type] || t.type}{t.stageNumber ? ` · Etapa ${t.stageNumber}` : ''}
         </p>
@@ -977,6 +1015,11 @@ function PastRow({ t, index, onClick }: { t: Tournament; index: number; onClick:
         <p style={{ margin:'3px 0 0', fontSize:'10px', color:'rgba(255,255,255,.28)' }}>
           {TYPE_LABEL[t.type]||t.type}{t.stageNumber ? ` · Etapa ${t.stageNumber}` : ''}
         </p>
+        {t.club && (
+          <p style={{ margin:'2px 0 0', fontSize:'10px', color:'#8BC34A', fontWeight:'600', opacity:.7 }}>
+            🏛️ {t.club}
+          </p>
+        )}
       </div>
       <span style={{ fontSize:'11px', color:'rgba(255,255,255,.4)', fontWeight:'500' }}>
         {CIRCUIT_LABEL[t.circuitLine]||t.circuitLine}

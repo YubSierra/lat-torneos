@@ -418,7 +418,7 @@ export default function Login() {
           )}
 
           <p style={{ textAlign: 'center', marginTop: '28px', color: '#D1D5DB', fontSize: '12px' }}>
-            LAT © {new Date().getFullYear()} · Liga Antioqueña de Tenis
+            Matchlungo Ace © {new Date().getFullYear()} · Gestor de torneo de Tenis
           </p>
         </div>
       </div>

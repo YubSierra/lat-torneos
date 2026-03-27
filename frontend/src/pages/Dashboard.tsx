@@ -42,7 +42,7 @@ export default function Dashboard() {
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-lat-dark">Dashboard</h1>
-          <p className="text-gray-500">Liga Antioqueña de Tenis — Temporada {new Date().getFullYear()}</p>
+          <p className="text-gray-500">Matchlungo Ace - Gestor de torneo de Tenis — Temporada {new Date().getFullYear()}</p>
         </div>
 
         {/* KPI Cards */}

@@ -496,7 +496,7 @@ export function exportBracketPdf({ tournamentName, matches, mode = 'both', modal
     doc.rect(0, pageH - FOOTER, pageW, FOOTER, 'F');
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(7); doc.setFont('helvetica', 'normal');
-    doc.text('Liga Antioqueña de Tenis — Sistema LAT', MARGIN, pageH - 4);
+    doc.text('Matchlungo Ace - Gestor de torneo de Tenis', MARGIN, pageH - 4);
     doc.text(`Pag. ${p} / ${total}`, pageW - MARGIN, pageH - 4, { align: 'right' });
   };
 
