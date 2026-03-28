@@ -180,6 +180,33 @@ export class MailService {
     await this.send({ to: email, subject: `Inscripción registrada — ${tournamentName} 🎾`, html });
   }
 
+  // ── RECUPERACIÓN DE CONTRASEÑA ───────────────────────────────────────────
+  async sendPasswordReset(email: string, nombre: string, resetUrl: string): Promise<void> {
+    const html = this.wrap(`
+      <h2 style="margin:0 0 8px;color:#1B3A1B;font-size:22px;font-weight:700;">Recuperar contraseña</h2>
+      <p style="color:#374151;font-size:15px;margin:0 0 20px;">
+        Hola <strong>${nombre}</strong>, recibimos una solicitud para restablecer la contraseña de tu cuenta LAT Torneos.
+      </p>
+      <div style="text-align:center;margin:28px 0;">
+        <a href="${resetUrl}"
+           style="display:inline-block;background:linear-gradient(135deg,#1B3A1B,#2D6A2D);color:white;text-decoration:none;padding:14px 32px;border-radius:10px;font-size:15px;font-weight:700;letter-spacing:0.02em;">
+          🔑 Restablecer contraseña
+        </a>
+      </div>
+      <div style="background:#FEF9C3;border:1px solid #FDE68A;border-radius:8px;padding:14px 18px;margin:0 0 20px;">
+        <p style="margin:0;color:#92400E;font-size:13px;">
+          ⏰ Este enlace es válido por <strong>15 minutos</strong> y solo puede usarse una vez.<br>
+          Si no solicitaste este cambio, ignora este correo.
+        </p>
+      </div>
+      <p style="color:#9CA3AF;font-size:12px;margin:0;word-break:break-all;">
+        O copia este enlace en tu navegador:<br>${resetUrl}
+      </p>
+    `);
+
+    await this.send({ to: email, subject: 'Recuperar contraseña — LAT Torneos', html });
+  }
+
   // ── PROGRAMACIÓN (con PDF adjunto) ───────────────────────────────────────
   async sendScheduleEmail(
     emails: string[],

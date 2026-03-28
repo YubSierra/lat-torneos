@@ -22,7 +22,7 @@ const EyeIcon = ({ open }: { open: boolean }) => (
 );
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
-type Mode = 'login' | 'register';
+type Mode = 'login' | 'register' | 'forgot';
 
 // ── Validaciones ──────────────────────────────────────────────────────────────
 const validate = (form: RegisterForm) => {
@@ -62,6 +62,12 @@ export default function Login() {
   const [showLoginPwd,  setShowLoginPwd]  = useState(false);
   const [loginError,    setLoginError]    = useState('');
   const [loginLoading,  setLoginLoading]  = useState(false);
+
+  // Forgot password state
+  const [forgotEmail,   setForgotEmail]   = useState('');
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotError,   setForgotError]   = useState('');
+  const [forgotSent,    setForgotSent]    = useState(false);
 
   // Register state
   const [form,       setForm]       = useState<RegisterForm>(emptyRegister);
@@ -156,7 +162,7 @@ export default function Login() {
         {/* Logo */}
         <div style={{ position: 'relative', zIndex: 1, textAlign: 'center' }}>
           <div style={{ marginBottom: '32px', filter: 'drop-shadow(0 0 30px rgba(74,222,128,0.25))' }}>
-            <img src="/logo.png" alt="Matchlungo Ace" style={{ width: '180px', objectFit: 'contain', filter: 'brightness(0) invert(1)' }} />
+            <img src="/logo.png" alt="Matchlungo Ace" style={{ width: '180px', objectFit: 'contain', maxHeight: '120px' }} />
           </div>
           <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: '13px', margin: '0 0 48px', letterSpacing: '0.12em', textTransform: 'uppercase' }}>
             Gestor de Torneos de Tenis
@@ -207,25 +213,27 @@ export default function Login() {
           transition: 'opacity 0.26s ease, transform 0.26s ease',
         }}>
 
-          {/* Tabs Login / Registro */}
-          <div style={{
-            display: 'flex', marginBottom: '28px',
-            backgroundColor: '#EAEBE8', borderRadius: '12px', padding: '4px',
-          }}>
-            {(['login', 'register'] as Mode[]).map(m => (
-              <button key={m} onClick={() => switchMode(m)} style={{
-                flex: 1, padding: '10px',
-                border: 'none', borderRadius: '9px', cursor: 'pointer',
-                fontFamily: 'inherit', fontSize: '14px', fontWeight: '700',
-                transition: 'all 0.2s ease',
-                backgroundColor: mode === m ? 'white' : 'transparent',
-                color: mode === m ? '#1B3A1B' : '#9CA3AF',
-                boxShadow: mode === m ? '0 2px 8px rgba(0,0,0,0.08)' : 'none',
-              }}>
-                {m === 'login' ? 'Iniciar sesión' : 'Crear cuenta'}
-              </button>
-            ))}
-          </div>
+          {/* Tabs Login / Registro — ocultar en modo forgot */}
+          {mode !== 'forgot' && (
+            <div style={{
+              display: 'flex', marginBottom: '28px',
+              backgroundColor: '#EAEBE8', borderRadius: '12px', padding: '4px',
+            }}>
+              {(['login', 'register'] as Mode[]).map(m => (
+                <button key={m} onClick={() => switchMode(m)} style={{
+                  flex: 1, padding: '10px',
+                  border: 'none', borderRadius: '9px', cursor: 'pointer',
+                  fontFamily: 'inherit', fontSize: '14px', fontWeight: '700',
+                  transition: 'all 0.2s ease',
+                  backgroundColor: mode === m ? 'white' : 'transparent',
+                  color: mode === m ? '#1B3A1B' : '#9CA3AF',
+                  boxShadow: mode === m ? '0 2px 8px rgba(0,0,0,0.08)' : 'none',
+                }}>
+                  {m === 'login' ? 'Iniciar sesión' : 'Crear cuenta'}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* ══════ FORMULARIO LOGIN ══════ */}
           {mode === 'login' && (
@@ -271,6 +279,16 @@ export default function Login() {
                 <button type="submit" disabled={loginLoading} style={submitBtnStyle(loginLoading)}>
                   {loginLoading ? <Spinner /> : 'Iniciar sesión'}
                 </button>
+
+                <div style={{ textAlign: 'center' }}>
+                  <button
+                    type="button"
+                    onClick={() => { setForgotEmail(''); setForgotError(''); setForgotSent(false); switchMode('forgot'); }}
+                    style={{ background: 'none', border: 'none', color: '#6B7280', fontWeight: '500', cursor: 'pointer', fontSize: '13px', fontFamily: 'inherit', textDecoration: 'underline' }}
+                  >
+                    ¿Olvidaste tu contraseña?
+                  </button>
+                </div>
               </form>
 
               <p style={{ textAlign: 'center', marginTop: '20px', fontSize: '13px', color: '#9CA3AF' }}>
@@ -408,6 +426,81 @@ export default function Login() {
                   Inicia sesión
                 </button>
               </p>
+            </>
+          )}
+
+          {/* ══════ MODO OLVIDÉ MI CONTRASEÑA ══════ */}
+          {mode === 'forgot' && (
+            <>
+              <div style={{ marginBottom: '24px' }}>
+                <h2 style={{ margin: '0 0 4px', fontSize: '22px', fontWeight: '800', color: '#111', letterSpacing: '-0.02em' }}>
+                  Recuperar contraseña
+                </h2>
+                <p style={{ margin: 0, color: '#6B7280', fontSize: '14px' }}>
+                  Ingresa tu correo y te enviaremos un enlace para restablecer tu contraseña.
+                </p>
+              </div>
+
+              {forgotSent ? (
+                <div style={{ backgroundColor: '#F0FDF4', border: '1.5px solid #86EFAC', borderRadius: '12px', padding: '24px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '40px', marginBottom: '10px' }}>📧</div>
+                  <p style={{ color: '#15803D', fontWeight: '700', fontSize: '16px', margin: '0 0 6px' }}>
+                    ¡Correo enviado!
+                  </p>
+                  <p style={{ color: '#6B7280', fontSize: '13px', margin: '0 0 16px' }}>
+                    Si el correo está registrado, recibirás un enlace en los próximos minutos. Revisa tu bandeja de spam.
+                  </p>
+                  <button
+                    onClick={() => switchMode('login')}
+                    style={{ background: 'none', border: 'none', color: '#2D6A2D', fontWeight: '700', cursor: 'pointer', fontSize: '14px', fontFamily: 'inherit', textDecoration: 'underline' }}
+                  >
+                    ← Volver al inicio de sesión
+                  </button>
+                </div>
+              ) : (
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    setForgotError('');
+                    setForgotLoading(true);
+                    try {
+                      await authApi.forgotPassword(forgotEmail);
+                      setForgotSent(true);
+                    } catch {
+                      setForgotError('No se pudo enviar el correo. Intenta de nuevo.');
+                    } finally {
+                      setForgotLoading(false);
+                    }
+                  }}
+                  style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}
+                >
+                  <Field label="Correo electrónico">
+                    <input
+                      type="email" value={forgotEmail}
+                      onChange={e => setForgotEmail(e.target.value)}
+                      placeholder="tu@email.com" required
+                      style={inputStyle()}
+                      onFocus={focusStyle} onBlur={blurStyle}
+                    />
+                  </Field>
+
+                  {forgotError && <ErrorBox msg={forgotError} />}
+
+                  <button type="submit" disabled={forgotLoading} style={submitBtnStyle(forgotLoading)}>
+                    {forgotLoading ? <Spinner /> : 'Enviar enlace de recuperación'}
+                  </button>
+
+                  <div style={{ textAlign: 'center' }}>
+                    <button
+                      type="button"
+                      onClick={() => switchMode('login')}
+                      style={{ background: 'none', border: 'none', color: '#6B7280', fontWeight: '500', cursor: 'pointer', fontSize: '13px', fontFamily: 'inherit' }}
+                    >
+                      ← Volver al inicio de sesión
+                    </button>
+                  </div>
+                </form>
+              )}
             </>
           )}
 

@@ -27,4 +27,17 @@ export const authApi = {
     const res = await api.post('/auth/register/admin', { email, password, role });
     return res.data;
   },
+
+  // Solicitar enlace de recuperación de contraseña
+  forgotPassword: async (email: string) => {
+    const resetBaseUrl = `${window.location.origin}/reset-password`;
+    const res = await api.post('/auth/forgot-password', { email, resetBaseUrl });
+    return res.data;
+  },
+
+  // Confirmar nueva contraseña con token del email
+  resetPassword: async (token: string, newPassword: string) => {
+    const res = await api.post('/auth/reset-password', { token, newPassword });
+    return res.data;
+  },
 };

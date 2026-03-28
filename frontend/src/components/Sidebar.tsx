@@ -74,7 +74,7 @@ export default function Sidebar() {
 
         {/* Logo */}
         <div style={{ padding: '16px 18px', borderBottom: '1px solid #2D6A2D', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <img src="/logo.png" alt="Matchlungo Ace" style={{ width: '140px', objectFit: 'contain', filter: 'brightness(0) invert(1)' }} />
+          <img src="/logo.png" alt="Matchlungo Ace" style={{ width: '140px', objectFit: 'contain', maxHeight: '72px' }} />
         </div>
 
         {/* Navegación */}

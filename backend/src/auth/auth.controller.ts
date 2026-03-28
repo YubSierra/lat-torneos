@@ -79,4 +79,20 @@ export class AuthController {
   ) {
     return this.authService.changePassword(req.user.id, body.currentPassword, body.newPassword);
   }
+
+  // POST /auth/forgot-password — solicitar enlace de recuperación
+  @Post('forgot-password')
+  async forgotPassword(
+    @Body() body: { email: string; resetBaseUrl: string },
+  ) {
+    await this.authService.forgotPassword(body.email, body.resetBaseUrl);
+    // Siempre responder igual para no revelar si el email existe
+    return { message: 'Si el correo está registrado, recibirás un enlace para restablecer tu contraseña.' };
+  }
+
+  // POST /auth/reset-password — confirmar nueva contraseña con token
+  @Post('reset-password')
+  resetPassword(@Body() body: { token: string; newPassword: string }) {
+    return this.authService.resetPassword(body.token, body.newPassword);
+  }
 }

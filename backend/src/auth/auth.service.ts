@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import { randomUUID } from 'crypto';
 import { User, UserRole } from '../users/user.entity';
 import { MailService } from '../mail/mail.service';
 
@@ -112,6 +113,38 @@ export class AuthService {
       nombres: user.nombres,
       userId:  user.id,
     };
+  }
+
+  // ── OLVIDÉ MI CONTRASEÑA — solicitar reset ────────────────────────
+  async forgotPassword(email: string, resetBaseUrl: string): Promise<void> {
+    const user = await this.usersRepo.findOne({ where: { email } });
+    if (!user) return; // No revelar si el email existe
+
+    const token = randomUUID();
+    user.resetToken = token;
+    user.resetTokenExpiry = new Date(Date.now() + 15 * 60 * 1000); // 15 min
+    await this.usersRepo.save(user);
+
+    const resetUrl = `${resetBaseUrl}?token=${token}`;
+    this.mailService.sendPasswordReset(email, user.nombres || email, resetUrl).catch(() => {});
+  }
+
+  // ── RESETEAR CONTRASEÑA con token ────────────────────────────────
+  async resetPassword(token: string, newPassword: string) {
+    const user = await this.usersRepo.findOne({ where: { resetToken: token } });
+    if (!user) throw new UnauthorizedException('Token inválido o ya utilizado');
+    if (!user.resetTokenExpiry || user.resetTokenExpiry < new Date()) {
+      throw new UnauthorizedException('El enlace de recuperación ha expirado. Solicita uno nuevo.');
+    }
+
+    user.password = await bcrypt.hash(newPassword, 12);
+    user.resetToken = null;
+    user.resetTokenExpiry = null;
+    user.mustChangePassword = false;
+    await this.usersRepo.save(user);
+
+    this.mailService.sendPasswordChanged(user.email, user.nombres || user.email).catch(() => {});
+    return { message: 'Contraseña restablecida correctamente. Ya puedes iniciar sesión.' };
   }
 
   // ── CAMBIAR CONTRASEÑA ─────────────────────────────────────────────

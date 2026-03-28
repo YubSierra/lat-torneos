@@ -19,6 +19,7 @@ import LiveMatch from './pages/LiveMatch';
 import MatchScorer from './pages/MatchScorer';
 import PublicTournament from './pages/PublicTournament';
 import MisPagos from './pages/MisPagos';
+import ResetPassword from './pages/ResetPassword';
 
 const queryClient = new QueryClient();
 
@@ -32,6 +33,7 @@ export default function App() {
             <Route path="/"       element={<Landing />} />
             <Route path="/inicio" element={<Landing />} />
             <Route path="/login"  element={<Login />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/torneo" element={<PublicTournament />} />
             <Route path="/torneo/:tournamentId" element={<PublicTournament />} />
             <Route path="/live/:matchId"   element={<LiveMatch />} />
