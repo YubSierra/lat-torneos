@@ -32,6 +32,11 @@ import { CircuitLinesModule } from './circuit-lines/circuit-lines.module';
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
         const databaseUrl = config.get('DATABASE_URL');
+
+        // 👇 LOG TEMPORAL para ver qué llega
+        console.log('🔍 DATABASE_URL:', databaseUrl ? 'PRESENTE ✅' : 'VACÍA ❌');
+        console.log('🔍 DB_HOST:', config.get('DB_HOST'));
+
         if (databaseUrl) {
           // En Railway usa DATABASE_URL directamente
           return {
