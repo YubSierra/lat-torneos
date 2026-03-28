@@ -31,10 +31,10 @@ import { CircuitLinesModule } from './circuit-lines/circuit-lines.module';
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
-        const databaseUrl = config.get('DATABASE_URL');
+        const databaseUrl = config.get('PG_URL');
 
         // 👇 LOG TEMPORAL para ver qué llega
-        console.log('🔍 DATABASE_URL:', databaseUrl ? 'PRESENTE ✅' : 'VACÍA ❌');
+        console.log('🔍 PG_URL:', databaseUrl ? 'PRESENTE ✅' : 'VACÍA ❌');
         console.log('🔍 DB_HOST:', config.get('DB_HOST'));
 
         if (databaseUrl) {
