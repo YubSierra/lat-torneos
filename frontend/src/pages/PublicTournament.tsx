@@ -49,6 +49,9 @@ export default function PublicTournament() {
   } | null>(null);
   const [playerTab, setPlayerTab] = useState<'torneo' | 'historial' | 'stats'>('torneo');
 
+  // Modal detalle partido
+  const [selectedMatch, setSelectedMatch] = useState<any>(null);
+
   // Sincronizar URL ↔ estado
   useEffect(() => {
     if (paramId) setSelectedId(paramId);
@@ -386,6 +389,7 @@ export default function PublicTournament() {
                         <PublicLiveCard
                           key={m.id} m={m} ls={ls} sets={sets}
                           onPlayerClick={openPlayer}
+                          onMatchClick={setSelectedMatch}
                         />
                       );
                     })}
@@ -421,7 +425,7 @@ export default function PublicTournament() {
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     {doneMatches.map((m: any) => (
-                      <DoneRow key={m.id} m={m} onPlayerClick={openPlayer} />
+                      <DoneRow key={m.id} m={m} onPlayerClick={openPlayer} onMatchClick={setSelectedMatch} />
                     ))}
                   </div>
                 )}
@@ -451,6 +455,11 @@ export default function PublicTournament() {
           Matchlungo Ace · Marcadores en tiempo real
         </div>
       </div>
+
+      {/* Modal detalle partido */}
+      {selectedMatch && (
+        <MatchDetailModal match={selectedMatch} onClose={() => setSelectedMatch(null)} />
+      )}
     </div>
   );
 }
@@ -478,7 +487,7 @@ function Section({ title, count, dotColor, countBg, countColor, children }: any)
 // ═════════════════════════════════════════════════════════════════════════════
 // TARJETA PARTIDO EN VIVO — pública
 // ═════════════════════════════════════════════════════════════════════════════
-function PublicLiveCard({ m, ls, sets, onPlayerClick }: any) {
+function PublicLiveCard({ m, ls, sets, onPlayerClick, onMatchClick }: any) {
   const p1Sets   = ls?.sets1  ?? m.sets1  ?? 0;
   const p2Sets   = ls?.sets2  ?? m.sets2  ?? 0;
   const p1Games  = ls?.games1 ?? m.games1 ?? 0;
@@ -512,6 +521,14 @@ function PublicLiveCard({ m, ls, sets, onPlayerClick }: any) {
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           {m.courtName && <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: '11px' }}>🎾 {m.courtName}</span>}
           {/* Botón marcador detallado */}
+          {onMatchClick && (
+            <button
+              onClick={() => onMatchClick({ ...m, setsHistory: sets.length > 0 ? sets : m.setsHistory })}
+              style={{ backgroundColor: 'rgba(255,255,255,0.15)', color: 'white', padding: '4px 11px', borderRadius: '7px', fontSize: '11px', fontWeight: '600', border: '1px solid rgba(255,255,255,0.2)', whiteSpace: 'nowrap', cursor: 'pointer' }}
+            >
+              Detalle
+            </button>
+          )}
           <a
             href={`/live/${m.id}`}
             target="_blank"
@@ -712,12 +729,17 @@ function PendingRow({ m, onPlayerClick, matchByKey, roundPrev }: any) {
 // ═════════════════════════════════════════════════════════════════════════════
 // FILA PARTIDO TERMINADO
 // ═════════════════════════════════════════════════════════════════════════════
-function DoneRow({ m, onPlayerClick }: any) {
+function DoneRow({ m, onPlayerClick, onMatchClick }: any) {
   const p1Won = m.winnerId === m.player1Id;
   const sets  = `${m.sets1 ?? 0}–${m.sets2 ?? 0}`;
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', borderRadius: '10px', border: '1px solid #E5E7EB', backgroundColor: 'white', flexWrap: 'wrap' }}>
+    <div
+      onClick={() => onMatchClick && onMatchClick(m)}
+      style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', borderRadius: '10px', border: '1px solid #E5E7EB', backgroundColor: 'white', flexWrap: 'wrap', cursor: 'pointer' }}
+      onMouseEnter={e => { if (onMatchClick) (e.currentTarget as HTMLDivElement).style.backgroundColor = '#F9FAFB'; }}
+      onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.backgroundColor = 'white'; }}
+    >
       {/* Badges */}
       <div style={{ display: 'flex', gap: '5px', flexShrink: 0 }}>
         <span style={{ padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '600', backgroundColor: '#F3E8FF', color: '#6B21A8' }}>
@@ -757,7 +779,7 @@ function ClickablePlayer({ name, photoUrl, playerId, onPlayerClick, winner = fal
   if (!playerId) return <span style={{ color: '#9CA3AF', fontSize: '13px' }}>BYE</span>;
   return (
     <button
-      onClick={() => onPlayerClick(playerId, name, photoUrl)}
+      onClick={e => { e.stopPropagation(); onPlayerClick(playerId, name, photoUrl); }}
       style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: '6px', opacity: dim ? 0.45 : 1 }}
     >
       <PlayerAvatar name={name || '?'} photoUrl={photoUrl} size={28} borderColor={winner ? '#22C55E' : undefined} />
@@ -770,10 +792,149 @@ function ClickablePlayer({ name, photoUrl, playerId, onPlayerClick, winner = fal
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// MODAL DETALLE DE PARTIDO
+// ═════════════════════════════════════════════════════════════════════════════
+function MatchDetailModal({ match, onClose }: { match: any; onClose: () => void }) {
+  const parseSets = (raw: any): any[] => {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'string') { try { return JSON.parse(raw); } catch { return []; } }
+    return [];
+  };
+
+  const setsHistory = parseSets(match.setsHistory);
+  const p1Won  = match.winnerId === match.player1Id;
+  const p2Won  = match.winnerId === match.player2Id;
+  const isWo   = match.status === 'wo';
+  const isLive = match.status === 'live';
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.55)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ backgroundColor: 'white', borderRadius: '20px', maxWidth: '420px', width: '100%', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}
+      >
+        {/* Header */}
+        <div style={{ background: 'linear-gradient(135deg, #1B3A1B 0%, #2D6A2D 100%)', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <div style={{ display: 'flex', gap: '6px', marginBottom: '6px', flexWrap: 'wrap' }}>
+              <span style={{ padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '600', backgroundColor: 'rgba(255,255,255,0.15)', color: 'white' }}>
+                {ROUND_LABELS[match.round] || match.round}
+              </span>
+              <span style={{ padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '600', backgroundColor: 'rgba(255,255,255,0.15)', color: 'white' }}>
+                {match.category}
+              </span>
+              {isLive && (
+                <span style={{ padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '700', backgroundColor: '#EF4444', color: 'white' }}>
+                  🔴 En vivo
+                </span>
+              )}
+              {isWo && (
+                <span style={{ padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '700', backgroundColor: '#F59E0B', color: 'white' }}>
+                  W.O.
+                </span>
+              )}
+            </div>
+            <p style={{ margin: 0, fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>
+              {match.scheduledAt
+                ? new Date(match.scheduledAt).toLocaleString('es-CO', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+                : 'Sin programar'}
+              {match.courtName && ` · 🎾 ${match.courtName}`}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            style={{ background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '50%', width: '28px', height: '28px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', flexShrink: 0, marginLeft: '8px' }}
+          >
+            <X size={14} color="white" />
+          </button>
+        </div>
+
+        {/* Cuerpo */}
+        <div style={{ padding: '20px' }}>
+          {/* Jugadores + resultado */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+            {/* Jugador 1 */}
+            <div style={{ textAlign: 'center', flex: 1, minWidth: 0 }}>
+              <PlayerAvatar name={match.player1Name || '?'} photoUrl={match.player1PhotoUrl} size={52} borderColor={p1Won ? '#22C55E' : '#E5E7EB'} />
+              <p style={{ margin: '6px 0 0', fontSize: '12px', fontWeight: p1Won ? '700' : '500', color: p1Won ? '#1B3A1B' : '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {match.player1Name || 'Jugador 1'}
+              </p>
+              {p1Won && <p style={{ margin: '2px 0 0', fontSize: '10px', color: '#15803D', fontWeight: '700' }}>🏆 Ganador</p>}
+            </div>
+
+            {/* Marcador central */}
+            <div style={{ textAlign: 'center', padding: '0 12px', flexShrink: 0 }}>
+              {isWo ? (
+                <span style={{ fontSize: '13px', fontWeight: '700', color: '#92400E', backgroundColor: '#FEF3C7', padding: '6px 12px', borderRadius: '8px', display: 'inline-block' }}>
+                  W.O.
+                </span>
+              ) : (
+                <div style={{ fontSize: '34px', fontWeight: '900', fontFamily: 'monospace', color: '#1B3A1B', lineHeight: 1 }}>
+                  {match.sets1 ?? 0}
+                  <span style={{ color: '#D1D5DB', fontSize: '26px', margin: '0 2px' }}>–</span>
+                  {match.sets2 ?? 0}
+                </div>
+              )}
+              <p style={{ margin: '4px 0 0', fontSize: '10px', color: '#9CA3AF', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Sets</p>
+            </div>
+
+            {/* Jugador 2 */}
+            <div style={{ textAlign: 'center', flex: 1, minWidth: 0 }}>
+              <PlayerAvatar name={match.player2Name || '?'} photoUrl={match.player2PhotoUrl} size={52} borderColor={p2Won ? '#22C55E' : '#E5E7EB'} />
+              <p style={{ margin: '6px 0 0', fontSize: '12px', fontWeight: p2Won ? '700' : '500', color: p2Won ? '#1B3A1B' : '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {match.player2Name || 'Jugador 2'}
+              </p>
+              {p2Won && <p style={{ margin: '2px 0 0', fontSize: '10px', color: '#15803D', fontWeight: '700' }}>🏆 Ganador</p>}
+            </div>
+          </div>
+
+          {/* Desglose por set — solo si hay setsHistory */}
+          {setsHistory.length > 0 && (
+            <div>
+              <p style={{ margin: '0 0 10px', fontSize: '11px', fontWeight: '700', color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Desglose por set
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {setsHistory.map((s: any, idx: number) => {
+                  const p1WonSet = s.games1 > s.games2;
+                  return (
+                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: '#F9FAFB', borderRadius: '10px', padding: '10px 14px' }}>
+                      <span style={{ fontSize: '11px', fontWeight: '700', color: '#9CA3AF', minWidth: '38px' }}>Set {idx + 1}</span>
+                      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: '22px', fontWeight: '900', color: p1WonSet ? '#15803D' : '#374151', fontFamily: 'monospace', minWidth: '24px', textAlign: 'right' }}>
+                          {s.games1}
+                        </span>
+                        <span style={{ color: '#D1D5DB', fontWeight: '700', margin: '0 6px' }}>–</span>
+                        <span style={{ fontSize: '22px', fontWeight: '900', color: !p1WonSet ? '#15803D' : '#374151', fontFamily: 'monospace', minWidth: '24px' }}>
+                          {s.games2}
+                        </span>
+                      </div>
+                      {(s.tiebreak1 !== undefined || s.tiebreak2 !== undefined) && (
+                        <span style={{ fontSize: '11px', color: '#6D28D9', backgroundColor: '#EDE9FE', padding: '2px 8px', borderRadius: '999px', flexShrink: 0 }}>
+                          TB {s.tiebreak1 ?? 0}–{s.tiebreak2 ?? 0}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // PANEL PERFIL JUGADOR — versión pública
 // ═════════════════════════════════════════════════════════════════════════════
 function PublicPlayerPanel({ player, tab, setTab, stats, history, tournamentMatches, onClose }: any) {
-  const winRate     = stats ? Math.round((stats.winRate ?? 0) * 100) : 0;
+  const winRate     = stats ? Math.round(stats.winRate ?? 0) : 0;
   const totalPoints = history?.totalPoints ?? 0;
 
   return (
