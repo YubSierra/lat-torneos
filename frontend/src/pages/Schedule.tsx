@@ -157,7 +157,7 @@ function AssignModal({
             ) : (
               <select
                 value={matchId}
-                onChange={e => { setMatchId(e.target.value); setSlotKey(''); }}
+                onChange={e => { setMatchId(e.target.value);  }}
                 style={selectStyle}
               >
                 <option value="">— Selecciona el partido —</option>

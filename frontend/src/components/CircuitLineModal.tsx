@@ -163,7 +163,7 @@ export default function CircuitLineModal({ onClose }: Props) {
     mutationFn: () => circuitLinesApi.create({
       slug: form.slug,
       label: form.label,
-      rankingPoints: form.hasRanking ? form.rankingPoints : null,
+      rankingPoints: form.hasRanking ? form.rankingPoints : undefined,
     }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['circuit-lines'] }); setCreating(false); setForm(blankForm()); setError(''); },
     onError: (e: any) => setError(e?.response?.data?.message || 'Error al crear'),
@@ -172,7 +172,7 @@ export default function CircuitLineModal({ onClose }: Props) {
   const updateMut = useMutation({
     mutationFn: () => circuitLinesApi.update(editing!.id, {
       label: form.label,
-      rankingPoints: form.hasRanking ? form.rankingPoints : null,
+      rankingPoints: form.hasRanking ? form.rankingPoints : undefined,
     }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['circuit-lines'] }); setEditing(null); setError(''); },
     onError: (e: any) => setError(e?.response?.data?.message || 'Error al guardar'),
