@@ -1,6 +1,7 @@
 // backend/src/auth/auth.controller.ts  ← REEMPLAZA EL ARCHIVO COMPLETO
-import { Controller, Post, Body } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
+import { JwtAuthGuard } from './jwt-auth.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -34,7 +35,8 @@ export class AuthController {
   }
 
   // POST /auth/register/admin
-  // Solo llamado desde la página de Players (admin) — acepta rol
+  // ✅ Protegido — solo admins autenticados pueden crear otros usuarios con rol
+  @UseGuards(JwtAuthGuard)
   @Post('register/admin')
   registerAdmin(
     @Body() body: {
