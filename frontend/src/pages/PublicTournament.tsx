@@ -5,7 +5,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery }   from '@tanstack/react-query';
 import { io, Socket } from 'socket.io-client';
 import { Trophy, ChevronRight, BarChart2, Calendar, X } from 'lucide-react';
-import api            from '../api/axios';
+import publicApi      from '../api/publicApi';
 import PlayerAvatar   from '../components/PlayerAvatar';
 import BracketView    from '../components/BracketView';
 
@@ -103,12 +103,12 @@ export default function PublicTournament() {
   // ── Datos ─────────────────────────────────────────────────────────────────
   const { data: tournaments = [] } = useQuery({
     queryKey: ['public-tournaments'],
-    queryFn: () => api.get('/tournaments').then(r => r.data),
+    queryFn: () => publicApi.get('/tournaments').then(r => r.data),
   });
 
   const { data: matches = [], refetch } = useQuery({
     queryKey: ['public-matches', selectedId],
-    queryFn: () => api.get(`/matches/tournament/${selectedId}`).then(r => r.data),
+    queryFn: () => publicApi.get(`/matches/tournament/${selectedId}`).then(r => r.data),
     enabled: !!selectedId,
     refetchInterval: 30_000, // refresco cada 30s como fallback al socket
   });
@@ -116,12 +116,12 @@ export default function PublicTournament() {
   // Datos del jugador seleccionado
   const { data: playerStats } = useQuery({
     queryKey: ['pub-player-stats', playerPanel?.id],
-    queryFn: () => api.get(`/matches/player/${playerPanel!.id}/stats`).then(r => r.data),
+    queryFn: () => publicApi.get(`/matches/player/${playerPanel!.id}/stats`).then(r => r.data),
     enabled: !!playerPanel?.id,
   });
   const { data: playerHistory } = useQuery({
     queryKey: ['pub-player-history', playerPanel?.id],
-    queryFn: () => api.get(`/rankings/player/${playerPanel!.id}/history`).then(r => r.data),
+    queryFn: () => publicApi.get(`/rankings/player/${playerPanel!.id}/history`).then(r => r.data),
     enabled: !!playerPanel?.id,
   });
 
