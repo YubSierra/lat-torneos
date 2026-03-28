@@ -18,6 +18,7 @@ import Users from './pages/Users';
 import LiveMatch from './pages/LiveMatch';
 import MatchScorer from './pages/MatchScorer';
 import PublicTournament from './pages/PublicTournament';
+import MisPagos from './pages/MisPagos';
 
 const queryClient = new QueryClient();
 
@@ -47,6 +48,7 @@ export default function App() {
             <Route path="/matches" element={<ProtectedRoute><Matches /></ProtectedRoute>} />
             <Route path="/doubles" element={<ProtectedRoute><Doubles /></ProtectedRoute>} />
             <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
+            <Route path="/mis-pagos" element={<ProtectedRoute><MisPagos /></ProtectedRoute>} />
 
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

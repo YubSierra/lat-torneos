@@ -4,3 +4,11 @@ body {
   background-color: #F4F7F4;
   font-family: 'Arial', sans-serif;
 }
+
+/* En móvil el botón hamburger (40px + 12px top) ocupa los primeros ~56px;
+   empujamos el contenido de todas las páginas para que no quede tapado. */
+@media (max-width: 1023px) {
+  main {
+    padding-top: 3.5rem !important;
+  }
+}

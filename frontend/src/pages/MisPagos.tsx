@@ -2,7 +2,7 @@
 // El jugador ve sus inscripciones reservadas/pendientes y puede pagar por MP
 import { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { CreditCard, ExternalLink, Clock, CheckCircle, AlertCircle } from 'lucide-react';
+import { CreditCard, ExternalLink, Clock, AlertCircle } from 'lucide-react';
 import api     from '../api/axios';
 import Sidebar from '../components/Sidebar';
 import { useAuth } from '../context/AuthContext';
@@ -77,11 +77,15 @@ export default function MisPagos() {
         </div>
 
         {pending.length === 0 ? (
-          /* Sin pendientes */
-          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '48px', textAlign: 'center', boxShadow: '0 1px 4px rgba(0,0,0,0.07)' }}>
-            <CheckCircle size={48} color="#22C55E" style={{ margin: '0 auto 12px' }} />
-            <p style={{ fontSize: '18px', fontWeight: '700', color: '#1B3A1B' }}>¡Todo al día!</p>
-            <p style={{ color: '#9CA3AF', marginTop: '6px' }}>No tienes inscripciones con pago pendiente.</p>
+          /* Sin inscripciones / pagos pendientes */
+          <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '56px 48px', textAlign: 'center', boxShadow: '0 1px 4px rgba(0,0,0,0.07)' }}>
+            <span style={{ fontSize: '64px', display: 'block', marginBottom: '16px' }}>🎾</span>
+            <p style={{ fontSize: '20px', fontWeight: '800', color: '#1B3A1B', margin: '0 0 8px' }}>
+              ¡Ups! Aún no estás inscrito en ningún torneo
+            </p>
+            <p style={{ color: '#9CA3AF', fontSize: '14px', margin: 0 }}>
+              Cuando te registres en un torneo, aquí verás tus pagos pendientes.
+            </p>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
