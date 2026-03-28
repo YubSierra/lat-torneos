@@ -30,6 +30,7 @@ export default function MisPagos() {
       const res = await api.get('/enrollments/my/pending');
       return res.data;
     },
+    retry: false,
   });
 
   // ── Generar preferencia de MercadoPago ───────────────────────────────────

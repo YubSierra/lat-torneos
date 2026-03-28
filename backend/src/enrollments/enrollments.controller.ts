@@ -1,6 +1,6 @@
 // backend/src/enrollments/enrollments.controller.ts  ← REEMPLAZA COMPLETO
 import { Controller, Get, Post, Patch, Delete, Body,
-         Param, UseGuards, UploadedFile,
+         Param, Req, UseGuards, UploadedFile,
          UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -131,6 +131,13 @@ export class EnrollmentsController {
     },
   ) {
     return this.enrollmentsService.enrollSinglePlayer(tournamentId, body);
+  }
+
+  // GET /enrollments/my/pending — inscripciones pendientes del jugador logueado
+  @Get('my/pending')
+  @UseGuards(JwtAuthGuard)
+  findMyPending(@Req() req: any) {
+    return this.enrollmentsService.findPendingByPlayer(req.user.id);
   }
 
   // GET /enrollments/tournament/:id
