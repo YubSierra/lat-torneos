@@ -15,6 +15,7 @@ import GameFormatConfig, {
   type GameFormat, DEFAULT_FORMAT, formatDescription,
 } from '../components/GameFormatConfig';
 import { exportBracketPdf } from '../utils/exportBracketPdf';
+import { mailApi } from '../api/mail.api';
 import BracketView from '../components/BracketView';
 import SuspendModal, { type SuspendMode } from '../components/SuspendModal';
 import EditScheduleModal from '../components/EditScheduleModal';
@@ -124,6 +125,12 @@ export default function TournamentDetail() {
   const [renameCatModal, setRenameCatModal] = useState<{ open: boolean; oldName: string; newName: string }>({ open: false, oldName: '', newName: '' });
   const [renameCatLoading, setRenameCatLoading] = useState(false);
   const [renameCatError, setRenameCatError] = useState('');
+
+  // ── Modal enviar cuadro por correo ────────────────────────────────────
+  const [showSendDrawModal,  setShowSendDrawModal]  = useState(false);
+  const [sendDrawCategory,   setSendDrawCategory]   = useState('');
+  const [sendDrawStatus,     setSendDrawStatus]     = useState<'idle' | 'sending' | 'done' | 'error'>('idle');
+  const [sendDrawResult,     setSendDrawResult]     = useState<{ sent: number; total: number } | null>(null);
 
   // ── Queries ───────────────────────────────────────────────────────────
   const { data: tournament, isLoading } = useQuery({
@@ -1401,6 +1408,22 @@ export default function TournamentDetail() {
                   📄 Exportar PDF
                 </button>
 
+                {/* Enviar cuadro por correo */}
+                {isAdmin && (bracketMatches as any[]).length > 0 && (
+                  <button
+                    onClick={() => {
+                      const cats = [...new Set((bracketMatches as any[]).map((m: any) => m.category))] as string[];
+                      setSendDrawCategory(cats[0] || selectedCategory || '');
+                      setSendDrawStatus('idle');
+                      setSendDrawResult(null);
+                      setShowSendDrawModal(true);
+                    }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#F0FDF4', border: '1.5px solid #86EFAC', color: '#15803D', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}
+                  >
+                    ✉️ Enviar cuadro
+                  </button>
+                )}
+
                 {/* Preparar Rondas Siguientes (crear placeholders para grupo único) */}
                 {isAdmin && (
                   <button
@@ -2301,6 +2324,103 @@ export default function TournamentDetail() {
             >
               Cancelar
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ MODAL ENVIAR CUADRO POR CORREO ═══ */}
+      {showSendDrawModal && (
+        <div
+          style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}
+          onClick={() => setShowSendDrawModal(false)}
+        >
+          <div
+            style={{ backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '420px', maxWidth: '95vw' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#15803D', marginBottom: '6px' }}>
+              ✉️ Enviar cuadro por correo
+            </h3>
+            <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '20px' }}>
+              Se enviará el cuadro en PDF a todos los inscritos de la categoría seleccionada.
+            </p>
+
+            {sendDrawStatus === 'done' && sendDrawResult && (
+              <div style={{ background: '#F0FDF4', border: '1px solid #86EFAC', borderRadius: '8px', padding: '14px', marginBottom: '16px' }}>
+                <p style={{ margin: 0, color: '#15803D', fontWeight: 700, fontSize: '14px' }}>
+                  ✅ ¡Enviado! ({sendDrawResult.sent} de {sendDrawResult.total} destinatarios)
+                </p>
+              </div>
+            )}
+            {sendDrawStatus === 'error' && (
+              <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', padding: '14px', marginBottom: '16px' }}>
+                <p style={{ margin: 0, color: '#DC2626', fontWeight: 700, fontSize: '14px' }}>❌ Error al enviar. Intenta de nuevo.</p>
+              </div>
+            )}
+
+            {sendDrawStatus !== 'done' && (
+              <>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '6px' }}>
+                  Categoría
+                </label>
+                <select
+                  value={sendDrawCategory}
+                  onChange={e => setSendDrawCategory(e.target.value)}
+                  style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1.5px solid #D1D5DB', fontSize: '14px', marginBottom: '20px' }}
+                >
+                  {[...new Set((bracketMatches as any[]).map((m: any) => m.category))].map((cat: any) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </>
+            )}
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => { setShowSendDrawModal(false); setSendDrawStatus('idle'); }}
+                style={{ padding: '9px 20px', borderRadius: '8px', fontSize: '13px', border: '1px solid #E5E7EB', background: 'white', cursor: 'pointer', color: '#374151' }}
+              >
+                {sendDrawStatus === 'done' ? 'Cerrar' : 'Cancelar'}
+              </button>
+              {sendDrawStatus !== 'done' && (
+                <button
+                  disabled={!sendDrawCategory || sendDrawStatus === 'sending'}
+                  onClick={async () => {
+                    if (!sendDrawCategory) return;
+                    setSendDrawStatus('sending');
+                    try {
+                      const pdfBase64 = exportBracketPdf({
+                        tournamentName: tournament?.name || 'Torneo',
+                        matches: (bracketMatches as any[]).filter((m: any) => m.category === sendDrawCategory),
+                        mode: 'both',
+                        modality: 'all',
+                        returnBase64: true,
+                      }) as string;
+                      const safeName = (tournament?.name || 'Torneo').replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
+                      const filename = `Cuadro_${safeName}_${sendDrawCategory.replace(/\s+/g,'_')}.pdf`;
+                      const result = await mailApi.sendDraw(id!, {
+                        tournamentName: tournament?.name || 'Torneo',
+                        category: sendDrawCategory,
+                        pdfBase64,
+                        filename,
+                      });
+                      setSendDrawResult(result);
+                      setSendDrawStatus('done');
+                    } catch {
+                      setSendDrawStatus('error');
+                    }
+                  }}
+                  style={{
+                    padding: '9px 20px', borderRadius: '8px', fontSize: '13px', border: 'none', fontWeight: '700', color: 'white',
+                    background: sendDrawCategory && sendDrawStatus !== 'sending' ? '#15803D' : '#E5E7EB',
+                    cursor: sendDrawCategory && sendDrawStatus !== 'sending' ? 'pointer' : 'not-allowed',
+                    opacity: sendDrawCategory && sendDrawStatus !== 'sending' ? 1 : 0.6,
+                  }}
+                >
+                  {sendDrawStatus === 'sending' ? '⏳ Enviando...' : '✉️ Enviar correos'}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

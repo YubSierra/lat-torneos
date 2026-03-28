@@ -8,17 +8,25 @@ import {
   UseGuards,
   Query,
 } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, In } from 'typeorm';
 import { DrawService } from './draw.service';
 import { SchedulingService } from './scheduling.service';
 import { JwtAuthGuard } from '../auth/jwt.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { TournamentType } from '../tournaments/tournament.entity';
+import { Enrollment } from '../enrollments/enrollment.entity';
+import { User } from '../users/user.entity';
+import { MailService } from '../mail/mail.service';
 
 @Controller('tournaments/:tournamentId')
 export class ScheduleController {
   constructor(
     private drawService: DrawService,
     private schedulingService: SchedulingService,
+    private mailService: MailService,
+    @InjectRepository(Enrollment) private enrollmentRepo: Repository<Enrollment>,
+    @InjectRepository(User) private userRepo: Repository<User>,
   ) {}
 
   // POST /tournaments/:id/draw
@@ -172,5 +180,71 @@ export class ScheduleController {
       body.category,
       body.advancingCount,
     );
+  }
+
+  // ── EMAIL: POST /tournaments/:id/mail/schedule ─────────────────────────────
+  // Envía el PDF de programación a todos los inscritos del torneo
+  @Post('mail/schedule')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  async sendScheduleEmail(
+    @Param('tournamentId') tournamentId: string,
+    @Body() body: {
+      tournamentName: string;
+      dateLabel: string;
+      pdfBase64: string;
+      filename: string;
+      category?: string;   // opcional: filtrar por categoría
+    },
+  ) {
+    const whereClause: any = { tournamentId, status: In(['approved', 'reserved']) };
+    if (body.category) whereClause.category = body.category;
+
+    const enrollments = await this.enrollmentRepo.find({ where: whereClause });
+    const playerIds   = [...new Set(enrollments.map(e => e.playerId))];
+    const users       = playerIds.length
+      ? await this.userRepo.find({ where: { id: In(playerIds) } })
+      : [];
+    const emails = users.map(u => u.email).filter(Boolean) as string[];
+
+    const result = await this.mailService.sendScheduleEmail(
+      emails,
+      body.tournamentName,
+      body.dateLabel,
+      body.pdfBase64,
+      body.filename,
+    );
+    return { ...result, total: emails.length };
+  }
+
+  // ── EMAIL: POST /tournaments/:id/mail/draw ─────────────────────────────────
+  // Envía el cuadro (draw) a los inscritos de una categoría
+  @Post('mail/draw')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  async sendDrawEmail(
+    @Param('tournamentId') tournamentId: string,
+    @Body() body: {
+      tournamentName: string;
+      category: string;
+      pdfBase64?: string;
+      filename?: string;
+    },
+  ) {
+    const enrollments = await this.enrollmentRepo.find({
+      where: { tournamentId, category: body.category, status: In(['approved', 'reserved']) },
+    });
+    const playerIds = [...new Set(enrollments.map(e => e.playerId))];
+    const users     = playerIds.length
+      ? await this.userRepo.find({ where: { id: In(playerIds) } })
+      : [];
+    const emails = users.map(u => u.email).filter(Boolean) as string[];
+
+    const result = await this.mailService.sendDrawEmail(
+      emails,
+      body.tournamentName,
+      body.category,
+      body.pdfBase64,
+      body.filename,
+    );
+    return { ...result, total: emails.length };
   }
 }

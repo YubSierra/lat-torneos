@@ -28,6 +28,7 @@ export interface ExportOptions {
   matches: Match[];
   mode?: 'both' | 'rr' | 'maindraw';
   modality?: 'all' | 'singles' | 'doubles';
+  returnBase64?: boolean;
 }
 
 // ── Constantes ─────────────────────────────────────────────────────────────
@@ -454,7 +455,7 @@ function renderRR(
 }
 
 // ── FUNCIÓN PRINCIPAL ───────────────────────────────────────────────────────
-export function exportBracketPdf({ tournamentName, matches, mode = 'both', modality = 'all' }: ExportOptions) {
+export function exportBracketPdf({ tournamentName, matches, mode = 'both', modality = 'all', returnBase64 = false }: ExportOptions): string | void {
   const doc    = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   const pageW  = doc.internal.pageSize.getWidth();
   const pageH  = doc.internal.pageSize.getHeight();
@@ -606,5 +607,10 @@ export function exportBracketPdf({ tournamentName, matches, mode = 'both', modal
 
   const modeStr     = mode === 'rr' ? 'RR' : mode === 'maindraw' ? 'MainDraw' : 'Cuadro';
   const modalityStr = modality === 'doubles' ? '_Dobles' : modality === 'singles' ? '_Singles' : '';
+
+  if (returnBase64) {
+    const dataUri = doc.output('datauristring') as string;
+    return dataUri.split(',')[1];
+  }
   doc.save(`${modeStr}${modalityStr}_${tournamentName.replace(/\s+/g,'_')}.pdf`);
 }

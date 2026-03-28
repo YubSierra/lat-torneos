@@ -190,7 +190,19 @@ export class MatchesController {
 
   @Patch(':id/suspend')
   @UseGuards(JwtAuthGuard)
-  suspendMatch(@Param('id') id: string, @Body() body: { reason?: string; resumeScheduledAt?: string } = {}) {
-    return this.matchesService.suspendMatch(id, body.reason ?? 'Suspendido manualmente', body.resumeScheduledAt);
+  suspendMatch(
+    @Param('id') id: string,
+    @Body() body: {
+      reason?: string;
+      resumeScheduledAt?: string;
+      partialResult?: { sets1: number; sets2: number; games1: number; games2: number } | null;
+    } = {},
+  ) {
+    return this.matchesService.suspendMatch(
+      id,
+      body.reason ?? 'Suspendido manualmente',
+      body.resumeScheduledAt,
+      body.partialResult,
+    );
   }
 }

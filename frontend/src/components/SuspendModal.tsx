@@ -6,6 +6,13 @@ import { CloudRain, X, AlertTriangle } from 'lucide-react';
 // ── Tipos ──────────────────────────────────────────────────────────────────
 export type SuspendMode = 'match' | 'day';
 
+export interface PartialResult {
+  sets1:  number;
+  sets2:  number;
+  games1: number;
+  games2: number;
+}
+
 interface SuspendModalProps {
   isOpen: boolean;
   mode: SuspendMode;
@@ -16,8 +23,8 @@ interface SuspendModalProps {
     player2Name: string;
     round: string;
     category: string;
-    sets1?: number;
-    sets2?: number;
+    sets1?:  number;
+    sets2?:  number;
     games1?: number;
     games2?: number;
   };
@@ -25,7 +32,8 @@ interface SuspendModalProps {
   date?: string;
   matchCount?: number;
   tournamentId?: string;
-  onConfirm: (reason: string, resumeDate?: string) => void;
+  // partialResult: null → partido no había iniciado, objeto → marcador parcial
+  onConfirm: (reason: string, resumeDate?: string, partialResult?: PartialResult | null) => void;
   onCancel: () => void;
   isLoading?: boolean;
 }
@@ -51,12 +59,26 @@ export default function SuspendModal({
   isOpen, mode, match, date, matchCount,
   onConfirm, onCancel, isLoading,
 }: SuspendModalProps) {
-  const [reasonKey, setReasonKey]   = useState('rain');
-  const [customReason, setCustomReason] = useState('');
-  const [resumeDate, setResumeDate] = useState('');
-  const [resumeTime, setResumeTime] = useState('');
+  const [reasonKey,     setReasonKey]     = useState('rain');
+  const [customReason,  setCustomReason]  = useState('');
+  const [resumeDate,    setResumeDate]    = useState('');
+  const [resumeTime,    setResumeTime]    = useState('');
+
+  // ¿El partido había comenzado? (pre-rellena si ya tiene marcador guardado)
+  const hasExistingScore = !!(match && (
+    (match.sets1 ?? 0) > 0 || (match.sets2 ?? 0) > 0 ||
+    (match.games1 ?? 0) > 0 || (match.games2 ?? 0) > 0
+  ));
+  const [matchStarted, setMatchStarted] = useState<boolean>(hasExistingScore);
+  const [pSets1,  setPSets1]  = useState(String(match?.sets1  ?? 0));
+  const [pSets2,  setPSets2]  = useState(String(match?.sets2  ?? 0));
+  const [pGames1, setPGames1] = useState(String(match?.games1 ?? 0));
+  const [pGames2, setPGames2] = useState(String(match?.games2 ?? 0));
 
   if (!isOpen) return null;
+
+  const p1 = match?.player1Name?.split(' ')[0] ?? 'J1';
+  const p2 = match?.player2Name?.split(' ')[0] ?? 'J2';
 
   const finalReason = reasonKey === 'other'
     ? (customReason.trim() || 'Motivo no especificado')
@@ -67,11 +89,16 @@ export default function SuspendModal({
     : undefined;
 
   const handleConfirm = () => {
-    onConfirm(finalReason, resumeDateTime);
+    const partialResult: PartialResult | null = matchStarted
+      ? {
+          sets1:  parseInt(pSets1)  || 0,
+          sets2:  parseInt(pSets2)  || 0,
+          games1: parseInt(pGames1) || 0,
+          games2: parseInt(pGames2) || 0,
+        }
+      : null; // null = partido no había iniciado
+    onConfirm(finalReason, resumeDateTime, partialResult);
   };
-
-  // Score parcial del partido
-  const hasScore = match && (match.sets1! > 0 || match.sets2! > 0 || match.games1! > 0 || match.games2! > 0);
 
   return (
     <div
@@ -118,27 +145,108 @@ export default function SuspendModal({
 
         <div style={{ padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
-          {/* ── Info del partido (modo match) ── */}
+          {/* ── Info del partido + ¿había comenzado? (modo match) ── */}
           {mode === 'match' && match && (
             <div style={{ backgroundColor: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: '10px', padding: '12px 14px' }}>
-              <p style={{ fontSize: '13px', fontWeight: '700', color: '#92400E', margin: '0 0 6px' }}>
+              <p style={{ fontSize: '13px', fontWeight: '700', color: '#92400E', margin: '0 0 10px' }}>
                 {match.player1Name} vs {match.player2Name}
               </p>
-              {hasScore && (
-                <div style={{ fontSize: '12px', color: '#78350F' }}>
-                  <span>Marcador parcial: </span>
-                  <strong>
-                    {match.player1Name?.split(' ')[0]} {match.sets1}-{match.sets2} {match.player2Name?.split(' ')[0]}
-                    {(match.games1! > 0 || match.games2! > 0) && ` (${match.games1}-${match.games2} en game)`}
-                  </strong>
-                  <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#92400E' }}>
-                    ✅ El resultado parcial se guardará y se mostrará en el cuadro hasta que el partido se reanude.
+
+              {/* Toggle: ¿El partido había comenzado? */}
+              <p style={{ fontSize: '12px', fontWeight: '600', color: '#78350F', margin: '0 0 6px' }}>
+                ¿El partido había comenzado?
+              </p>
+              <div style={{ display: 'flex', gap: '8px', marginBottom: matchStarted ? '12px' : '0' }}>
+                <button
+                  type="button"
+                  onClick={() => setMatchStarted(false)}
+                  style={{
+                    padding: '6px 14px', borderRadius: '6px', cursor: 'pointer',
+                    fontSize: '12px', fontWeight: '600',
+                    border: !matchStarted ? '2px solid #92400E' : '1.5px solid #D1D5DB',
+                    backgroundColor: !matchStarted ? '#92400E' : 'white',
+                    color: !matchStarted ? 'white' : '#374151',
+                  }}
+                >
+                  No (aún no había iniciado)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMatchStarted(true)}
+                  style={{
+                    padding: '6px 14px', borderRadius: '6px', cursor: 'pointer',
+                    fontSize: '12px', fontWeight: '600',
+                    border: matchStarted ? '2px solid #92400E' : '1.5px solid #D1D5DB',
+                    backgroundColor: matchStarted ? '#92400E' : 'white',
+                    color: matchStarted ? 'white' : '#374151',
+                  }}
+                >
+                  Sí (estaba en curso)
+                </button>
+              </div>
+
+              {/* Inputs de marcador parcial */}
+              {matchStarted && (
+                <div>
+                  <p style={{ fontSize: '11px', color: '#92400E', fontWeight: '600', margin: '0 0 8px', textTransform: 'uppercase' }}>
+                    Marcador parcial al momento de suspender
+                  </p>
+
+                  {/* Sets */}
+                  <div style={{ marginBottom: '10px' }}>
+                    <p style={{ fontSize: '11px', color: '#78350F', margin: '0 0 5px', fontWeight: '600' }}>Sets ganados</p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                      <div>
+                        <label style={{ fontSize: '10px', color: '#9CA3AF', display: 'block', marginBottom: '3px' }}>{p1}</label>
+                        <input
+                          type="number" min="0" max="4" value={pSets1}
+                          onChange={e => setPSets1(e.target.value)}
+                          style={{ ...inp, textAlign: 'center', fontSize: '16px', fontWeight: '700' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '10px', color: '#9CA3AF', display: 'block', marginBottom: '3px' }}>{p2}</label>
+                        <input
+                          type="number" min="0" max="4" value={pSets2}
+                          onChange={e => setPSets2(e.target.value)}
+                          style={{ ...inp, textAlign: 'center', fontSize: '16px', fontWeight: '700' }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Games en el set en curso */}
+                  <div>
+                    <p style={{ fontSize: '11px', color: '#78350F', margin: '0 0 5px', fontWeight: '600' }}>Games en el set en curso</p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                      <div>
+                        <label style={{ fontSize: '10px', color: '#9CA3AF', display: 'block', marginBottom: '3px' }}>{p1}</label>
+                        <input
+                          type="number" min="0" max="7" value={pGames1}
+                          onChange={e => setPGames1(e.target.value)}
+                          style={{ ...inp, textAlign: 'center', fontSize: '16px', fontWeight: '700' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '10px', color: '#9CA3AF', display: 'block', marginBottom: '3px' }}>{p2}</label>
+                        <input
+                          type="number" min="0" max="7" value={pGames2}
+                          onChange={e => setPGames2(e.target.value)}
+                          style={{ ...inp, textAlign: 'center', fontSize: '16px', fontWeight: '700' }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <p style={{ margin: '8px 0 0', fontSize: '11px', color: '#059669' }}>
+                    ✅ Este marcador se guardará y el partido reanudará desde aquí.
                   </p>
                 </div>
               )}
-              {!hasScore && (
-                <p style={{ fontSize: '12px', color: '#78350F', margin: 0 }}>
-                  El partido no ha iniciado — se reprogramará para la siguiente jornada.
+
+              {!matchStarted && (
+                <p style={{ fontSize: '12px', color: '#78350F', margin: '2px 0 0' }}>
+                  El partido se reprogramará para la siguiente jornada desde 0-0.
                 </p>
               )}
             </div>
@@ -154,7 +262,7 @@ export default function SuspendModal({
                     Se suspenden {matchCount} partidos
                   </p>
                   <p style={{ fontSize: '12px', color: '#78350F', margin: 0 }}>
-                    Los partidos que estaban en curso guardan su marcador parcial.
+                    Los partidos que estaban en curso guardarán su marcador parcial automáticamente.
                     Los que no habían iniciado se marcan como pendientes de reprogramar.
                   </p>
                 </div>

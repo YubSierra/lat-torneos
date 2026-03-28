@@ -1132,16 +1132,36 @@ export class MatchesService {
   }
 
   // ── SUSPENDER PARTIDO INDIVIDUAL ────────────────
-  async suspendMatch(id: string, reason: string, resumeScheduledAt?: string) {
+  async suspendMatch(
+    id: string,
+    reason: string,
+    resumeScheduledAt?: string,
+    partialResult?: { sets1: number; sets2: number; games1: number; games2: number } | null,
+  ) {
     const match = await this.findOne(id);
-    if (
-      match.status === MatchStatus.COMPLETED ||
-      match.status === MatchStatus.WO
-    ) {
+    if (match.status === MatchStatus.COMPLETED || match.status === MatchStatus.WO) {
       throw new Error('No se puede suspender un partido ya terminado');
     }
     match.status = MatchStatus.SUSPENDED;
     (match as any).suspensionReason = reason;
+    (match as any).suspendedAt = new Date();
+
+    // Guardar marcador parcial:
+    // 1. Si se proporcionó explícitamente desde el modal → usar ese
+    // 2. Si el partido tenía score en vivo → auto-guardar
+    // 3. Si partialResult === null → partido no había iniciado, limpiar parcial previo
+    if (partialResult !== undefined) {
+      (match as any).partialResult = partialResult; // puede ser null o un objeto
+    } else if (match.sets1 > 0 || match.sets2 > 0 || match.games1 > 0 || match.games2 > 0) {
+      (match as any).partialResult = {
+        sets1:  match.sets1,
+        sets2:  match.sets2,
+        games1: match.games1,
+        games2: match.games2,
+        setsHistory: match.setsHistory || [],
+      };
+    }
+
     if (resumeScheduledAt) match.scheduledAt = new Date(resumeScheduledAt);
     return this.repo.save(match);
   }
@@ -1153,6 +1173,17 @@ export class MatchesService {
       throw new Error('El partido no está suspendido');
     }
     match.status = MatchStatus.PENDING;
+
+    // Restaurar marcador parcial para que el scorer arranque desde ese punto
+    const pr = (match as any).partialResult;
+    if (pr) {
+      match.sets1  = pr.sets1  ?? 0;
+      match.sets2  = pr.sets2  ?? 0;
+      match.games1 = pr.games1 ?? 0;
+      match.games2 = pr.games2 ?? 0;
+      if (pr.setsHistory?.length) match.setsHistory = pr.setsHistory;
+    }
+
     if (newScheduledAt) {
       match.scheduledAt = new Date(newScheduledAt);
     } else {

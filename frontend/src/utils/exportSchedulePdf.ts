@@ -14,19 +14,21 @@ interface GameFormat {
 }
 
 interface MatchRow {
-  time:        string;
-  court:       string;
-  courtId?:    string;
-  sede:        string;
-  round:       string;
-  category:    string;
-  player1:     string;
-  player2:     string;
-  duration:    string;
-  gameSystem?: string;
-  gameFormat?: GameFormat | null;
-  matchId?:    string;
-  status?:     string;
+  time:           string;
+  court:          string;
+  courtId?:       string;
+  sede:           string;
+  round:          string;
+  category:       string;
+  player1:        string;
+  player2:        string;
+  duration:       string;
+  gameSystem?:    string;
+  gameFormat?:    GameFormat | null;
+  matchId?:       string;
+  status?:        string;
+  suspensionReason?: string;
+  partialResult?: { sets1: number; sets2: number; games1: number; games2: number } | null;
 }
 
 interface ExportOptions {
@@ -39,6 +41,7 @@ interface ExportOptions {
   observations?:  string;
   withLed?:       boolean;
   schedule:       MatchRow[];
+  returnBase64?:  boolean;  // si true devuelve base64 en lugar de descargar
 }
 
 const ROUND_LABELS: Record<string, string> = {
@@ -71,10 +74,11 @@ function describeFormat(fmt: GameFormat | null | undefined): string {
   return parts.join(' · ');
 }
 
-export function exportSchedulePdf(options: ExportOptions) {
+export function exportSchedulePdf(options: ExportOptions): string | void {
   const {
     tournamentName, city = 'Medellín',
     referee, director, observations, withLed = false, schedule,
+    returnBase64 = false,
   } = options;
 
   // Normalizar: aceptar date (string) o dates (string[])
@@ -244,7 +248,21 @@ export function exportSchedulePdf(options: ExportOptions) {
         const sysText = describeFormat(m.gameFormat) || m.gameSystem || '';
         const ledTag  = withLed ? ' · LET' : '';
         const infoLine = [m.duration, sysText, ledTag].filter(Boolean).join(' · ');
-        return `${cat} — ${roundLabel}\n${p1}\nvs.\n${p2}\n(${infoLine})`;
+
+        // Línea de suspensión con marcador parcial
+        let suspendLine = '';
+        if (m.status === 'suspended') {
+          const pr = m.partialResult;
+          if (pr && (pr.sets1 > 0 || pr.sets2 > 0 || pr.games1 > 0 || pr.games2 > 0)) {
+            const p1short = (isTbd1 ? 'J1' : m.player1.split(' ')[0]);
+            const p2short = (isTbd2 ? 'J2' : m.player2.split(' ')[0]);
+            suspendLine = `\n[SUSP] ${p1short} ${pr.sets1}-${pr.sets2} ${p2short} (${pr.games1}-${pr.games2} en curso)`;
+          } else {
+            suspendLine = '\n[SUSPENDIDO — Sin iniciar]';
+          }
+        }
+
+        return `${cat} — ${roundLabel}\n${p1}\nvs.\n${p2}\n(${infoLine})${suspendLine}`;
       }).join('\n\n');
 
     for (const [, groupCourts] of sortedGroups) {
@@ -364,5 +382,10 @@ export function exportSchedulePdf(options: ExportOptions) {
 
   const safeName = tournamentName.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
   const dateTag = allDates.length === 1 ? allDates[0] : `${allDates[0]}_al_${allDates[allDates.length - 1]}`;
+
+  if (returnBase64) {
+    const dataUri = doc.output('datauristring') as string;
+    return dataUri.split(',')[1]; // solo la parte base64
+  }
   doc.save(`Programacion_${safeName}_${dateTag}.pdf`);
 }

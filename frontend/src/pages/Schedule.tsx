@@ -10,6 +10,7 @@ import api from '../api/axios';
 import { matchesApi } from '../api/matches.api';
 import SuspendModal from '../components/SuspendModal';
 import { exportSchedulePdf } from '../utils/exportSchedulePdf';
+import { mailApi } from '../api/mail.api';
 
 // ── Constantes ────────────────────────────────────────────────────────────────
 const ROUND_LABELS: Record<string, string> = {
@@ -349,6 +350,10 @@ export default function Schedule() {
   const [selectedCategories,   setSelectedCategories]   = useState<string[]>([]);
   const [showDeleteModal,      setShowDeleteModal]       = useState(false);
   const [showExportModal,      setShowExportModal]       = useState(false);
+  const [showSendEmailModal,   setShowSendEmailModal]    = useState(false);
+  const [sendEmailDates,       setSendEmailDates]        = useState<string[]>([]);
+  const [sendEmailStatus,      setSendEmailStatus]       = useState<'idle' | 'sending' | 'done' | 'error'>('idle');
+  const [sendEmailResult,      setSendEmailResult]       = useState<{ sent: number; total: number } | null>(null);
   const [modalDeleteDate,      setModalDeleteDate]       = useState('');
   const [modalDeleteModality,  setModalDeleteModality]   = useState<'all' | 'singles' | 'doubles'>('all');
   const [modalExportDates,     setModalExportDates]      = useState<string[]>([]);
@@ -468,8 +473,10 @@ export default function Schedule() {
 
   // ── Suspender partido individual ──────────────────────────────────────────
   const suspendMutation = useMutation({
-    mutationFn: ({ matchId, reason, resumeDate }: { matchId: string; reason: string; resumeDate?: string }) =>
-      matchesApi.suspendMatch(matchId, reason, resumeDate),
+    mutationFn: ({ matchId, reason, resumeDate, partialResult }: {
+      matchId: string; reason: string; resumeDate?: string;
+      partialResult?: { sets1: number; sets2: number; games1: number; games2: number } | null;
+    }) => matchesApi.suspendMatch(matchId, reason, resumeDate, partialResult),
     onSuccess: () => {
       setSuspendModal({ isOpen: false, match: null });
       refetchAll();
@@ -727,9 +734,7 @@ export default function Schedule() {
                 {/* Botón exportar PDF */}
                 {filteredSchedule.length > 0 && (
                   <button
-                    onClick={() => {
-                      setShowExportModal(true);
-                    }}
+                    onClick={() => setShowExportModal(true)}
                     style={{
                       display: 'flex', alignItems: 'center', gap: '6px',
                       background: '#EFF6FF', border: '1.5px solid #BFDBFE',
@@ -739,6 +744,27 @@ export default function Schedule() {
                     }}
                   >
                     📄 Exportar PDF
+                  </button>
+                )}
+
+                {/* Botón enviar programación por correo */}
+                {isAdmin && filteredSchedule.length > 0 && (
+                  <button
+                    onClick={() => {
+                      setSendEmailDates([]);
+                      setSendEmailStatus('idle');
+                      setSendEmailResult(null);
+                      setShowSendEmailModal(true);
+                    }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '6px',
+                      background: '#F0FDF4', border: '1.5px solid #86EFAC',
+                      color: '#15803D', borderRadius: '8px',
+                      padding: '7px 14px', cursor: 'pointer',
+                      fontSize: '13px', fontWeight: 700,
+                    }}
+                  >
+                    ✉️ Enviar por correo
                   </button>
                 )}
 
@@ -977,6 +1003,10 @@ export default function Schedule() {
                                                   player2Name: row.player2Name || row.player2 || 'Jugador 2',
                                                   round: row.round,
                                                   category: row.category,
+                                                  sets1:  row.sets1  ?? 0,
+                                                  sets2:  row.sets2  ?? 0,
+                                                  games1: row.games1 ?? 0,
+                                                  games2: row.games2 ?? 0,
                                                 },
                                               })}
                                               style={{
@@ -1563,6 +1593,156 @@ export default function Schedule() {
         )}
       </main>
 
+      {/* ═══ MODAL ENVIAR PROGRAMACIÓN POR CORREO ═══ */}
+      {showSendEmailModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+        }}>
+          <div style={{
+            background: 'white', borderRadius: '16px', padding: '28px',
+            width: '440px', boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+          }}>
+            <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#15803D', marginBottom: '8px' }}>
+              ✉️ Enviar programación por correo
+            </h3>
+            <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '20px' }}>
+              Selecciona los días y se enviará el PDF de programación a todos los inscritos del torneo.
+            </p>
+
+            {sendEmailStatus === 'done' && sendEmailResult && (
+              <div style={{ background: '#F0FDF4', border: '1px solid #86EFAC', borderRadius: '8px', padding: '14px', marginBottom: '16px' }}>
+                <p style={{ margin: 0, color: '#15803D', fontWeight: 700, fontSize: '14px' }}>
+                  ✅ ¡Correos enviados! ({sendEmailResult.sent} de {sendEmailResult.total} destinatarios)
+                </p>
+              </div>
+            )}
+            {sendEmailStatus === 'error' && (
+              <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', padding: '14px', marginBottom: '16px' }}>
+                <p style={{ margin: 0, color: '#DC2626', fontWeight: 700, fontSize: '14px' }}>
+                  ❌ Error al enviar los correos. Intenta de nuevo.
+                </p>
+              </div>
+            )}
+
+            {sendEmailStatus !== 'done' && (
+              <>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
+                  Días a enviar
+                </label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+                  {availableDates.map(date => {
+                    const selected = sendEmailDates.includes(date);
+                    return (
+                      <button
+                        key={date}
+                        onClick={() => setSendEmailDates(prev =>
+                          selected ? prev.filter(d => d !== date) : [...prev, date]
+                        )}
+                        style={{
+                          padding: '8px 16px', borderRadius: '8px', fontSize: '13px',
+                          fontWeight: '600', cursor: 'pointer', border: '2px solid',
+                          borderColor: selected ? '#15803D' : '#E5E7EB',
+                          backgroundColor: selected ? '#F0FDF4' : 'white',
+                          color: selected ? '#15803D' : '#374151',
+                        }}
+                      >
+                        {selected ? '✓ ' : ''}📅 {new Date(date + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })}
+                      </button>
+                    );
+                  })}
+                  <button
+                    onClick={() => setSendEmailDates(
+                      sendEmailDates.length === availableDates.length ? [] : [...availableDates]
+                    )}
+                    style={{
+                      padding: '8px 16px', borderRadius: '8px', fontSize: '13px',
+                      fontWeight: '600', cursor: 'pointer', border: '2px solid',
+                      borderColor: sendEmailDates.length === availableDates.length ? '#15803D' : '#E5E7EB',
+                      backgroundColor: sendEmailDates.length === availableDates.length ? '#F0FDF4' : 'white',
+                      color: sendEmailDates.length === availableDates.length ? '#15803D' : '#374151',
+                    }}
+                  >
+                    {sendEmailDates.length === availableDates.length ? '✓ ' : ''}Todos los días
+                  </button>
+                </div>
+                {sendEmailDates.length > 0 && (
+                  <p style={{ fontSize: '12px', color: '#15803D', marginBottom: '16px', fontWeight: 600 }}>
+                    ✓ {sendEmailDates.length} día{sendEmailDates.length > 1 ? 's' : ''} seleccionado{sendEmailDates.length > 1 ? 's' : ''}
+                  </p>
+                )}
+              </>
+            )}
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '8px' }}>
+              <button
+                onClick={() => { setShowSendEmailModal(false); setSendEmailStatus('idle'); setSendEmailDates([]); }}
+                style={{
+                  padding: '9px 20px', borderRadius: '8px', fontSize: '13px',
+                  border: '1px solid #E5E7EB', background: 'white',
+                  cursor: 'pointer', color: '#374151', fontWeight: '500',
+                }}
+              >
+                {sendEmailStatus === 'done' ? 'Cerrar' : 'Cancelar'}
+              </button>
+              {sendEmailStatus !== 'done' && (
+                <button
+                  disabled={sendEmailDates.length === 0 || sendEmailStatus === 'sending'}
+                  onClick={async () => {
+                    if (sendEmailDates.length === 0) return;
+                    const tournament = (tournaments as any[]).find((t: any) => t.id === selectedTournament);
+                    const sortedDates = [...sendEmailDates].sort();
+                    const rowsForDays = (flatSchedule as any[])
+                      .filter((r: any) => sortedDates.includes(r.date))
+                      .map((r: any) => ({ ...r, court: r.courtName || r.court || 'Sin cancha' }));
+
+                    const dateLabel = sortedDates.length === 1
+                      ? new Date(sortedDates[0] + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })
+                      : `${sortedDates[0]} al ${sortedDates[sortedDates.length - 1]}`;
+
+                    const safeName = (tournament?.name || 'Torneo').replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
+                    const dateTag  = sortedDates.length === 1 ? sortedDates[0] : `${sortedDates[0]}_al_${sortedDates[sortedDates.length - 1]}`;
+                    const filename = `Programacion_${safeName}_${dateTag}.pdf`;
+
+                    setSendEmailStatus('sending');
+                    try {
+                      const pdfBase64 = exportSchedulePdf({
+                        tournamentName: tournament?.name || 'Torneo',
+                        dates: sortedDates, city: 'Medellín',
+                        referee, director, observations, withLed,
+                        schedule: rowsForDays,
+                        returnBase64: true,
+                      }) as string;
+
+                      const result = await mailApi.sendSchedule(selectedTournament, {
+                        tournamentName: tournament?.name || 'Torneo',
+                        dateLabel,
+                        pdfBase64,
+                        filename,
+                      });
+                      setSendEmailResult(result);
+                      setSendEmailStatus('done');
+                    } catch {
+                      setSendEmailStatus('error');
+                    }
+                  }}
+                  style={{
+                    padding: '9px 20px', borderRadius: '8px', fontSize: '13px',
+                    border: 'none',
+                    cursor: sendEmailDates.length > 0 && sendEmailStatus !== 'sending' ? 'pointer' : 'not-allowed',
+                    background: sendEmailDates.length > 0 ? '#15803D' : '#E5E7EB',
+                    color: 'white', fontWeight: '700',
+                    opacity: sendEmailDates.length > 0 && sendEmailStatus !== 'sending' ? 1 : 0.6,
+                  }}
+                >
+                  {sendEmailStatus === 'sending' ? '⏳ Enviando...' : '✉️ Enviar correos'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ═══ MODAL ELIMINAR PROGRAMACIÓN POR DÍA ═══ */}
       {showDeleteModal && (
         <div style={{
@@ -1828,9 +2008,9 @@ export default function Schedule() {
         isOpen={suspendModal.isOpen}
         mode="match"
         match={suspendModal.match}
-        onConfirm={(reason, resumeDate) => {
+        onConfirm={(reason, resumeDate, partialResult) => {
           if (!suspendModal.match) return;
-          suspendMutation.mutate({ matchId: suspendModal.match.id, reason, resumeDate });
+          suspendMutation.mutate({ matchId: suspendModal.match.id, reason, resumeDate, partialResult });
         }}
         onCancel={() => setSuspendModal({ isOpen: false, match: null })}
         isLoading={suspendMutation.isPending}

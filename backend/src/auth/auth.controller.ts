@@ -1,5 +1,5 @@
-// backend/src/auth/auth.controller.ts  ← REEMPLAZA EL ARCHIVO COMPLETO
-import { Controller, Post, Body, UseGuards } from '@nestjs/common';
+// backend/src/auth/auth.controller.ts
+import { Controller, Post, Patch, Body, Req, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
@@ -7,8 +7,7 @@ import { JwtAuthGuard } from './jwt-auth.guard';
 export class AuthController {
   constructor(private authService: AuthService) {}
 
-  // POST /auth/register
-  // Registro público — role siempre es 'player' (ignoramos si viene otro valor)
+  // POST /auth/register — registro público (solo jugadores)
   @Post('register')
   register(
     @Body() body: {
@@ -34,8 +33,7 @@ export class AuthController {
     });
   }
 
-  // POST /auth/register/admin
-  // ✅ Protegido — solo admins autenticados pueden crear otros usuarios con rol
+  // POST /auth/register/admin — solo admins autenticados
   @UseGuards(JwtAuthGuard)
   @Post('register/admin')
   registerAdmin(
@@ -70,5 +68,15 @@ export class AuthController {
   @Post('login')
   login(@Body() body: { email: string; password: string }) {
     return this.authService.login(body.email, body.password);
+  }
+
+  // PATCH /auth/change-password — usuario autenticado cambia su contraseña
+  @UseGuards(JwtAuthGuard)
+  @Patch('change-password')
+  changePassword(
+    @Req() req: any,
+    @Body() body: { currentPassword: string; newPassword: string },
+  ) {
+    return this.authService.changePassword(req.user.id, body.currentPassword, body.newPassword);
   }
 }

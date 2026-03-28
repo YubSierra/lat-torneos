@@ -24,6 +24,7 @@ import { DoublesModule } from './doubles/doubles.module';
 import { RankingHistory } from './rankings/ranking-history.entity';
 import { CircuitLine } from './circuit-lines/circuit-line.entity';
 import { CircuitLinesModule } from './circuit-lines/circuit-lines.module';
+import { MailModule } from './mail/mail.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -86,6 +87,7 @@ import { CircuitLinesModule } from './circuit-lines/circuit-lines.module';
     UsersModule,
     DoublesModule,
     CircuitLinesModule,
+    MailModule,
   ],
 })
 export class AppModule {}

@@ -6,6 +6,7 @@ import { Enrollment, EnrollmentStatus } from './enrollment.entity';
 import { CreateEnrollmentDto } from './dto/create-enrollment.dto';
 import { TournamentsService } from '../tournaments/tournaments.service';
 import { formatPlayerName } from '../common/name-format.util';
+import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class EnrollmentsService {
@@ -13,6 +14,7 @@ export class EnrollmentsService {
     @InjectRepository(Enrollment)
     private repo: Repository<Enrollment>,
     private tournamentsService: TournamentsService,
+    private mailService: MailService,
   ) {}
 
   // ── UNIFICAR CATEGORÍAS ──────────────────────────────────────────────────────
@@ -340,8 +342,10 @@ export class EnrollmentsService {
     }
 
     // 2. Crear usuario si no existe; si existe, actualizar datos faltantes
+    let tempPassCreated: string | undefined;
     if (!user) {
       const tempPass = `${data.apellidos.slice(0, 4).toLowerCase()}${(data.docNumber || '0000').slice(-4)}`;
+      tempPassCreated = tempPass;
       const hashed   = await bcrypt.hash(tempPass, 10);
       user = await userRepo.save(userRepo.create({
         nombres: data.nombres, apellidos: data.apellidos,
@@ -393,6 +397,22 @@ export class EnrollmentsService {
       adminNotes:    data.adminNotes || null,
     });
     await this.repo.save(enrollment);
+
+    // Notificar por email (fire-and-forget)
+    if (user.email) {
+      const tournament = await this.tournamentsService.findOne(tournamentId).catch(() => null);
+      const tournamentName = (tournament as any)?.name || 'Torneo';
+      const tempPass = tempPassCreated || undefined;
+      this.mailService.sendEnrollmentConfirmation(
+        user.email,
+        formatPlayerName(user.nombres, user.apellidos),
+        tournamentName,
+        data.category,
+        data.modality || 'singles',
+        enrollment.status,
+        tempPass,
+      ).catch(() => {});
+    }
 
     return {
       success:       true,

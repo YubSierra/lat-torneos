@@ -186,8 +186,8 @@ export default function Matches() {
 
   // ── Mutations ────────────────────────────────────────────────────────────
   const suspendMutation = useMutation({
-    mutationFn: ({ matchId, reason, resumeDate }: any) =>
-      matchesApi.suspendMatch(matchId, reason, resumeDate),
+    mutationFn: ({ matchId, reason, resumeDate, partialResult }: any) =>
+      matchesApi.suspendMatch(matchId, reason, resumeDate, partialResult),
     onSuccess: () => {
       setSuspendModal({ isOpen: false, match: null });
       refetch(); refetchSuspended();
@@ -927,9 +927,9 @@ export default function Matches() {
       />
       <SuspendModal
         isOpen={suspendModal.isOpen} mode="match" match={suspendModal.match}
-        onConfirm={(reason, resumeDate) => {
+        onConfirm={(reason, resumeDate, partialResult) => {
           if (!suspendModal.match) return;
-          suspendMutation.mutate({ matchId: suspendModal.match.id, reason, resumeDate });
+          suspendMutation.mutate({ matchId: suspendModal.match.id, reason, resumeDate, partialResult });
         }}
         onCancel={() => setSuspendModal({ isOpen: false, match: null })}
         isLoading={suspendMutation.isPending}

@@ -54,8 +54,13 @@ export const matchesApi = {
   // ── SUSPENSIÓN ────────────────────────────────────
 
   /** Suspender un partido individual */
-  suspendMatch: async (matchId: string, reason: string, resumeScheduledAt?: string) => {
-    const res = await api.patch(`/matches/${matchId}/suspend`, { reason, resumeScheduledAt });
+  suspendMatch: async (
+    matchId: string,
+    reason: string,
+    resumeScheduledAt?: string,
+    partialResult?: { sets1: number; sets2: number; games1: number; games2: number } | null,
+  ) => {
+    const res = await api.patch(`/matches/${matchId}/suspend`, { reason, resumeScheduledAt, partialResult });
     return res.data;
   },
 
